@@ -34,9 +34,16 @@ const IDKIT_CONFIG: IDKitRequestHookConfig = {
   preset: { type: 'OrbLegacy' },
 };
 
+// Demo-mode escape hatch: when set to the string 'true' at build time, the
+// "Open in World App to play" guard below is skipped so the full canvas + UI
+// renders in any browser (for Loom recording / judges testing). The guard is
+// the production default — only the explicit env opt-in disables it.
+const DEMO_BYPASS_WORLD_GUARD =
+  import.meta.env.VITE_DEMO_BYPASS_WORLD_GUARD === 'true';
+
 export function App() {
   const [verified, setVerified] = useState(false);
-  const isInWorldApp = MiniKit.isInstalled();
+  const isInWorldApp = MiniKit.isInstalled() || DEMO_BYPASS_WORLD_GUARD;
 
   const { open: openIDKit, result, isSuccess } = useIDKitRequest(IDKIT_CONFIG);
 
