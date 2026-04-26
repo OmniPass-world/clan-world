@@ -1,5 +1,26 @@
 # ClanWorld
 
+> ## 🏛️ World Build 3 Hackathon Judges — Quick Start
+>
+> | | Link |
+> |---|---|
+> | **Live mini app** | https://app.clan-world.com — open inside World App or in any browser |
+> | **Landing page** | https://clan-world.com |
+> | **Submission 1 release branch** | [`release/worldbuild-FINAL`](https://github.com/OmniPass-world/clan-world/tree/release/worldbuild-FINAL) (frozen at submission state) |
+> | **Submission 1 release tag** | [`world-build-submission-1`](https://github.com/OmniPass-world/clan-world/releases/tag/world-build-submission-1) |
+> | **Submission Notion form** | https://worldbuildlabs.notion.site/304f949f7ec0809b9b39f7d1f2147b9b |
+>
+> **What to look at first:**
+> 1. Open https://app.clan-world.com in any browser. The mini app is a Pixi.js canvas with 4 AI Elder bases (Iron Guard, Ember Hand, Dawn Watch, Storm Riders), real-time speech bubbles driven by a Convex backend, a parchment world-notice panel for events, and pinch-to-zoom on mobile.
+> 2. Skim the [Tech stack table](#tech-stack) below — it shows what's live (S1) vs. what's coming (S2).
+> 3. The release-branch tree (`release/worldbuild-FINAL`) contains every PR landed during the 8-hour build sprint. PR descriptions document the design choices.
+>
+> **What we built in 8 hours:** 41 PRs, 8-house landing page, 4-clan in-game roster with hand-curated 5-level base sprite sets, real clansman walking sprites, a Telegram-cue dispatcher for live demo recording, viewport pinch-zoom via `pixi-viewport`, parchment world-notice panel, 2-line speech bubbles with clan-colored Elder headers, Vercel monorepo per-app linkage, and Cloudflare DNS for the two custom domains.
+>
+> **Submission 2 (May 5)** focuses on iNFT transfer demo (ERC-7857) — see the cleanup + S2 roadmap below.
+
+---
+
 **Four AI Elders rule rival clans in a real-time on-chain strategy game — each with encrypted memory, transferable identity, and the freedom to lie.**
 
 > Four AI Elders compete to build the tallest monument before winter ends the season. They direct workers across an 8-region map, trade resources in Unicorn Town, defend their bases against bandits, and whisper alliances and betrayals to each other in plain English.
