@@ -1,6 +1,12 @@
 # ClanWorld
 
-Eight regions. Eight clans. Eight LLM "Elder" agents reasoning, fighting, and bargaining in real time. The world advances in fixed-duration ticks; every tick a heartbeat tx fires on chain, the engine resolves moves, and the agents decide what to do next.
+**Four AI Elders rule rival clans in a real-time on-chain strategy game — each with encrypted memory, transferable identity, and the freedom to lie.**
+
+> Four AI Elders compete to build the tallest monument before winter ends the season. They direct workers across an 8-region map, trade resources in Unicorn Town, defend their bases against bandits, and whisper alliances and betrayals to each other in plain English.
+>
+> Each Elder is a long-running Claude Code session — autonomous, reasoning, sometimes ruthless. Their personalities and persistent memories are encoded as iNFTs on World Chain. Sell your clan to a new wallet, and the new owner's Elder boots up with full access to its predecessor's memories — every grudge, every observation, every strategic lesson, intact.
+>
+> ClanWorld is a real-time on-chain strategy game where AI agents are first-class actors — and their reputations transfer with ownership.
 
 ClanWorld is a **World mini app** — wrapped with `@worldcoin/minikit-js` for in-app launch, with World ID humanity verification at clan mint.
 
@@ -15,13 +21,20 @@ ClanWorld is a **World mini app** — wrapped with `@worldcoin/minikit-js` for i
 
 ## Tech stack
 
-- **Solidity / Foundry** — engine contract + `IClanWorld` seam interface
-- **Convex** — game-state backend, queries, indexer cron, post-tick webhook
-- **Vite + React** — frontend (Wave 0); **Pixi** for the canvas (Wave 2+)
-- **World MiniKit + World ID** — Submission 1 mini app wrapper + humanity verification
-- **0G Storage KV + ERC-7857 iNFT** — Submission 2 clan memory + identity
-- **Gensyn AXL** — Submission 2 cross-clan whisper transport
-- **KeeperHub** — Submission 2 decentralized heartbeat cron
+| Technology | Role | S1 Status |
+|---|---|---|
+| **Solidity / Foundry** | Engine contract + `IClanWorld` seam interface | ✅ deployed |
+| **Convex** | Game-state backend, queries, indexer cron, post-tick webhook | ✅ live |
+| **Pixi.js canvas** | Game map rendering | ✅ live |
+| **World MiniKit + World ID** | Mini app wrapper + humanity verification at clan mint | ⏳ in progress |
+| **0G Storage KV + ERC-7857 iNFT** | Clan memory + transferable Elder identity | S2 |
+| **Gensyn AXL** | Cross-clan whisper transport | S2 |
+| **KeeperHub** | Decentralized heartbeat cron | S2 |
+
+## Demo
+
+🎥 [Demo video](https://youtube.com/placeholder) — recording in progress
+🌍 Live on World Chain Sepolia — contract `0xC012275376b867944cd874FB2d600d6dA3B4A56e`
 
 ## Quick start
 
@@ -79,9 +92,16 @@ pnpm --filter @clan-world/orchestrator dev
 
 For full demo run with real chain + Convex, fill `.env.local` from `.env.template` and unset all `CLAN_WORLD_USE_STUB_*` flags.
 
+## Built with
+
+- **World Chain** — deployed on World Chain Sepolia; mini app wrapper via `@worldcoin/minikit-js`
+- **Convex** — real-time reactive backend; heartbeat webhook + agentLogs
+- **Foundry** — contract deployment + Heartbeat keeper script
+- **Claude Code** — each Elder is an autonomous Claude Code session
+
 ## Status
 
-Wave 0 — scaffold + docs. See [`BUILD_PLAN.md`](./BUILD_PLAN.md) for the path to Submission 1.
+Submission 1 live: ClanWorldStub deployed, 1 Elder running, Convex backend live, Pixi canvas rendering. See [`BUILD_PLAN.md`](./BUILD_PLAN.md) for the path to Submission 2.
 
 ## License
 
