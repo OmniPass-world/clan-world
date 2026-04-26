@@ -17,6 +17,8 @@ export interface SponsorPower {
   href: string
 }
 
+// TODO(post-hackathon): replace generated SVG placeholders for KeeperHub, Gensyn AXL,
+// and ERC-7857 iNFT with canonical brand assets sourced from each project's brand kit.
 export const POWERS: SponsorPower[] = [
   {
     name: 'Uniswap',
@@ -33,7 +35,7 @@ export const POWERS: SponsorPower[] = [
   {
     name: 'KeeperHub',
     loreName: 'The World\'s Pulse',
-    logoUrl: null,
+    logoUrl: '/logos/keeperhub.svg',
     logoAlt: 'KeeperHub',
     marginNote: '← onchain heartbeat',
     loreDesc:
@@ -81,7 +83,7 @@ export const POWERS: SponsorPower[] = [
   {
     name: 'Gensyn AXL',
     loreName: 'The Whisper Network',
-    logoUrl: null,
+    logoUrl: '/logos/axl.svg',
     logoAlt: 'Gensyn AXL',
     marginNote: '← p2p e2ee diplomacy',
     loreDesc:
@@ -105,8 +107,8 @@ export const POWERS: SponsorPower[] = [
   {
     name: 'iNFT (ERC-7857)',
     loreName: 'The Soul-Vessels',
-    logoUrl: null,
-    logoAlt: 'ERC-7857',
+    logoUrl: '/logos/inft.svg',
+    logoAlt: 'ERC-7857 iNFT',
     marginNote: '← intelligent NFTs',
     loreDesc:
       'Each Elder is bound to a vessel — an enchanted relic carrying their mind, their voice, their grudges. To trade the vessel is to inherit the Elder, full and remembered. The new owner does not start fresh; they continue.',

@@ -2,7 +2,7 @@
 
 .hero {
   position: relative;
-  padding: 4rem 0 5rem;
+  padding: 3.25rem 0 4rem;
   overflow: hidden;
 }
 
@@ -68,11 +68,22 @@
 .hero-title-sub {
   display: block;
   font-style: italic;
-  color: var(--vermillion);
+  color: var(--lapis);
   font-size: 0.55em;
   font-weight: 400;
   font-family: var(--ff-manuscript);
   letter-spacing: 0.005em;
+}
+
+.hero-proof {
+  display: block;
+  margin-top: -1.25rem;
+  margin-bottom: 2.25rem;
+  font-size: 0.78rem !important;
+  color: var(--lapis) !important;
+  letter-spacing: 0.12em !important;
+  line-height: 1.6;
+  max-width: 32rem;
 }
 
 .hero-tagline {
@@ -80,8 +91,8 @@
   font-size: 1.35rem;
   line-height: 1.5;
   color: var(--ink-soft);
-  max-width: 30rem;
-  margin-bottom: 2.5rem;
+  max-width: 32rem;
+  margin-bottom: 1.25rem;
 }
 
 @media (max-width: 640px) {
@@ -93,7 +104,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 1.25rem;
-  margin-bottom: 2.5rem;
+  margin-bottom: 1.75rem;
 }
 
 .hero-meta {
@@ -141,7 +152,7 @@
 /* ============ Premise ============ */
 
 .section-premise {
-  padding: 5rem 0 4rem;
+  padding: 4rem 0 3.25rem;
 }
 
 .premise-grid {
@@ -206,12 +217,13 @@
 }
 
 .premise-title {
-  font-family: var(--ff-manuscript);
-  font-style: italic;
-  font-size: 2.25rem;
-  color: var(--vermillion);
+  font-family: var(--ff-display);
+  font-weight: 500;
+  font-size: 2rem;
+  color: var(--ink);
   margin-bottom: 1rem;
   line-height: 1;
+  letter-spacing: 0.02em;
 }
 
 .premise-copy {
@@ -224,7 +236,7 @@
 /* ============ Hook section ============ */
 
 .section-hook {
-  padding: 5rem 0;
+  padding: 4rem 0;
 }
 
 .hook-eyebrow {
@@ -232,7 +244,7 @@
   margin-bottom: 1rem;
   font-size: 0.85rem !important;
   letter-spacing: 0.2em !important;
-  color: var(--gold-leaf) !important;
+  color: var(--lapis) !important;
 }
 
 .hook-title {
@@ -414,7 +426,7 @@
 .tales-eyebrow {
   font-size: 0.85rem !important;
   letter-spacing: 0.25em !important;
-  color: var(--vermillion) !important;
+  color: var(--gold-leaf) !important;
   margin-bottom: 1rem;
 }
 
@@ -452,30 +464,19 @@
   border: 1px solid var(--ink);
   padding: 2rem 1.75rem;
   height: 100%;
-  transform: rotate(-0.4deg);
-  transition: transform 0.3s ease;
-}
-
-.tale-card:nth-child(2) .tale-frame { transform: rotate(0.5deg); }
-.tale-card:nth-child(3) .tale-frame { transform: rotate(-0.3deg); }
-
-.tale-frame::before {
-  content: '';
-  position: absolute;
-  inset: 4px;
-  border: 1px dashed var(--ink-faded);
-  pointer-events: none;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
 
 .tale-card:hover .tale-frame {
-  transform: rotate(0deg) translateY(-2px);
+  transform: translateY(-2px);
+  box-shadow: 3px 3px 0 rgba(42, 24, 16, 0.15);
 }
 
 .tale-number {
   font-family: var(--ff-manuscript);
   font-style: italic;
   font-size: 1.5rem;
-  color: var(--vermillion);
+  color: var(--lapis);
   margin-bottom: 0.5rem;
 }
 
@@ -487,6 +488,7 @@
   line-height: 1.15;
 }
 
+/* TODO(post-hackathon): consider removing italic from .tale-body (codex design #4 — taste call). */
 .tale-body {
   font-family: var(--ff-prose);
   font-size: 1.05rem;

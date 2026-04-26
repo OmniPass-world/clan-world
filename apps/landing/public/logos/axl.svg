@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" aria-hidden="true">
+  <!-- Gensyn AXL: axial cross + AXL letterform, whisper network -->
+  <defs>
+    <style>
+      .stroke{fill:none;stroke:#2A1810;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+      .fill-lapis{fill:#1F4068}
+    </style>
+  </defs>
+  <!-- diamond / axial cross frame -->
+  <path d="M32 6 L58 32 L32 58 L6 32 Z" class="fill-lapis stroke"/>
+  <!-- inner diamond -->
+  <path d="M32 16 L48 32 L32 48 L16 32 Z" fill="none" stroke="#E8D8B5" stroke-width="1.5"/>
+  <!-- AXL letterforms, stacked compact -->
+  <g fill="#E8D8B5" font-family="Georgia, serif" font-weight="700" text-anchor="middle">
+    <text x="32" y="37" font-size="14" letter-spacing="1">AXL</text>
+  </g>
+  <!-- corner dots — whisper nodes -->
+  <circle cx="32" cy="6" r="1.8" fill="#A87C2F"/>
+  <circle cx="58" cy="32" r="1.8" fill="#A87C2F"/>
+  <circle cx="32" cy="58" r="1.8" fill="#A87C2F"/>
+  <circle cx="6" cy="32" r="1.8" fill="#A87C2F"/>
+</svg>

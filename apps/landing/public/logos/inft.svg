@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" aria-hidden="true">
+  <!-- ERC-7857 iNFT: soul-vessel / locked chest -->
+  <defs>
+    <style>
+      .stroke{fill:none;stroke:#2A1810;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+      .fill-vessel{fill:#9B2A2F}
+      .fill-gold{fill:#A87C2F}
+      .fill-bg{fill:#E8D8B5}
+    </style>
+  </defs>
+  <!-- vessel base -->
+  <path d="M16 28 Q16 50 32 56 Q48 50 48 28 L48 18 L16 18 Z" class="fill-vessel stroke"/>
+  <!-- vessel lid -->
+  <path d="M14 18 L50 18 L46 12 L18 12 Z" class="fill-gold stroke"/>
+  <!-- lock plate -->
+  <rect x="27" y="26" width="10" height="14" rx="1" class="fill-gold stroke"/>
+  <!-- keyhole -->
+  <circle cx="32" cy="31" r="1.8" fill="#2A1810"/>
+  <line x1="32" y1="32" x2="32" y2="36" stroke="#2A1810" stroke-width="1.8" stroke-linecap="round"/>
+  <!-- soul glow inside -->
+  <circle cx="32" cy="44" r="3" class="fill-bg" opacity="0.85"/>
+  <!-- sparkle -->
+  <path d="M32 40 L32 38 M30 42 L28 42 M34 42 L36 42 M32 46 L32 48" stroke="#E8D8B5" stroke-width="1.2" stroke-linecap="round"/>
+</svg>

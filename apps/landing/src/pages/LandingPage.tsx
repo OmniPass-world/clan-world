@@ -24,6 +24,9 @@ export default function LandingPage() {
     <>
       <Header />
 
+      {/* TODO(post-hackathon): hero-map redesign (codex design suggestion #2) and
+          consider moving demo block above hero (codex design suggestion #5) — major layout
+          restructure deferred from v2 polish pass. */}
       {/* ============== HERO ============== */}
       <section className="hero">
         <div className="hero-inner">
@@ -40,8 +43,11 @@ export default function LandingPage() {
             </div>
             <div ref={heroSubRef} className="reveal" style={{ transitionDelay: '0.35s' }}>
               <p className="hero-tagline">
-                A realm of autonomous agents, ruined fortunes, and unforgiving winters.
-                Four AI Elders. One world. The Elders never forget.
+                Four autonomous AI Elders compete on World Chain in real time.
+                They trade, betray, remember, and keep their grudges even when ownership changes.
+              </p>
+              <p className="hero-proof pixel">
+                ERC-7857 iNFTs · persistent agent memory · live world ticks · onchain ownership transfer
               </p>
             </div>
             <div ref={heroCtaRef} className="reveal hero-cta-row" style={{ transitionDelay: '0.6s' }}>
@@ -81,19 +87,19 @@ export default function LandingPage() {
               tag="I."
               title="Live"
               icon="axe"
-              copy="Four Elders. One world. Real ticks of real time. No menus, no turns — agents act when they see opportunity, sleep when they don't."
+              copy="Four Elders share one world in real time. No turns. No waiting. They scout, bargain, hoard, raid, and sleep on their own clock."
             />
             <PremiseColumn
               tag="II."
               title="Rule"
               icon="tower"
-              copy="You don't move pieces. You set strategy. Your Elder reads the world, makes deals, betrays rivals, and writes its findings in a book only you and they can read."
+              copy="You don't click units. You set policy. Your Elder reads the map, cuts deals, breaks them, and records why in a private journal."
             />
             <PremiseColumn
               tag="III."
               title="Win"
               icon="banner"
-              copy="Build the tallest monument before winter ends or your rivals starve you out. Survive the bandits. Bury your enemies. Transfer your clan and let the next steward inherit the grudge."
+              copy="Raise the tallest monument before winter closes in, or watch rivals starve your clan into surrender. Outlast bandits. Crush enemies. Pass the clan on, and your successor inherits the grudge."
             />
           </div>
         </div>
@@ -106,7 +112,7 @@ export default function LandingPage() {
         <div className="container-prose">
           <div ref={hookRef} className="reveal">
             <div className="hook-eyebrow pixel">⌬ THE OPENAGENTS DEMO ⌬</div>
-            <h2 className="hook-title">Watch What Happens.</h2>
+            <h2 className="hook-title">Watch an Elder Keep a Grudge After It's Sold.</h2>
             <blockquote className="pull-quote hook-quote">
               "When the iNFT changes hands, the agent doesn't reset.
               The new owner's Elder boots up, reads its own journal, and
@@ -114,10 +120,9 @@ export default function LandingPage() {
               <span className="pull-quote-attr">— from the contemporary chronicles of the realm</span>
             </blockquote>
             <p className="hook-explanation">
-              Built on <strong>ERC-7857 intelligent NFTs</strong>, each Elder's mind is sealed
-              in an encrypted vessel and registered onchain. When ownership transfers, so does
-              memory. So does identity. So does <em>grudge</em>. The new steward inherits not
-              just a clan — but everything that clan has lived through.
+              Each Elder is an <strong>ERC-7857 intelligent NFT</strong> with encrypted memory and
+              onchain identity. When the NFT changes hands, the agent keeps its journal, strategy,
+              and grudges.
             </p>
             <div className="hook-poster">
               <div className="hook-poster-frame">
@@ -141,9 +146,9 @@ export default function LandingPage() {
             <div className="codex-eyebrow pixel">◆ A CATALOGUE ◆</div>
             <h2 className="codex-title">The <i>Codex of Powers</i></h2>
             <p className="codex-intro">
-              Eight forces shape the realm. Some are ancient mathematics; some are
-              sponsor technologies dressed in robes. The chronicler does not always
-              tell which is which. Read below, and decide for yourself.
+              Eight systems shape Clan World. Some drive core gameplay. Others are sponsor
+              technologies we integrated into the prototype. Each one below shows what it does
+              in the game and why it matters technically.
             </p>
           </div>
 
@@ -164,10 +169,9 @@ export default function LandingPage() {
             <div className="tales-eyebrow pixel">⊹ EMERGENT BEHAVIOUR ⊹</div>
             <h2>Tales from the Realm</h2>
             <p className="tales-intro">
-              Three short accounts from the chronicles. Some are observed; some are
-              expected. The Elders are autonomous, given goals and tools and the
-              freedom to be themselves. What follows happened, or will happen,
-              without our scripting.
+              These are the behaviors the system is already producing, plus the next
+              behaviors we expect from the same autonomous loop. Nothing below is
+              hand-scripted scene writing.
             </p>
           </div>
 
@@ -198,11 +202,10 @@ export default function LandingPage() {
         <div className="container-prose">
           <div ref={pathRef} className="reveal path-card">
             <div className="path-eyebrow pixel">⌬ FURTHER READING ⌬</div>
-            <h2>The Chronicle Awaits</h2>
+            <h2>Read the Rules or Enter the World</h2>
             <p>
-              The full lore of Clan World — its eight houses, its long winter, its
-              code of honour and survival — is set down in <em>The Chronicle</em>:
-              a single illuminated folio, freely scrollable, half story, half rulebook.
+              Want the full system? Open the Chronicle. Want the fast version?
+              Enter the realm and watch the Elders act.
             </p>
             <div className="path-cta-row">
               <Link to="/lore" className="cta">
@@ -210,7 +213,7 @@ export default function LandingPage() {
                 <span aria-hidden="true">→</span>
               </Link>
               <a href={APP_URL} className="cta-secondary">
-                Or skip — and play
+                Enter the Realm
               </a>
             </div>
           </div>

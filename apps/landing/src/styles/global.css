@@ -282,13 +282,14 @@ strong {
 .gold-corner-frame::before { top: 6px; left: 8px; }
 .gold-corner-frame::after { bottom: 6px; right: 8px; }
 
-/* Section divider — chapter ornament */
+/* Section divider — chapter ornament (simplified) */
 .ornament {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: var(--space-5) 0;
+  margin: var(--space-4) 0;
   color: var(--gold-leaf);
+  opacity: 0.6;
 }
 
 .ornament::before,
@@ -296,16 +297,16 @@ strong {
   content: '';
   flex: 1;
   border-top: 1px solid var(--gold-leaf);
-  max-width: 8rem;
+  max-width: 6rem;
   margin: 0 1.5rem;
-  opacity: 0.6;
+  opacity: 0.4;
 }
 
 .ornament-glyph {
   font-family: var(--ff-manuscript);
-  font-size: 1.5rem;
-  letter-spacing: 0.5em;
-  padding-left: 0.5em;
+  font-size: 1rem;
+  letter-spacing: 0.4em;
+  padding-left: 0.4em;
 }
 
 /* ============ Buttons ============ */
