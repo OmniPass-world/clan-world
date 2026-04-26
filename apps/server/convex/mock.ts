@@ -1,6 +1,6 @@
-// MOCK_MODE toggle: set MOCK_MODE=true in .env.local to signal the frontend/server
-// to use stub data. The Convex functions here always work — the toggle governs whether
-// the orchestrator seeds real or mock data via seedMockState.
+// MOCK_MODE=true in .env.local is a dev convention for this environment.
+// This seeder is called manually via `pnpm convex run mock:seedMockState`.
+// Nothing reads MOCK_MODE at runtime yet — it's a placeholder toggle for Wave 1.
 
 import { mutation } from "./_generated/server";
 
@@ -27,7 +27,7 @@ export const seedMockState = mutation({
     // Insert mock snapshot
     await ctx.db.insert("worldSnapshot", {
       tick: 42,
-      tickEpochStartedAt: Date.now() - 42 * 20_000,
+      tickEpochStartedAt: Math.floor(Date.now() / 1000) - 42 * 20,
       tickEpochDurationMs: 20_000,
       regions: MOCK_REGIONS,
       clans: MOCK_CLANS,
