@@ -105,6 +105,24 @@ const DEMO_BANDIT = {
   attacksAtTick: 48,
 };
 
+// Mock wall levels, indexed by MOCK_CLANS position (0..3). Clan 2 (Dawn Watch)
+// is bandit-damaged so its ring is faint. Replace with snapshot.walls[clanId]
+// once schema is wired.
+// TODO(server-schema): pull from snapshot.walls when wired.
+const MOCK_WALL_LEVELS: Record<string, number> = {
+  'clan-iron':  2,
+  'clan-ember': 3,
+  'clan-dawn':  1,
+  'clan-storm': 4,
+};
+const WALL_LEVEL_MAX = 5;
+
+// Monument visual constants
+const MONUMENT_BASE_HEIGHT = 6;
+const MONUMENT_LEVEL_HEIGHT = 8; // px per level
+const MONUMENT_LEVEL_MAX = 10;
+const MONUMENT_WIDTH = 8;
+
 // Derive a "monument level" from treasury for demo display. Real schema will replace this.
 function treasuryToMonument(treasury: string): number {
   try {
@@ -132,6 +150,8 @@ export function WorldMap() {
     regions: Graphics[];
     regionLabels: Text[];
     flags: { gfx: Graphics; sprite: Sprite | null; label: Text; clan: ClanDef }[];
+    walls: { gfx: Graphics; clan: ClanDef }[];
+    monuments: { gfx: Graphics; clan: ClanDef }[];
     banditIcon: Graphics | null;
     banditCountdown: Text | null;
     bgSprite: Sprite | null;
@@ -139,6 +159,8 @@ export function WorldMap() {
     regions: [],
     regionLabels: [],
     flags: [],
+    walls: [],
+    monuments: [],
     banditIcon: null,
     banditCountdown: null,
     bgSprite: null,
@@ -274,6 +296,8 @@ export function WorldMap() {
         regions: [],
         regionLabels: [],
         flags: [],
+        walls: [],
+        monuments: [],
         banditIcon: null,
         banditCountdown: null,
         bgSprite: null,
@@ -325,6 +349,20 @@ export function WorldMap() {
       label.anchor.set(0.5, 0);
       app.stage.addChild(label);
       drawn.regionLabels.push(label);
+    }
+
+    // Wall rings — drawn first so they sit above region circles but under sigils.
+    for (const clan of MOCK_CLANS) {
+      const wallGfx = new Graphics();
+      app.stage.addChild(wallGfx);
+      drawn.walls.push({ gfx: wallGfx, clan });
+    }
+
+    // Monument towers — drawn before flags so sigil layers cleanly on top.
+    for (const clan of MOCK_CLANS) {
+      const monGfx = new Graphics();
+      app.stage.addChild(monGfx);
+      drawn.monuments.push({ gfx: monGfx, clan });
     }
 
     for (const clan of MOCK_CLANS) {
@@ -431,9 +469,82 @@ export function WorldMap() {
       }
     });
 
+    const regionMap = new Map(REGIONS.map(r => [r.id, r]));
+
+    // Build per-clan monument level lookup. Prefer live snapshot via treasury;
+    // fall back to mock 4-i pattern matching scoreboard demo data.
+    const liveClans = snapshot?.clans;
+    const levelByClan = new Map<string, number>();
+    if (liveClans && liveClans.length > 0) {
+      for (const c of liveClans) levelByClan.set(c.id, treasuryToMonument(c.treasury));
+    }
+    MOCK_CLANS.forEach((c, i) => {
+      if (!levelByClan.has(c.id)) levelByClan.set(c.id, 4 - i);
+    });
+
+    // Wall rings — opacity reflects wallLevel (0 → 0, 5 → 1.0, linear between).
+    drawn.walls.forEach(({ gfx, clan }) => {
+      const base = regionMap.get(clan.homeRegion);
+      if (!base) return;
+      const cx = projX(base.nx);
+      const cy = projY(base.ny);
+      const wallLevel = MOCK_WALL_LEVELS[clan.id] ?? 0;
+      const alpha = Math.max(0, Math.min(1, wallLevel / WALL_LEVEL_MAX));
+      gfx.clear();
+      if (alpha > 0) {
+        gfx.circle(cx, cy, regionRadius + 4 * cappedSizeScale);
+        gfx.stroke({ width: Math.max(2, 3 * cappedSizeScale), color: clan.color, alpha });
+      }
+    });
+
+    // Monument towers — stacked rectangles + top cap, height grows with level.
+    // Positioned at the flag location, just below the sigil so it reads as
+    // "the clan's structure at their homebase."
+    drawn.monuments.forEach(({ gfx, clan }) => {
+      const base = regionMap.get(clan.homeRegion);
+      if (!base) return;
+      const cx = projX(base.nx);
+      const cy = projY(base.ny);
+      const flagSize = SIGIL_SIZE * cappedSizeScale;
+      const flagX = cx + 18 * cappedSizeScale;
+      const flagY = cy - (SIGIL_SIZE + 8) * cappedSizeScale;
+
+      const rawLevel = levelByClan.get(clan.id) ?? 0;
+      const level = Math.max(0, Math.min(MONUMENT_LEVEL_MAX, rawLevel));
+      const totalH = (MONUMENT_BASE_HEIGHT + level * MONUMENT_LEVEL_HEIGHT) * cappedSizeScale;
+      const w = MONUMENT_WIDTH * cappedSizeScale;
+      // Anchor: bottom-center of sigil, just below it (small gap for clarity).
+      const bottomY = flagY + flagSize + 2 * cappedSizeScale + totalH;
+      const topY = bottomY - totalH;
+      const monX = flagX + flagSize / 2 - w / 2;
+
+      gfx.clear();
+      // Wide stone base (slightly broader for visual weight)
+      const baseH = Math.max(2, 3 * cappedSizeScale);
+      const baseW = w * 1.6;
+      gfx.rect(monX - (baseW - w) / 2, bottomY - baseH, baseW, baseH);
+      gfx.fill({ color: 0x6b6358 });
+      gfx.stroke({ color: 0x000000, width: 1, alpha: 0.5 });
+
+      // Shaft — main pillar, color tinted by clan.
+      gfx.rect(monX, topY, w, totalH - baseH);
+      gfx.fill({ color: 0xbdb4a2 });
+      gfx.stroke({ color: clan.color, width: 1, alpha: 0.9 });
+
+      // Top cap — small obelisk pyramid (triangle) marking the peak.
+      if (level > 0) {
+        const capH = Math.max(3, 5 * cappedSizeScale);
+        gfx.moveTo(monX, topY);
+        gfx.lineTo(monX + w / 2, topY - capH);
+        gfx.lineTo(monX + w, topY);
+        gfx.closePath();
+        gfx.fill({ color: clan.color, alpha: 0.95 });
+        gfx.stroke({ color: 0x000000, width: 1, alpha: 0.4 });
+      }
+    });
+
     // Clan flags (anchored to homebase) — sprite if loaded, else fallback rect.
     // Also recompute bubble anchors so PR #43 bubbles follow flags through resize.
-    const regionMap = new Map(REGIONS.map(r => [r.id, r]));
     drawn.flags.forEach(({ gfx, sprite, label, clan }) => {
       const base = regionMap.get(clan.homeRegion);
       if (!base) return;
@@ -512,6 +623,15 @@ export function WorldMap() {
     redrawBandit();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot?.tick, pixiReady]);
+
+  // Snapshot clan changes: re-layout so monument heights track live treasury.
+  useEffect(() => {
+    if (!pixiReady) return;
+    const wrap = canvasWrapRef.current;
+    if (!wrap) return;
+    relayout(wrap.clientWidth || 800, wrap.clientHeight || 600);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot?.clans, pixiReady]);
 
   // Pulse the bandit icon when 1-2 ticks from attacking — urgency cue for the demo
   useEffect(() => {
