@@ -8,10 +8,12 @@ import { WorldNoticePanel } from './WorldNoticePanel';
 import worldMapBg from './assets/world-map.png';
 
 // World dimensions used by pixi-viewport for pan/clamp/center math.
-// Matches REF_W/REF_H so all existing layout coords (offsetX + nx*REF_W*scaleX)
-// continue to work unchanged inside the viewport.
-const WORLD_WIDTH = 800;
-const WORLD_HEIGHT = 600;
+// Matches the actual hand-curated bg PNG (apps/web/src/assets/world-map.png)
+// at native resolution. The viewport scales/pans this world inside the screen.
+const MAP_WIDTH = 814;
+const MAP_HEIGHT = 1448;
+const WORLD_WIDTH = MAP_WIDTH;
+const WORLD_HEIGHT = MAP_HEIGHT;
 
 interface RegionDef {
   id: string;
@@ -350,12 +352,22 @@ export function WorldMap() {
           events: app.renderer.events,
         });
         app.stage.addChild(viewport); // viewport is the only direct child of stage
+        // Fit-cover scale: smallest scale where the map fully covers the screen
+        // (no dead background space on either axis). minScale = fitScale means
+        // user CANNOT zoom out past fit; map always fills the screen.
+        const initialFitScale = Math.max(
+          initialW / WORLD_WIDTH,
+          initialH / WORLD_HEIGHT,
+        );
         viewport
           .drag()
           .pinch()
           .wheel()
           .decelerate()
-          .clampZoom({ minScale: 0.5, maxScale: 4 });
+          .clampZoom({ minScale: initialFitScale, maxScale: initialFitScale * 4 })
+          .clamp({ direction: 'all', underflow: 'center' });
+        viewport.setZoom(initialFitScale, true);
+        viewport.moveCenter(WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
         viewportRef.current = viewport;
 
         // 1. Background terrain map (PR #40) — fantasy strategy art generated to match REGIONS layout.
@@ -364,8 +376,9 @@ export function WorldMap() {
           const tex = await Assets.load(worldMapBg);
           if (!mounted) return;
           const bg = new Sprite(tex);
-          bg.width = initialW;
-          bg.height = initialH;
+          // Render at native world resolution; viewport handles screen-fit zoom.
+          bg.width = MAP_WIDTH;
+          bg.height = MAP_HEIGHT;
           bg.x = 0;
           bg.y = 0;
           viewport.addChild(bg);
@@ -518,7 +531,10 @@ export function WorldMap() {
         zonePulseCbRef.current = zonePulseCb;
 
         // 4. Initial layout (PR #41) — projects normalized coords + positions flag anchors.
-        relayout(initialW, initialH);
+        // relayout now operates in WORLD space (MAP_WIDTH x MAP_HEIGHT) since the
+        // viewport handles screen-fit transformation. Children inside the viewport
+        // are positioned in world coords and pixi-viewport scales them to screen.
+        relayout(MAP_WIDTH, MAP_HEIGHT);
         setSize({ w: initialW, h: initialH });
         setPixiReady(true);
       });
@@ -575,8 +591,21 @@ export function WorldMap() {
       // Update pixi-viewport's screen dimensions so pinch/drag math tracks
       // the new canvas size. World dims stay fixed at WORLD_WIDTH/HEIGHT.
       const vp = viewportRef.current;
-      if (vp) vp.resize(w, h, WORLD_WIDTH, WORLD_HEIGHT);
-      relayout(w, h);
+      if (vp) {
+        vp.resize(w, h, WORLD_WIDTH, WORLD_HEIGHT);
+        // Recompute fit-cover scale for the new screen size; reapply zoom/pan
+        // clamps so user still can't zoom out past fit or pan into dead space.
+        const fitScale = Math.max(w / WORLD_WIDTH, h / WORLD_HEIGHT);
+        vp.clampZoom({ minScale: fitScale, maxScale: fitScale * 4 });
+        vp.clamp({ direction: 'all', underflow: 'center' });
+        // Snap back to fit if current zoom dropped below the new floor.
+        if (vp.scale.x < fitScale) {
+          vp.setZoom(fitScale, true);
+          vp.moveCenter(WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
+        }
+      }
+      // relayout positions everything in WORLD coords now, not screen coords.
+      relayout(WORLD_WIDTH, WORLD_HEIGHT);
       setSize({ w, h });
     };
 
@@ -659,7 +688,7 @@ export function WorldMap() {
           // Trigger a relayout so sprite gets positioned and shown.
           const wrap = canvasWrapRef.current;
           if (wrap && appRef.current) {
-            relayout(wrap.clientWidth || 800, wrap.clientHeight || 600);
+            relayout(WORLD_WIDTH, WORLD_HEIGHT);
           }
         })
         .catch(() => {
@@ -718,7 +747,7 @@ export function WorldMap() {
           entry.sprite = sprite;
           const wrap = canvasWrapRef.current;
           if (wrap && appRef.current) {
-            relayout(wrap.clientWidth || 800, wrap.clientHeight || 600);
+            relayout(WORLD_WIDTH, WORLD_HEIGHT);
           }
         })
         .catch(() => {
@@ -774,10 +803,11 @@ export function WorldMap() {
     // Smaller terrain dots — zones below now carry the "control area" weight
     const regionRadius = 18 * cappedSizeScale;
 
-    // Stretch background terrain to fill the canvas.
+    // Background terrain renders at native world resolution (MAP_WIDTH x MAP_HEIGHT).
+    // The viewport handles fit-cover scaling, so we never stretch the bg here.
     if (drawn.bgSprite) {
-      drawn.bgSprite.width = w;
-      drawn.bgSprite.height = h;
+      drawn.bgSprite.width = MAP_WIDTH;
+      drawn.bgSprite.height = MAP_HEIGHT;
       drawn.bgSprite.x = 0;
       drawn.bgSprite.y = 0;
     }
@@ -992,7 +1022,7 @@ export function WorldMap() {
     if (!pixiReady) return;
     const wrap = canvasWrapRef.current;
     if (!wrap) return;
-    relayout(wrap.clientWidth || 800, wrap.clientHeight || 600);
+    relayout(WORLD_WIDTH, WORLD_HEIGHT);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot?.clans, pixiReady]);
 
