@@ -2,6 +2,9 @@
 # chmod +x scripts/start-heartbeat-loop.sh
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR/.."
+
 # Source .env.local from repo root if it exists
 if [ -f .env.local ]; then
   set -a
@@ -43,13 +46,17 @@ echo "  convex: $CONVEX_DEPLOY_URL"
 
 while true; do
   forge script packages/contracts/script/Heartbeat.s.sol \
+    --root packages/contracts \
     --broadcast \
     --rpc-url "$RPC_URL_PRIMARY"
 
-  curl -sS -X POST "$CONVEX_DEPLOY_URL/api/heartbeat-webhook" \
+  curl -sS --fail -X POST "$CONVEX_DEPLOY_URL/api/heartbeat-webhook" \
     -H "Authorization: Bearer $WEBHOOK_SHARED_SECRET" \
     -H "Content-Type: application/json" \
-    -d "{\"chain\":\"worldchain-sepolia\",\"engineAddress\":\"$CLAN_WORLD_STUB_ADDRESS\",\"firedAtTs\":$(date +%s),\"source\":\"foundry-loop\"}"
+    -d "{\"chain\":\"worldchain-sepolia\",\"engineAddress\":\"$CLAN_WORLD_STUB_ADDRESS\",\"firedAtTs\":$(date +%s),\"source\":\"foundry-loop\"}" \
+    || echo "webhook POST failed (continuing)" >&2
 
+  # Note: actual cadence = forge_time + curl_time + 20s
+  # For Submission 1 this is fine; the on-chain interval guard in the contract handles overlap
   sleep 20
 done
