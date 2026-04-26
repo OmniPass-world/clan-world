@@ -42,14 +42,19 @@ export function App() {
 
   useEffect(() => {
     if (!isSuccess || result === null) return;
-    void (async () => {
-      const res = await fetch(`${CONVEX_SITE_URL}/api/verify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(result),
-      });
-      if (res.ok) setVerified(true);
-    })();
+    fetch(`${CONVEX_SITE_URL}/api/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(result),
+    })
+      .then((res) => {
+        if (res.ok) {
+          setVerified(true);
+        } else {
+          console.error('Verify failed:', res.status);
+        }
+      })
+      .catch((err) => console.error('Verify error:', err));
   }, [isSuccess, result]);
 
   if (!isInWorldApp) {

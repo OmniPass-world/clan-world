@@ -26,4 +26,7 @@ export default defineSchema({
     message: v.string(),
     timestamp: v.number(),
   }),
+  verifiedNullifiers: defineTable({
+    nullifier: v.string(),
+  }).index("by_nullifier", ["nullifier"]),
 });
