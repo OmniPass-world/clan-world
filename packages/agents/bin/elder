@@ -1,6 +1,16 @@
 #!/usr/bin/env sh
-# Resolve tsx from local node_modules if not on PATH (e.g. when invoked as a bin link)
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Resolve symlinks to find the real script directory (POSIX portable).
+SCRIPT="$0"
+while [ -L "$SCRIPT" ]; do
+  LINK="$(readlink "$SCRIPT")"
+  case "$LINK" in
+    /*) SCRIPT="$LINK" ;;
+    *)  SCRIPT="$(dirname "$SCRIPT")/$LINK" ;;
+  esac
+done
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+
+# Resolve tsx from local node_modules first, fall back to PATH
 TSX="${SCRIPT_DIR}/../node_modules/.bin/tsx"
 if [ ! -x "$TSX" ]; then
   TSX="$(command -v tsx 2>/dev/null || echo tsx)"
