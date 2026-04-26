@@ -286,6 +286,26 @@ class RealChainClient implements IChainClient {
   }
 
   async submitOrders(clanId: string, orders: ClanOrder[]): Promise<{ txHash: string }> {
+    // Wave 0: single-Elder only — concurrent nonce coordination deferred to Wave 1
+    const parsedClanId = parseInt(clanId, 10);
+    if (isNaN(parsedClanId) || String(parsedClanId) !== clanId.trim()) {
+      throw new Error(`submitOrders: clanId must be a decimal integer, got '${clanId}'`);
+    }
+
+    for (const order of orders) {
+      if (order.kind === 'mission') {
+        const { clansmanId, gotoRegion, action } = order.payload;
+        if (clansmanId === undefined || gotoRegion === undefined || action === undefined) {
+          throw new Error(`submitOrders: mission order missing required payload fields (clansmanId, gotoRegion, action)`);
+        }
+      }
+    }
+
+    const nonMissionOrders = orders.filter(o => o.kind !== 'mission');
+    if (nonMissionOrders.length > 0) {
+      console.warn(`[RealChainClient] submitOrders: ${nonMissionOrders.length} non-mission order(s) skipped (Wave 0 only supports 'mission' kind)`);
+    }
+
     const pk = readEnv('DEPLOYER_PRIVATE_KEY');
     if (!pk) throw new Error('DEPLOYER_PRIVATE_KEY not set');
 
@@ -299,9 +319,9 @@ class RealChainClient implements IChainClient {
     const contractOrders = orders
       .filter(o => o.kind === 'mission')
       .map(o => ({
-        clansmanId: Number(o.payload.clansmanId ?? 0),
-        gotoRegion: Number(o.payload.gotoRegion ?? 0),
-        action: Number(o.payload.action ?? 1),
+        clansmanId: Number(o.payload.clansmanId),
+        gotoRegion: Number(o.payload.gotoRegion),
+        action: Number(o.payload.action),
         targetClanId: 0,
         marketToken: '0x0000000000000000000000000000000000000000' as `0x${string}`,
         marketAmount: 0n,
@@ -312,7 +332,7 @@ class RealChainClient implements IChainClient {
       address: this.contractAddress,
       abi: CLAN_WORLD_ABI,
       functionName: 'submitClanOrders',
-      args: [parseInt(clanId, 10), contractOrders],
+      args: [parsedClanId, contractOrders],
     });
 
     return { txHash: hash };

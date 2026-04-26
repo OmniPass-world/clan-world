@@ -21,10 +21,11 @@ async function main(): Promise<void> {
   const { txHash } = await chain.submitOrders('0', orders);
   console.error(`[orchestrator] tx submitted: ${txHash}`);
 
-  await convex.postLog(
-    'info',
-    `Elder Aldric (clan-0): ChopWood mission submitted — txHash=${txHash} tick=${tick}`,
-  );
+  try {
+    await convex.postLog('info', `Elder Aldric (clan-0): ChopWood submitted — txHash=${txHash} tick=${tick}`);
+  } catch (err) {
+    console.error('[orchestrator] convex log failed (non-fatal):', err);
+  }
 
   // Print final JSON summary to stdout
   process.stdout.write(
