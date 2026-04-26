@@ -470,9 +470,48 @@ strong {
   color: var(--ink-soft);
 }
 
+.github-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.95rem;
+  font-family: var(--ff-display);
+  font-weight: 500;
+  font-size: 0.9rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #ffffff !important;
+  background: #24292e;
+  border: 1px solid #1b1f23;
+  border-radius: 6px;
+  text-decoration: none;
+  box-shadow: 0 1px 0 rgba(27, 31, 35, 0.1);
+  transition: background 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.github-button:hover {
+  background: #1b1f23;
+  color: #ffffff !important;
+  text-decoration: none;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(27, 31, 35, 0.25);
+  border-color: var(--gold-leaf, #a87c2f);
+}
+
+.github-button:focus-visible {
+  outline: 2px solid var(--vermillion);
+  outline-offset: 3px;
+}
+
+.github-button-mark {
+  flex-shrink: 0;
+}
+
 @media (max-width: 720px) {
   .site-nav { gap: 1rem; }
   .site-nav .desktop-only { display: none; }
+  .github-button { padding: 0.5rem 0.7rem; }
+  .github-button span { display: none; }
 }
 
 .site-footer {
