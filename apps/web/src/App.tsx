@@ -75,14 +75,15 @@ export function App() {
     return (
       <main
         style={{
-          background: '#0d1a0d',
-          minHeight: '100vh',
+          background: '#0a0a0a',
+          width: '100vw',
+          height: '100vh',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
         }}
       >
-        <p style={{ color: 'white', fontFamily: 'monospace' }}>
+        <p style={{ color: 'white', fontFamily: '"Cinzel", "Times New Roman", serif', letterSpacing: '0.08em' }}>
           Open in World App to play
         </p>
       </main>
@@ -92,25 +93,27 @@ export function App() {
   return (
     <main
       style={{
-        background: '#0d1a0d',
-        minHeight: '100dvh',
+        background: '#0a0a0a',
+        width: '100vw',
+        height: '100vh',
         display: 'flex',
         flexDirection: 'column',
+        overflow: 'hidden',
       }}
     >
       <h1
         style={{
           color: 'white',
           fontFamily: '"Cinzel", "Times New Roman", serif',
-          fontSize: 20,
-          letterSpacing: '0.12em',
+          fontSize: 18,
+          letterSpacing: '0.1em',
           margin: 0,
-          padding: '14px 12px 10px',
-          lineHeight: 1,
+          padding: '10px 12px 8px',
+          lineHeight: 1.1,
           flex: '0 0 auto',
         }}
       >
-        ClanWorld
+        ClanWorld<span style={{ opacity: 0.75, fontWeight: 400, fontStyle: 'italic', marginLeft: 6 }}>: Ælder Whispers</span>
       </h1>
       {!verified && (
         <button
