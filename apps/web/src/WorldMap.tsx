@@ -21,6 +21,10 @@ interface ClanDef {
   homeRegion: string;
   color: number;
   sigil: string;
+  /** Portrait avatar shown in the HTML scoreboard overlay (style/bandit-archetype-sprites). */
+  portrait: string;
+  /** Archetype label rendered under the clan name in the scoreboard. */
+  archetype: string;
 }
 
 // Reference design size — coords below were authored against this frame.
@@ -38,11 +42,17 @@ const REGIONS: RegionDef[] = [
   { id: 'deep-sea',     name: 'Deep Sea',    nx: 330 / REF_W, ny: 520 / REF_H, color: 0x1144aa },
 ];
 
+// Clan ↔ archetype mapping (style/bandit-archetype-sprites): each clan gets a portrait
+// avatar in the scoreboard so the AI personalities are visually distinguishable.
+//   Iron Guard ↔ Aldric  (cautious accumulator)
+//   Ember Hand ↔ Brennan (aggressive defender)
+//   Dawn Watch ↔ Sora    (long-game monument-builder)
+//   Storm Riders ↔ Mira  (transactional trader)
 const MOCK_CLANS: ClanDef[] = [
-  { id: 'clan-iron',  name: 'Iron Guard',   homeRegion: 'forest',     color: 0x4488cc, sigil: '/sigils/iron-guard-sigil.png' },
-  { id: 'clan-ember', name: 'Ember Hand',   homeRegion: 'mountains',  color: 0xcc4422, sigil: '/sigils/ember-hand-sigil.png' },
-  { id: 'clan-dawn',  name: 'Dawn Watch',   homeRegion: 'west-farms', color: 0xccaa22, sigil: '/sigils/dawn-watch-sigil.png' },
-  { id: 'clan-storm', name: 'Storm Riders', homeRegion: 'east-farms', color: 0x44aacc, sigil: '/sigils/storm-riders-sigil.png' },
+  { id: 'clan-iron',  name: 'Iron Guard',   homeRegion: 'forest',     color: 0x4488cc, sigil: '/sigils/iron-guard-sigil.png',  portrait: '/portraits/aldric-portrait.png',  archetype: 'Cautious'   },
+  { id: 'clan-ember', name: 'Ember Hand',   homeRegion: 'mountains',  color: 0xcc4422, sigil: '/sigils/ember-hand-sigil.png',  portrait: '/portraits/brennan-portrait.png', archetype: 'Aggressive' },
+  { id: 'clan-dawn',  name: 'Dawn Watch',   homeRegion: 'west-farms', color: 0xccaa22, sigil: '/sigils/dawn-watch-sigil.png',  portrait: '/portraits/sora-portrait.png',    archetype: 'Builder'    },
+  { id: 'clan-storm', name: 'Storm Riders', homeRegion: 'east-farms', color: 0x44aacc, sigil: '/sigils/storm-riders-sigil.png', portrait: '/portraits/mira-portrait.png',   archetype: 'Trader'     },
 ];
 
 const SIGIL_SIZE = 36;
@@ -211,7 +221,10 @@ export function WorldMap() {
     flags: { gfx: Graphics; sprite: Sprite | null; label: Text; clan: ClanDef }[];
     walls: { gfx: Graphics; clan: ClanDef }[];
     monuments: { gfx: Graphics; clan: ClanDef }[];
+    /** Procedural fallback ring drawn until the bandit sprite finishes loading. */
     banditIcon: Graphics | null;
+    /** Loaded bandit silhouette sprite (96x96 RGBA). null until Assets.load resolves. */
+    banditSprite: Sprite | null;
     banditCountdown: Text | null;
     bgSprite: Sprite | null;
   }>({
@@ -221,6 +234,7 @@ export function WorldMap() {
     walls: [],
     monuments: [],
     banditIcon: null,
+    banditSprite: null,
     banditCountdown: null,
     bgSprite: null,
   });
@@ -428,6 +442,7 @@ export function WorldMap() {
         walls: [],
         monuments: [],
         banditIcon: null,
+        banditSprite: null,
         banditCountdown: null,
         bgSprite: null,
       };
@@ -530,7 +545,10 @@ export function WorldMap() {
         });
     }
 
-    // Bandit icon: red circle with white "!" + ticks-until countdown
+    // Bandit indicator (style/bandit-archetype-sprites): stylized hooded silhouette.
+    // Pixi loads /sprites/bandit.png async; we keep a Graphics fallback (red ring + "!")
+    // visible during the load and as a safety net if the asset 404s. The countdown text
+    // anchors next to whichever marker is currently rendered.
     const banditIcon = new Graphics();
     app.stage.addChild(banditIcon);
     const countdown = new Text({
@@ -541,6 +559,21 @@ export function WorldMap() {
     app.stage.addChild(countdown);
     drawn.banditIcon = banditIcon;
     drawn.banditCountdown = countdown;
+
+    // Async-load the bandit sprite — once ready, redrawBandit positions it and
+    // hides the fallback ring. Catch silently so the ring stays visible on failure.
+    Assets.load('/sprites/bandit.png')
+      .then((texture) => {
+        const sprite = new Sprite(texture);
+        sprite.anchor.set(0.5, 0.5);
+        sprite.alpha = 0; // hidden until first redrawBandit positions it
+        app.stage.addChild(sprite);
+        drawn.banditSprite = sprite;
+        redrawBandit();
+      })
+      .catch(() => {
+        // Keep fallback ring visible.
+      });
   }
 
   // ---- Layout: scale all draw coords from REF frame to canvas dimensions ---
@@ -708,10 +741,14 @@ export function WorldMap() {
     redrawBandit();
   }
 
-  // ---- Bandit: red "!" marker over Mountains + ticks-until-attack readout --
+  // ---- Bandit: hooded silhouette over Mountains + ticks-until-attack readout
+  // (style/bandit-archetype-sprites): replaces the prior red "!" disc with a
+  // codex/PIL-rendered bandit sprite. A subtle red ring stays as fallback while
+  // the sprite loads or if the asset fails.
   function redrawBandit() {
     const drawn = drawnRef.current;
     const icon = drawn.banditIcon;
+    const sprite = drawn.banditSprite;
     const text = drawn.banditCountdown;
     if (!icon || !text) return;
 
@@ -721,28 +758,42 @@ export function WorldMap() {
     const cx = offsetX + region.nx * REF_W * scaleX;
     const cy = offsetY + region.ny * REF_H * scaleY;
 
-    // Icon perches above-left of region circle
+    // Bandit perches above-left of region circle. Sprite size ~32px at 1x scale,
+    // matching the prior icon's visual weight while leaving room for the countdown.
     const iconX = cx - 28 * scale;
     const iconY = cy - 42 * scale;
-    const iconR = Math.max(10, 14 * scale);
+    const spriteSize = Math.max(24, 32 * scale);
+    const ringR = Math.max(10, 14 * scale);
 
     icon.clear();
-    icon.circle(iconX, iconY, iconR);
-    icon.fill({ color: 0xcc1122 });
-    icon.stroke({ color: 0xffffff, width: 2 });
-    // White "!" — vertical bar + dot
-    const barW = Math.max(2, 3 * scale);
-    const barH = iconR * 0.95;
-    icon.rect(iconX - barW / 2, iconY - barH / 2, barW, barH * 0.6);
-    icon.fill({ color: 0xffffff });
-    icon.circle(iconX, iconY + barH * 0.35, Math.max(1.5, barW * 0.7));
-    icon.fill({ color: 0xffffff });
+    if (!sprite) {
+      // Fallback ring while the sprite loads / on asset failure
+      icon.circle(iconX, iconY, ringR);
+      icon.fill({ color: 0xcc1122, alpha: 0.85 });
+      icon.stroke({ color: 0xffffff, width: 2 });
+      const barW = Math.max(2, 3 * scale);
+      const barH = ringR * 0.95;
+      icon.rect(iconX - barW / 2, iconY - barH / 2, barW, barH * 0.6);
+      icon.fill({ color: 0xffffff });
+      icon.circle(iconX, iconY + barH * 0.35, Math.max(1.5, barW * 0.7));
+      icon.fill({ color: 0xffffff });
+    }
+
+    if (sprite) {
+      sprite.width = spriteSize;
+      sprite.height = spriteSize;
+      sprite.x = iconX;
+      sprite.y = iconY;
+      sprite.alpha = 1;
+    }
 
     const tick = snapshot?.tick ?? 0;
     const ticksUntil = Math.max(0, DEMO_BANDIT.attacksAtTick - tick);
     text.text = `${ticksUntil}t`;
     text.style.fontSize = Math.max(10, Math.round(12 * scale));
-    text.x = iconX + iconR + 4;
+    // Anchor the countdown to the right edge of whichever marker is active.
+    const markerHalfW = sprite ? spriteSize / 2 : ringR;
+    text.x = iconX + markerHalfW + 4;
     text.y = iconY;
   }
 
@@ -773,19 +824,24 @@ export function WorldMap() {
 
     const onTick = () => {
       const icon = drawnRef.current.banditIcon;
-      if (!icon) return;
+      const sprite = drawnRef.current.banditSprite;
       if (!shouldPulse) {
-        icon.alpha = 1;
+        if (icon) icon.alpha = 1;
+        if (sprite) sprite.alpha = 1;
         return;
       }
       const t = performance.now() / 220;
-      icon.alpha = 0.55 + 0.45 * Math.abs(Math.sin(t));
+      const a = 0.55 + 0.45 * Math.abs(Math.sin(t));
+      if (icon) icon.alpha = a;
+      if (sprite) sprite.alpha = a;
     };
     app.ticker.add(onTick);
     return () => {
       app.ticker.remove(onTick);
       const icon = drawnRef.current.banditIcon;
+      const sprite = drawnRef.current.banditSprite;
       if (icon) icon.alpha = 1;
+      if (sprite) sprite.alpha = 1;
     };
   }, [snapshot?.tick, pixiReady]);
 
@@ -889,6 +945,9 @@ export function WorldMap() {
   }, [pixiReady]);
 
   // ---- Scoreboard data: live snapshot if present, else mock metadata -------
+  // Portrait + archetype label come from MOCK_CLANS (they are static metadata,
+  // not server state) — we look them up by clan id whether the row is sourced
+  // from a live snapshot or the mock fallback.
   const scoreboardClans = (() => {
     const live = snapshot?.clans;
     if (live && live.length > 0) {
@@ -899,6 +958,8 @@ export function WorldMap() {
             id: c.id,
             name: c.name,
             color: meta?.color ?? 0xcccccc,
+            portrait: meta?.portrait ?? '',
+            archetype: meta?.archetype ?? '',
             monumentLevel: treasuryToMonument(c.treasury),
           };
         })
@@ -908,6 +969,8 @@ export function WorldMap() {
       id: c.id,
       name: c.name,
       color: c.color,
+      portrait: c.portrait,
+      archetype: c.archetype,
       monumentLevel: 4 - i,
     })).sort((a, b) => b.monumentLevel - a.monumentLevel);
   })();
@@ -976,22 +1039,67 @@ export function WorldMap() {
             key={c.id}
             style={{
               display: 'flex',
-              justifyContent: 'space-between',
               alignItems: 'center',
-              padding: '2px 0 2px 6px',
+              gap: 6,
+              padding: '3px 0 3px 6px',
               borderLeft: `3px solid ${hex(c.color)}`,
               marginBottom: i === scoreboardClans.length - 1 ? 0 : 2,
             }}
           >
-            <span style={{ color: hex(c.color), fontWeight: 600, fontSize: 11 }}>
-              {c.name}
-            </span>
+            {/* Portrait avatar — pixel-art codex/PIL render keyed to clan archetype.
+                image-rendering:pixelated keeps the 64px asset crisp at small sizes. */}
+            {c.portrait && (
+              <img
+                src={c.portrait}
+                alt=""
+                aria-hidden
+                width={22}
+                height={22}
+                style={{
+                  width: 22,
+                  height: 22,
+                  borderRadius: 4,
+                  border: `1px solid ${hex(c.color)}`,
+                  imageRendering: 'pixelated',
+                  flexShrink: 0,
+                  background: 'rgba(0,0,0,0.25)',
+                }}
+              />
+            )}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div
+                style={{
+                  color: hex(c.color),
+                  fontWeight: 600,
+                  fontSize: 11,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {c.name}
+              </div>
+              {c.archetype && (
+                <div
+                  style={{
+                    color: '#a8a290',
+                    fontSize: 9,
+                    fontFamily: 'monospace',
+                    letterSpacing: '0.04em',
+                    textTransform: 'uppercase',
+                    lineHeight: 1.1,
+                  }}
+                >
+                  {c.archetype}
+                </div>
+              )}
+            </div>
             <span
               style={{
                 color: '#e8e2c8',
                 fontVariantNumeric: 'tabular-nums',
                 fontSize: 11,
-                marginLeft: 8,
+                marginLeft: 4,
               }}
             >
               Lv {c.monumentLevel}
