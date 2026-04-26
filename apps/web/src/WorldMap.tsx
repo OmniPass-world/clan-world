@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Application, Graphics, Text } from 'pixi.js';
+import { Application, Assets, Graphics, Sprite, Text } from 'pixi.js';
 import { useAgentLogs } from './useAgentLogs';
+import worldMapBg from './assets/world-map.png';
 
 interface RegionDef {
   id: string;
@@ -48,9 +49,25 @@ export function WorldMap() {
     let mounted = true;
     const app = new Application();
 
-    app.init({ width: 800, height: 600, background: 0x1a2a1a }).then(() => {
+    app.init({ width: 800, height: 600, background: 0x1a2a1a }).then(async () => {
       if (!mounted || !containerRef.current) return;
       containerRef.current.appendChild(app.canvas);
+
+      // Background terrain map — fantasy strategy art generated to match REGIONS layout.
+      // Loaded async; sprite is added before any region circles so it renders behind them.
+      try {
+        const tex = await Assets.load(worldMapBg);
+        if (!mounted) return;
+        const bg = new Sprite(tex);
+        bg.width = 800;
+        bg.height = 600;
+        bg.x = 0;
+        bg.y = 0;
+        app.stage.addChild(bg);
+      } catch (err) {
+        // Non-fatal — fall through to flat background color set in app.init
+        console.warn('[WorldMap] failed to load terrain background', err);
+      }
 
       const regionMap = new Map(REGIONS.map(r => [r.id, r]));
 
