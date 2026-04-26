@@ -1,4 +1,5 @@
-import { createPublicClient, http, fallback, defineChain } from 'viem';
+import { createPublicClient, createWalletClient, http, fallback, defineChain } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import type { ClanFullView, ClanOrder, Tick } from '../types';
 import { readEnv } from './_env';
 
@@ -200,6 +201,39 @@ const CLAN_WORLD_ABI = [
     ],
     stateMutability: 'view',
   },
+  {
+    name: 'submitClanOrders',
+    type: 'function',
+    inputs: [
+      { name: 'clanId', type: 'uint32' },
+      {
+        name: 'orders',
+        type: 'tuple[]',
+        components: [
+          { name: 'clansmanId', type: 'uint32' },
+          { name: 'gotoRegion', type: 'uint8' },
+          { name: 'action', type: 'uint8' },
+          { name: 'targetClanId', type: 'uint32' },
+          { name: 'marketToken', type: 'address' },
+          { name: 'marketAmount', type: 'uint256' },
+          { name: 'maxGoldIn', type: 'uint256' },
+        ],
+      },
+    ],
+    outputs: [
+      {
+        name: 'results',
+        type: 'tuple[]',
+        components: [
+          { name: 'clansmanId', type: 'uint32' },
+          { name: 'status', type: 'uint8' },
+          { name: 'cooldownEndsAtTs', type: 'uint64' },
+          { name: 'missionNonce', type: 'uint64' },
+        ],
+      },
+    ],
+    stateMutability: 'nonpayable',
+  },
 ] as const;
 
 class StubChainClient implements IChainClient {
@@ -222,12 +256,13 @@ class StubChainClient implements IChainClient {
 class RealChainClient implements IChainClient {
   private readonly client: ReturnType<typeof createPublicClient>;
   private readonly contractAddress: `0x${string}`;
+  private readonly transport: ReturnType<typeof http> | ReturnType<typeof fallback>;
 
   constructor() {
     const primaryRpc = readEnv('RPC_URL_PRIMARY');
     const fallbackRpc = readEnv('RPC_URL_FALLBACK');
 
-    const transport =
+    this.transport =
       primaryRpc && fallbackRpc
         ? fallback([http(primaryRpc), http(fallbackRpc)])
         : http(primaryRpc ?? fallbackRpc);
@@ -237,7 +272,7 @@ class RealChainClient implements IChainClient {
 
     this.client = createPublicClient({
       chain: worldChainSepolia,
-      transport,
+      transport: this.transport,
     });
   }
 
@@ -250,10 +285,61 @@ class RealChainClient implements IChainClient {
     return Number(snapshot.currentTick); // safe: tick values are small enough to fit Number precisely in Wave 0
   }
 
-  async submitOrders(_clanId: string, _orders: ClanOrder[]): Promise<{ txHash: string }> {
-    throw new Error(
-      'RealChainClient: submitOrders not supported — use agents package for tx signing',
-    );
+  async submitOrders(clanId: string, orders: ClanOrder[]): Promise<{ txHash: string }> {
+    // Wave 0: single-Elder only — concurrent nonce coordination deferred to Wave 1
+    const parsedClanId = parseInt(clanId, 10);
+    if (isNaN(parsedClanId) || String(parsedClanId) !== clanId.trim()) {
+      throw new Error(`submitOrders: clanId must be a decimal integer, got '${clanId}'`);
+    }
+
+    for (const order of orders) {
+      if (order.kind === 'mission') {
+        const { clansmanId, gotoRegion, action } = order.payload;
+        if (clansmanId === undefined || gotoRegion === undefined || action === undefined) {
+          throw new Error(`submitOrders: mission order missing required payload fields (clansmanId, gotoRegion, action)`);
+        }
+      }
+    }
+
+    const nonMissionOrders = orders.filter(o => o.kind !== 'mission');
+    if (nonMissionOrders.length > 0) {
+      console.warn(`[RealChainClient] submitOrders: ${nonMissionOrders.length} non-mission order(s) skipped (Wave 0 only supports 'mission' kind)`);
+    }
+
+    const contractOrders = orders
+      .filter(o => o.kind === 'mission')
+      .map(o => ({
+        clansmanId: Number(o.payload.clansmanId),
+        gotoRegion: Number(o.payload.gotoRegion),
+        action: Number(o.payload.action),
+        targetClanId: 0,
+        marketToken: '0x0000000000000000000000000000000000000000' as `0x${string}`,
+        marketAmount: 0n,
+        maxGoldIn: 0n,
+      }));
+
+    if (contractOrders.length === 0) {
+      throw new Error('submitOrders: no valid mission orders to submit');
+    }
+
+    const pk = readEnv('DEPLOYER_PRIVATE_KEY');
+    if (!pk) throw new Error('DEPLOYER_PRIVATE_KEY not set');
+
+    const account = privateKeyToAccount(pk as `0x${string}`);
+    const walletClient = createWalletClient({
+      account,
+      chain: worldChainSepolia,
+      transport: this.transport,
+    });
+
+    const hash = await walletClient.writeContract({
+      address: this.contractAddress,
+      abi: CLAN_WORLD_ABI,
+      functionName: 'submitClanOrders',
+      args: [parsedClanId, contractOrders],
+    });
+
+    return { txHash: hash };
   }
 
   async getClanFullView(clanId: string): Promise<ClanFullView> {

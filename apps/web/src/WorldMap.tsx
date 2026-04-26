@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Application, Graphics, Text } from 'pixi.js';
+import { useAgentLogs } from './useAgentLogs';
 
 interface RegionDef {
   id: string;
@@ -36,6 +37,12 @@ const MOCK_CLANS: ClanDef[] = [
 
 export function WorldMap() {
   const containerRef = useRef<HTMLDivElement>(null);
+  const bubbleTextRef = useRef<Text | null>(null);
+  const bubbleRef = useRef<Graphics | null>(null);
+  const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [pixiReady, setPixiReady] = useState(false);
+
+  const logs = useAgentLogs();
 
   useEffect(() => {
     let mounted = true;
@@ -89,7 +96,7 @@ export function WorldMap() {
         app.stage.addChild(clanLabel);
       }
 
-      // Speech bubble placeholder (top-right)
+      // Speech bubble (top-right) — hidden until a log arrives
       const bubbleX = 610;
       const bubbleY = 30;
       const bubbleW = 160;
@@ -104,23 +111,50 @@ export function WorldMap() {
       bubble.lineTo(bubbleX + 10, bubbleY + bubbleH + 14);
       bubble.lineTo(bubbleX + 35, bubbleY + bubbleH);
       bubble.fill({ color: 0xffffff });
+      bubble.alpha = 0;
       app.stage.addChild(bubble);
 
       const bubbleText = new Text({
-        text: '...',
-        style: { fill: 0x333333, fontSize: 22, fontFamily: 'monospace' },
+        text: '',
+        style: { fill: 0x333333, fontSize: 12, fontFamily: 'monospace', wordWrap: true, wordWrapWidth: bubbleW - 12 },
       });
       bubbleText.anchor.set(0.5, 0.5);
       bubbleText.x = bubbleX + bubbleW / 2;
       bubbleText.y = bubbleY + bubbleH / 2;
+      bubbleText.alpha = 0;
       app.stage.addChild(bubbleText);
+
+      // Store refs so the log-watcher effect can update them
+      bubbleRef.current = bubble;
+      bubbleTextRef.current = bubbleText;
+      setPixiReady(true);
     });
 
     return () => {
       mounted = false;
+      if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
+      bubbleRef.current = null;
+      bubbleTextRef.current = null;
       app.destroy(true);
     };
   }, []);
+
+  // Reactive: update bubble whenever a new log entry arrives or Pixi finishes init
+  useEffect(() => {
+    if (!pixiReady || !bubbleTextRef.current || !bubbleRef.current || logs.length === 0) return;
+    const latest = logs[0]; // desc order — first = newest
+    if (!latest) return;
+    const msg = latest.message.slice(0, 240);
+    bubbleTextRef.current.text = msg;
+    bubbleRef.current.alpha = 1;
+    bubbleTextRef.current.alpha = 1;
+
+    if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
+    fadeTimerRef.current = setTimeout(() => {
+      if (bubbleRef.current) bubbleRef.current.alpha = 0;
+      if (bubbleTextRef.current) bubbleTextRef.current.alpha = 0;
+    }, 5000);
+  }, [logs, pixiReady]);
 
   return <div ref={containerRef} />;
 }
