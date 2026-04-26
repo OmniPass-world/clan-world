@@ -892,7 +892,7 @@ export function WorldMap() {
       if (!base) return;
       const cx = projX(base.nx);
       const cy = projY(base.ny);
-      const baseSize = Math.max(48, 72 * cappedSizeScale);
+      const baseSize = Math.max(96, 144 * cappedSizeScale);
       // Hide everything visually
       gfx.clear();
       if (sprite) sprite.alpha = 0;
@@ -907,8 +907,8 @@ export function WorldMap() {
       if (!base) return;
       const cx = projX(base.nx);
       const cy = projY(base.ny);
-      // Base size: ~64px at 1x scale, scales with viewport
-      const baseSize = Math.max(48, 72 * cappedSizeScale);
+      // Base size: ~128px at 1x scale, scales with viewport (2x bump for phone readability)
+      const baseSize = Math.max(96, 144 * cappedSizeScale);
       fallback.clear();
       if (!sprite) {
         // Simple colored fallback rect with clan-color border
@@ -931,7 +931,7 @@ export function WorldMap() {
       if (!base) return;
       const cx = projX(base.nx);
       const cy = projY(base.ny);
-      const baseSize = Math.max(48, 72 * cappedSizeScale);
+      const baseSize = Math.max(96, 144 * cappedSizeScale);
       const lvl = levelByClan.get(clan.id) ?? 0;
       label.text = `Lv ${lvl}`;
       label.style.fontSize = Math.max(11, Math.round(13 * cappedSizeScale));
