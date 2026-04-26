@@ -69,12 +69,71 @@ type BubbleHandle = {
   clanId: string;
 };
 
+// Worker travel animation (PR #44) — small clan-colored dots crossing between regions.
+interface WorkerTravel {
+  id: string;
+  fromRegionKey: string;
+  toRegionKey: string;
+  startedAt: number;
+  durationMs: number;
+  color: number;
+  gfx: Graphics;
+}
+
+const TRAVEL_DOT_RADIUS = 3; // 6px diameter
+const TRAVEL_FADE_OUT_MS = 400;
+const TRAVEL_MIN_MS = 8000;
+const TRAVEL_MAX_MS = 15000;
+const CANNED_TRAVEL_INTERVAL_MS = 30_000;
+
 /** Map a log message to a clan id by string-matching id or name. */
 function attributeClan(msg: string): string | null {
   const lower = msg.toLowerCase();
   for (const clan of MOCK_CLANS) {
     if (lower.includes(clan.id) || lower.includes(clan.name.toLowerCase())) {
       return clan.id;
+    }
+  }
+  return null;
+}
+
+/** Match a free-form region reference ("Mountains", "east farms") → region id. */
+function matchRegionId(text: string): string | null {
+  const lower = text.toLowerCase();
+  // Prefer longest names first so "east-farms" wins over "farms"
+  const sorted = [...REGIONS].sort((a, b) => b.name.length - a.name.length);
+  for (const r of sorted) {
+    if (lower.includes(r.id) || lower.includes(r.name.toLowerCase())) {
+      return r.id;
+    }
+  }
+  return null;
+}
+
+/**
+ * Parse a "send <clansman/anyone> to <region>" pattern out of a log message.
+ * Returns the destination region id, or null if no match.
+ * Examples that should match:
+ *   "send Borin to the Mountains"
+ *   "Iron Guard sends a worker to East Farms"
+ *   "dispatching scout to deep-sea"
+ */
+function parseTravelDestination(msg: string): string | null {
+  const lower = msg.toLowerCase();
+  // Look for "send|sends|sent|dispatch|dispatched|dispatching ... to <region>"
+  const re = /\b(?:send(?:s|ing|t)?|dispatch(?:es|ing|ed)?|travel(?:s|ing|ed)?\s+to|head(?:s|ing|ed)?\s+to|move(?:s|d|ing)?\s+to)\b[^]*?\bto\s+(?:the\s+)?([a-z\- ]+?)(?:[.!,;]|$)/i;
+  const m = lower.match(re);
+  if (m && m[1]) {
+    const candidate = m[1].trim();
+    const id = matchRegionId(candidate);
+    if (id) return id;
+  }
+  // Looser fallback: any " to <region>" reference if msg also mentions send/dispatch
+  if (/\b(send|sent|sends|dispatch|dispatched|dispatching|travel|heading|moves)\b/.test(lower)) {
+    const m2 = lower.match(/\bto\s+(?:the\s+)?([a-z\- ]+?)(?:[.!,;]|$)/);
+    if (m2 && m2[1]) {
+      const id = matchRegionId(m2[1].trim());
+      if (id) return id;
     }
   }
   return null;
@@ -150,6 +209,13 @@ export function WorldMap() {
   const seenLogIdsRef = useRef<Set<string>>(new Set());
   const flagAnchorsRef = useRef<Map<string, { x: number; y: number }>>(new Map());
   const tickerCbRef = useRef<((ticker: { deltaMS: number }) => void) | null>(null);
+
+  // Worker travel animation (PR #44).
+  const travelLayerRef = useRef<Container | null>(null);
+  const travelsRef = useRef<WorkerTravel[]>([]);
+  const travelTickerCbRef = useRef<((ticker: { deltaMS: number }) => void) | null>(null);
+  const seenTravelLogIdsRef = useRef<Set<string>>(new Set());
+  const travelIdSeqRef = useRef(0);
 
   const [pixiReady, setPixiReady] = useState(false);
   const [, setSize] = useState({ w: 800, h: 600 });
@@ -255,6 +321,64 @@ export function WorldMap() {
         tickerCbRef.current = cb;
         app.ticker.add(cb);
 
+        // 3b. Worker travel layer + ticker (PR #44) — clan-colored dots crossing routes.
+        // Added after bubble layer so dots can render under bubbles (less visual noise).
+        const travelLayer = new Container();
+        // Insert below bubble layer so bubbles always appear on top of moving dots.
+        app.stage.addChildAt(travelLayer, app.stage.getChildIndex(bubbleLayer));
+        travelLayerRef.current = travelLayer;
+
+        const travelCb = (_ticker: { deltaMS: number }) => {
+          const layer = travelLayerRef.current;
+          if (!layer) return;
+          const now = performance.now();
+          const list = travelsRef.current;
+          const { scaleX, scaleY, offsetX, offsetY } = layoutRef.current;
+          const projX = (nx: number) => offsetX + nx * REF_W * scaleX;
+          const projY = (ny: number) => offsetY + ny * REF_H * scaleY;
+
+          for (let i = list.length - 1; i >= 0; i--) {
+            const t = list[i];
+            if (!t) continue;
+            const from = REGIONS.find(r => r.id === t.fromRegionKey);
+            const to = REGIONS.find(r => r.id === t.toRegionKey);
+            if (!from || !to) {
+              layer.removeChild(t.gfx);
+              t.gfx.destroy();
+              list.splice(i, 1);
+              continue;
+            }
+            const elapsed = now - t.startedAt;
+            const progress = elapsed / t.durationMs;
+
+            const fx = projX(from.nx);
+            const fy = projY(from.ny);
+            const tx = projX(to.nx);
+            const ty = projY(to.ny);
+
+            if (progress >= 1) {
+              // Fade out at destination
+              const fadeAge = elapsed - t.durationMs;
+              if (fadeAge >= TRAVEL_FADE_OUT_MS) {
+                layer.removeChild(t.gfx);
+                t.gfx.destroy();
+                list.splice(i, 1);
+                continue;
+              }
+              t.gfx.x = tx;
+              t.gfx.y = ty;
+              t.gfx.alpha = Math.max(0, 1 - fadeAge / TRAVEL_FADE_OUT_MS);
+            } else {
+              t.gfx.x = fx + (tx - fx) * progress;
+              t.gfx.y = fy + (ty - fy) * progress;
+              // Subtle fade-in over first 200ms so dots don't pop in
+              t.gfx.alpha = Math.min(1, elapsed / 200);
+            }
+          }
+        };
+        travelTickerCbRef.current = travelCb;
+        app.ticker.add(travelCb);
+
         // 4. Initial layout (PR #41) — projects normalized coords + positions flag anchors.
         relayout(initialW, initialH);
         setSize({ w: initialW, h: initialH });
@@ -265,11 +389,16 @@ export function WorldMap() {
       mounted = false;
       const a = appRef.current;
       if (a && tickerCbRef.current) a.ticker.remove(tickerCbRef.current);
+      if (a && travelTickerCbRef.current) a.ticker.remove(travelTickerCbRef.current);
       bubblesByClanRef.current.clear();
       seenLogIdsRef.current.clear();
       flagAnchorsRef.current.clear();
+      travelsRef.current = [];
+      seenTravelLogIdsRef.current.clear();
       bubbleLayerRef.current = null;
+      travelLayerRef.current = null;
       tickerCbRef.current = null;
+      travelTickerCbRef.current = null;
       drawnRef.current = {
         regions: [],
         regionLabels: [],
@@ -570,6 +699,74 @@ export function WorldMap() {
       bubblesByClanRef.current.set(clanId, list);
     }
   }, [logs, pixiReady]);
+
+  // ---- Worker travel (PR #44): spawn dots from log "send X to Y" + canned demos
+  function spawnTravel(fromRegionKey: string, toRegionKey: string, color: number) {
+    const layer = travelLayerRef.current;
+    if (!layer) return;
+    if (fromRegionKey === toRegionKey) return;
+    const from = REGIONS.find(r => r.id === fromRegionKey);
+    const to = REGIONS.find(r => r.id === toRegionKey);
+    if (!from || !to) return;
+
+    const gfx = new Graphics();
+    gfx.circle(0, 0, TRAVEL_DOT_RADIUS);
+    gfx.fill({ color });
+    gfx.stroke({ color: 0x000000, width: 1, alpha: 0.55 });
+    gfx.alpha = 0;
+    layer.addChild(gfx);
+
+    const durationMs =
+      TRAVEL_MIN_MS + Math.random() * (TRAVEL_MAX_MS - TRAVEL_MIN_MS);
+
+    travelIdSeqRef.current += 1;
+    travelsRef.current.push({
+      id: `travel-${travelIdSeqRef.current}`,
+      fromRegionKey,
+      toRegionKey,
+      startedAt: performance.now(),
+      durationMs,
+      color,
+      gfx,
+    });
+  }
+
+  // Real travels: parse "send X to Y" out of new log messages
+  useEffect(() => {
+    if (!pixiReady || !travelLayerRef.current || logs.length === 0) return;
+    const ordered: AgentLog[] = [...logs].reverse();
+    for (const log of ordered) {
+      if (seenTravelLogIdsRef.current.has(log._id)) continue;
+      seenTravelLogIdsRef.current.add(log._id);
+
+      const dest = parseTravelDestination(log.message);
+      if (!dest) continue;
+      const clanId = attributeClan(log.message);
+      const clan = clanId ? MOCK_CLANS.find(c => c.id === clanId) : null;
+      if (!clan) continue;
+      if (clan.homeRegion === dest) continue;
+      spawnTravel(clan.homeRegion, dest, clan.color);
+    }
+  }, [logs, pixiReady]);
+
+  // Canned demo travels: random clan → random non-home region every 30s
+  // so the canvas always has visible motion even when no logs match.
+  useEffect(() => {
+    if (!pixiReady) return;
+    const fireOne = () => {
+      const clan = MOCK_CLANS[Math.floor(Math.random() * MOCK_CLANS.length)];
+      if (!clan) return;
+      const candidates = REGIONS.filter(r => r.id !== clan.homeRegion);
+      const dest = candidates[Math.floor(Math.random() * candidates.length)];
+      if (!dest) return;
+      spawnTravel(clan.homeRegion, dest.id, clan.color);
+    };
+    // Fire one immediately so the demo isn't blank for the first 30s
+    fireOne();
+    const interval = window.setInterval(fireOne, CANNED_TRAVEL_INTERVAL_MS);
+    return () => window.clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pixiReady]);
 
   // ---- Scoreboard data: live snapshot if present, else mock metadata -------
   const scoreboardClans = (() => {
