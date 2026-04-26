@@ -4,21 +4,21 @@
   "version": "0.0.0",
   "type": "module",
   "bin": {
-    "elder": "./dist/cli.js"
+    "elder": "./bin/elder"
   },
   "scripts": {
     "dev": "tsx watch src/cli.ts",
-    "build": "tsc -b",
+    "build": "echo 'uses tsx at runtime; no emit build needed'",
     "typecheck": "tsc --noEmit",
     "lint": "echo 'lint stub'",
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
-    "@clan-world/shared": "workspace:*"
+    "@clan-world/shared": "workspace:*",
+    "tsx": "4.19.2"
   },
   "devDependencies": {
     "@types/node": "25.6.0",
-    "tsx": "4.19.2",
     "typescript": "5.9.3"
   }
 }

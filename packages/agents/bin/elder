@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+# Resolve tsx from local node_modules if not on PATH (e.g. when invoked as a bin link)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+TSX="${SCRIPT_DIR}/../node_modules/.bin/tsx"
+if [ ! -x "$TSX" ]; then
+  TSX="$(command -v tsx 2>/dev/null || echo tsx)"
+fi
+exec "$TSX" "${SCRIPT_DIR}/../src/cli.ts" "$@"
