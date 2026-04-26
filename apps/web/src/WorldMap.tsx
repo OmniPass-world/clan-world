@@ -38,10 +38,11 @@ export function WorldMap() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    let mounted = true;
     const app = new Application();
 
     app.init({ width: 800, height: 600, background: 0x1a2a1a }).then(() => {
-      if (!containerRef.current) return;
+      if (!mounted || !containerRef.current) return;
       containerRef.current.appendChild(app.canvas);
 
       const regionMap = new Map(REGIONS.map(r => [r.id, r]));
@@ -116,6 +117,7 @@ export function WorldMap() {
     });
 
     return () => {
+      mounted = false;
       app.destroy(true);
     };
   }, []);
