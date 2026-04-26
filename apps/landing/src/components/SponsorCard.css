@@ -85,7 +85,7 @@
   height: 100%;
   align-items: center;
   justify-content: center;
-  font-family: 'IM Fell English', serif;
+  font-family: var(--ff-manuscript);
   font-size: 1.4rem;
   color: var(--vermillion);
   letter-spacing: 0.05em;
@@ -109,7 +109,7 @@
 }
 
 .sponsor-card-name {
-  font-family: 'IM Fell English', serif;
+  font-family: var(--ff-manuscript);
   font-size: 1.6rem;
   line-height: 1.1;
   color: var(--ink);
@@ -118,7 +118,7 @@
 }
 
 .sponsor-card-lorename {
-  font-family: 'IM Fell English', serif;
+  font-family: var(--ff-manuscript);
   font-style: italic;
   font-size: 1rem;
   color: var(--vermillion);
@@ -127,7 +127,7 @@
 }
 
 .sponsor-card-lore {
-  font-family: 'EB Garamond', serif;
+  font-family: var(--ff-prose);
   font-size: 1rem;
   line-height: 1.55;
   color: var(--ink);
@@ -135,7 +135,7 @@
 }
 
 .sponsor-card-tech {
-  font-family: 'EB Garamond', serif;
+  font-family: var(--ff-prose);
   font-size: 0.85rem;
   font-style: italic;
   line-height: 1.5;

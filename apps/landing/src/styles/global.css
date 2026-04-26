@@ -9,12 +9,12 @@
   --parchment-aged: #C9B58A;
   --parchment-dark: #A8956A;
   --parchment-deep: #8a7847;
-  
+
   /* Inks */
   --ink: #2A1810;
   --ink-soft: #5A3D28;
   --ink-faded: #8a6f4f;
-  
+
   /* Illumination */
   --vermillion: #9B2A2F;
   --vermillion-deep: #7a1f23;
@@ -22,7 +22,7 @@
   --gold-bright: #d4a24c;
   --lapis: #1F4068;
   --lapis-bright: #2d5a8a;
-  
+
   /* Clan banners (8) */
   --clan-1: #B23A48;
   --clan-2: #2C5F8D;
@@ -32,18 +32,40 @@
   --clan-6: #A85A2C;
   --clan-7: #c9b58a;
   --clan-8: #475569;
-  
+
   --maxw: 72rem;
   --maxw-prose: 38rem;
-  
+
   /* Type scale */
-  --fs-display: clamp(3rem, 8vw, 7rem);
+  --fs-display: clamp(3rem, 8vw, 6.5rem);
   --fs-h1: clamp(2.25rem, 5vw, 4rem);
   --fs-h2: clamp(1.75rem, 3.5vw, 2.75rem);
   --fs-h3: 1.5rem;
   --fs-body: 1.125rem;
   --fs-small: 0.875rem;
   --fs-pixel: 0.7rem;
+
+  /* Font families — semantic tokens
+     - Display: Cinzel — carved-stone Roman caps, strong hierarchy for hero + section titles
+     - Manuscript: IM Fell English — hand-printed feel for chapter/tale/intimate headings
+     - Prose: EB Garamond — chronicle body voice
+     - UI: Inter — crisp legibility for nav, eyebrow tags, meta chrome
+     - Mono: VT323 — pixel/8-bit accents, bridges to game art */
+  --ff-display: 'Cinzel', 'IM Fell English', 'Times New Roman', serif;
+  --ff-manuscript: 'IM Fell English', 'IM Fell DW Pica', 'Times New Roman', serif;
+  --ff-prose: 'EB Garamond', 'Garamond', Georgia, serif;
+  --ff-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --ff-mono: 'VT323', 'Courier New', monospace;
+
+  /* Spacing scale (consistent vertical rhythm) */
+  --space-1: 0.5rem;
+  --space-2: 1rem;
+  --space-3: 1.5rem;
+  --space-4: 2rem;
+  --space-5: 3rem;
+  --space-6: 4rem;
+  --space-7: 5rem;
+  --space-8: 6rem;
 }
 
 * {
@@ -57,7 +79,7 @@ html {
 }
 
 body {
-  font-family: 'EB Garamond', 'Garamond', Georgia, serif;
+  font-family: var(--ff-prose);
   font-size: var(--fs-body);
   line-height: 1.65;
   color: var(--ink);
@@ -74,30 +96,34 @@ body {
 /* ============ Typography primitives ============ */
 
 .display-font, h1, h2, .h1, .h2 {
-  font-family: 'IM Fell English', 'IM Fell DW Pica', 'Times New Roman', serif;
-  font-weight: 400;
-  letter-spacing: 0.005em;
+  font-family: var(--ff-display);
+  font-weight: 500;
+  letter-spacing: 0.01em;
   color: var(--ink);
 }
 
-.display-italic, h1 i, h2 i {
+/* Italic variants drop to manuscript family — Cinzel has no italic cut */
+.display-italic, h1 i, h2 i, h1 em, h2 em {
+  font-family: var(--ff-manuscript);
   font-style: italic;
+  font-weight: 400;
+  letter-spacing: 0.005em;
 }
 
 h1 {
   font-size: var(--fs-h1);
   line-height: 1.05;
-  margin-bottom: 1rem;
+  margin-bottom: var(--space-2);
 }
 
 h2 {
   font-size: var(--fs-h2);
   line-height: 1.1;
-  margin-bottom: 1.5rem;
+  margin-bottom: var(--space-3);
 }
 
 h3 {
-  font-family: 'IM Fell English', serif;
+  font-family: var(--ff-manuscript);
   font-size: var(--fs-h3);
   font-weight: 400;
   margin-bottom: 0.75rem;
@@ -127,11 +153,17 @@ a {
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
+  transition: color 0.2s ease;
 }
 
 a:hover {
   color: var(--vermillion-deep);
   text-decoration-style: double;
+}
+
+a:focus-visible {
+  outline: 2px solid var(--gold-leaf);
+  outline-offset: 2px;
 }
 
 em {
@@ -146,7 +178,7 @@ strong {
 
 /* Pixel-text annotations — bridge to game's pixel art */
 .pixel {
-  font-family: 'VT323', 'Courier New', monospace;
+  font-family: var(--ff-mono);
   font-size: var(--fs-pixel);
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -159,7 +191,7 @@ strong {
   background: var(--parchment-aged);
   padding: 0.25rem 0.5rem;
   border: 1px solid var(--ink-faded);
-  font-family: 'VT323', monospace;
+  font-family: var(--ff-mono);
   font-size: 0.85rem;
   letter-spacing: 0.04em;
   color: var(--ink-soft);
@@ -167,7 +199,7 @@ strong {
 
 /* Drop cap */
 .dropcap::first-letter {
-  font-family: 'IM Fell English', serif;
+  font-family: var(--ff-manuscript);
   font-size: 4.5em;
   line-height: 0.85;
   float: left;
@@ -192,11 +224,11 @@ strong {
 }
 
 .section {
-  padding: 5rem 0;
+  padding: var(--space-7) 0;
 }
 
 @media (max-width: 640px) {
-  .section { padding: 3rem 0; }
+  .section { padding: var(--space-5) 0; }
 }
 
 /* ============ Frame / border decorations ============ */
@@ -255,7 +287,7 @@ strong {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 3.5rem 0;
+  margin: var(--space-5) 0;
   color: var(--gold-leaf);
 }
 
@@ -270,7 +302,7 @@ strong {
 }
 
 .ornament-glyph {
-  font-family: 'IM Fell English', serif;
+  font-family: var(--ff-manuscript);
   font-size: 1.5rem;
   letter-spacing: 0.5em;
   padding-left: 0.5em;
@@ -282,17 +314,19 @@ strong {
   display: inline-flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 1rem 2rem;
-  font-family: 'IM Fell English', serif;
-  font-size: 1.25rem;
-  letter-spacing: 0.04em;
+  padding: 0.95rem 2rem;
+  font-family: var(--ff-display);
+  font-weight: 500;
+  font-size: 1.05rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
   background: var(--ink);
   color: var(--parchment);
   border: none;
   text-decoration: none;
   position: relative;
   cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
   box-shadow: 4px 4px 0 var(--vermillion-deep);
 }
 
@@ -302,13 +336,24 @@ strong {
   inset: -4px;
   border: 1px solid var(--gold-leaf);
   pointer-events: none;
+  transition: border-color 0.2s ease;
 }
 
 .cta:hover {
   transform: translate(-2px, -2px);
   box-shadow: 6px 6px 0 var(--vermillion-deep);
+  background: var(--vermillion-deep);
   color: var(--parchment);
   text-decoration: none;
+}
+
+.cta:hover::before {
+  border-color: var(--gold-bright);
+}
+
+.cta:focus-visible {
+  outline: 2px solid var(--gold-bright);
+  outline-offset: 6px;
 }
 
 .cta-secondary {
@@ -316,18 +361,38 @@ strong {
   align-items: center;
   gap: 0.5rem;
   padding: 0.75rem 1.5rem;
-  font-family: 'IM Fell English', serif;
-  font-size: 1.1rem;
+  font-family: var(--ff-display);
+  font-weight: 500;
+  font-size: 0.95rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   background: transparent;
   color: var(--ink);
   border: 1px solid var(--ink);
   text-decoration: none;
-  transition: background 0.2s ease;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
 .cta-secondary:hover {
   background: var(--ink);
   color: var(--parchment);
+  text-decoration: none;
+  border-color: var(--ink);
+}
+
+.cta-secondary:focus-visible {
+  outline: 2px solid var(--vermillion);
+  outline-offset: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cta, .cta-secondary, a {
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+  .cta:hover {
+    transform: none;
+    box-shadow: 4px 4px 0 var(--vermillion-deep);
+  }
 }
 
 /* ============ Header / Footer ============ */
@@ -355,11 +420,14 @@ strong {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  font-family: 'IM Fell English', serif;
-  font-size: 1.35rem;
+  font-family: var(--ff-display);
+  font-weight: 500;
+  font-size: 1.15rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--ink);
   text-decoration: none;
-  letter-spacing: 0.02em;
+  transition: color 0.2s ease;
 }
 
 .site-brand:hover {
@@ -376,14 +444,17 @@ strong {
 .site-nav {
   display: flex;
   align-items: center;
-  gap: 1.5rem;
+  gap: 1.75rem;
 }
 
 .site-nav a {
   color: var(--ink);
   text-decoration: none;
-  font-family: 'IM Fell English', serif;
-  font-size: 1.05rem;
+  font-family: var(--ff-ui);
+  font-weight: 500;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+  transition: color 0.2s ease;
 }
 
 .site-nav a:hover {
@@ -391,7 +462,7 @@ strong {
 }
 
 .site-nav .pixel-link {
-  font-family: 'VT323', monospace;
+  font-family: var(--ff-mono);
   font-size: 0.95rem;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -405,8 +476,8 @@ strong {
 
 .site-footer {
   border-top: 1px solid var(--gold-leaf);
-  padding: 4rem 0 2rem;
-  margin-top: 6rem;
+  padding: var(--space-6) 0 var(--space-4);
+  margin-top: var(--space-8);
   background: rgba(168, 149, 106, 0.18);
 }
 
@@ -419,18 +490,21 @@ strong {
 .site-footer-grid {
   display: grid;
   grid-template-columns: 2fr repeat(3, 1fr);
-  gap: 3rem;
-  margin-bottom: 3rem;
+  gap: var(--space-5);
+  margin-bottom: var(--space-5);
 }
 
 @media (max-width: 720px) {
-  .site-footer-grid { grid-template-columns: 1fr; gap: 2rem; }
+  .site-footer-grid { grid-template-columns: 1fr; gap: var(--space-4); }
 }
 
 .site-footer-grid h4 {
-  font-family: 'IM Fell English', serif;
-  font-size: 1.1rem;
-  margin-bottom: 0.75rem;
+  font-family: var(--ff-display);
+  font-weight: 500;
+  font-size: 0.9rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 0.85rem;
   color: var(--ink);
 }
 
@@ -445,7 +519,9 @@ strong {
 .site-footer-grid a {
   color: var(--ink-soft);
   text-decoration: none;
-  font-size: 0.95rem;
+  font-family: var(--ff-ui);
+  font-size: 0.9rem;
+  transition: color 0.2s ease;
 }
 
 .site-footer-grid a:hover {
@@ -455,9 +531,9 @@ strong {
 
 .colophon {
   text-align: center;
-  padding-top: 2rem;
+  padding-top: var(--space-4);
   border-top: 1px solid var(--ink-faded);
-  font-family: 'IM Fell English', serif;
+  font-family: var(--ff-manuscript);
   font-style: italic;
   color: var(--ink-faded);
   font-size: 0.95rem;
@@ -486,7 +562,7 @@ strong {
 .manuscript-table {
   width: 100%;
   border-collapse: collapse;
-  font-family: 'EB Garamond', serif;
+  font-family: var(--ff-prose);
   font-size: 1.05rem;
   margin: 2rem 0;
 }
@@ -494,9 +570,11 @@ strong {
 .manuscript-table th {
   text-align: left;
   padding: 0.85rem 1rem;
-  font-family: 'IM Fell English', serif;
-  font-weight: 400;
-  font-size: 1.1rem;
+  font-family: var(--ff-display);
+  font-weight: 500;
+  font-size: 0.9rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   border-bottom: 2px solid var(--ink);
   color: var(--ink);
   background: var(--parchment-aged);
@@ -519,7 +597,7 @@ strong {
 /* ============ Pull quote ============ */
 
 .pull-quote {
-  font-family: 'IM Fell English', serif;
+  font-family: var(--ff-manuscript);
   font-style: italic;
   font-size: 1.65rem;
   line-height: 1.35;
@@ -555,7 +633,7 @@ strong {
   left: 1rem;
   background: var(--parchment);
   padding: 0 0.5rem;
-  font-family: 'VT323', monospace;
+  font-family: var(--ff-mono);
   font-size: 0.8rem;
   letter-spacing: 0.15em;
   color: var(--ink-soft);

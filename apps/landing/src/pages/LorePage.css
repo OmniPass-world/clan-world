@@ -13,14 +13,16 @@
 }
 
 .lore-title {
-  font-family: 'IM Fell English', serif;
+  font-family: var(--ff-display);
   margin-bottom: 1.5rem;
   line-height: 1;
 }
 
 .lore-title-pre {
   display: block;
+  font-family: var(--ff-manuscript);
   font-style: italic;
+  font-weight: 400;
   font-size: 1.5rem;
   color: var(--ink-soft);
   margin-bottom: 0.5rem;
@@ -28,17 +30,22 @@
 
 .lore-title-main {
   display: block;
-  font-size: clamp(2.75rem, 7vw, 5.5rem);
+  font-family: var(--ff-display);
+  font-weight: 700;
+  font-size: clamp(2.75rem, 7vw, 5rem);
   color: var(--ink);
-  letter-spacing: -0.005em;
+  letter-spacing: 0.01em;
 }
 
 .lore-title-italic {
   display: block;
+  font-family: var(--ff-manuscript);
   font-style: italic;
+  font-weight: 400;
   font-size: clamp(1.75rem, 4vw, 3rem);
   color: var(--vermillion);
-  margin-top: 0.25rem;
+  margin-top: 0.5rem;
+  letter-spacing: 0.005em;
 }
 
 .lore-subtitle {
@@ -97,7 +104,7 @@
   position: relative;
   margin-bottom: 0.5rem;
   padding-left: 2.25rem;
-  font-family: 'EB Garamond', serif;
+  font-family: var(--ff-prose);
 }
 
 .lore-toc-section ol {
@@ -108,7 +115,7 @@
   content: counter(toc-counter, upper-roman) '.';
   position: absolute;
   left: 0;
-  font-family: 'IM Fell English', serif;
+  font-family: var(--ff-manuscript);
   font-style: italic;
   color: var(--gold-leaf);
   width: 2rem;
@@ -147,9 +154,10 @@
 }
 
 .chapter-title {
-  font-family: 'IM Fell English', serif;
+  font-family: var(--ff-manuscript);
   font-size: clamp(2.25rem, 5vw, 3.5rem);
   font-style: italic;
+  font-weight: 400;
   line-height: 1.05;
   color: var(--ink);
   margin-bottom: 0;
@@ -165,9 +173,10 @@
 }
 
 .subhead {
-  font-family: 'IM Fell English', serif;
+  font-family: var(--ff-manuscript);
   font-size: 1.5rem;
   font-style: italic;
+  font-weight: 400;
   color: var(--vermillion);
   margin-top: 2.5rem;
   margin-bottom: 1.25rem;
@@ -211,7 +220,7 @@
 }
 
 .house-name {
-  font-family: 'IM Fell English', serif;
+  font-family: var(--ff-manuscript);
   font-size: 1.2rem;
   color: var(--ink);
   font-style: italic;
@@ -257,8 +266,10 @@
 }
 
 .transition-title {
-  font-family: 'IM Fell English', serif;
+  font-family: var(--ff-display);
+  font-weight: 500;
   font-size: clamp(2rem, 4.5vw, 3.25rem);
+  letter-spacing: 0.01em;
   line-height: 1.25;
   color: var(--ink);
   max-width: 32rem;
@@ -266,8 +277,10 @@
 }
 
 .transition-title .italic {
+  font-family: var(--ff-manuscript);
+  font-weight: 400;
   color: var(--vermillion);
-  font-size: 0.85em;
+  font-size: 0.9em;
 }
 
 .transition-sub {
@@ -326,7 +339,7 @@
 }
 
 .bar-label {
-  font-family: 'IM Fell English', serif;
+  font-family: var(--ff-manuscript);
   font-style: italic;
   color: var(--ink);
   font-size: 1rem;
@@ -351,7 +364,7 @@
 }
 
 .bar-value {
-  font-family: 'VT323', monospace;
+  font-family: var(--ff-mono);
   font-size: 0.9rem;
   color: var(--parchment);
   letter-spacing: 0.05em;
@@ -384,7 +397,7 @@
 }
 
 .vault-side-title {
-  font-family: 'IM Fell English', serif;
+  font-family: var(--ff-manuscript);
   font-style: italic;
   font-size: 1.25rem;
   color: var(--vermillion);
@@ -404,7 +417,7 @@
 
 .compact-table .num {
   text-align: right;
-  font-family: 'VT323', monospace;
+  font-family: var(--ff-mono);
   font-size: 1.15rem;
   color: var(--vermillion);
 }
@@ -446,7 +459,7 @@
 }
 
 .bestiary-tier {
-  font-family: 'IM Fell English', serif;
+  font-family: var(--ff-manuscript);
   font-style: italic;
   font-size: 1.5rem;
   color: var(--vermillion);
@@ -454,7 +467,7 @@
 }
 
 .num {
-  font-family: 'VT323', monospace;
+  font-family: var(--ff-mono);
   font-size: 1.1rem;
   color: var(--ink);
 }
@@ -482,7 +495,7 @@
 .combat-formula::after { bottom: -6px; right: -6px; border-left: none; border-top: none; }
 
 .formula-script {
-  font-family: 'IM Fell English', serif;
+  font-family: var(--ff-manuscript);
   font-style: italic;
   font-size: clamp(1.25rem, 3vw, 1.75rem);
   line-height: 1.6;
@@ -543,7 +556,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: 'IM Fell English', serif;
+  font-family: var(--ff-manuscript);
   font-style: italic;
   font-size: 1rem;
   white-space: nowrap;
@@ -628,7 +641,7 @@
   margin: 0 auto;
   position: relative;
   color: var(--parchment);
-  font-family: 'VT323', monospace;
+  font-family: var(--ff-mono);
   font-size: 0.9rem;
 }
 
@@ -697,7 +710,7 @@
 }
 
 .market-name {
-  font-family: 'IM Fell English', serif;
+  font-family: var(--ff-manuscript);
   font-style: italic;
   font-size: 1.35rem;
   color: var(--ink);
@@ -711,7 +724,7 @@
 }
 
 .market-price {
-  font-family: 'IM Fell English', serif;
+  font-family: var(--ff-manuscript);
   font-size: 1.5rem;
   color: var(--vermillion);
   margin-bottom: 0.25rem;
@@ -737,7 +750,7 @@
 }
 
 .coda-title {
-  font-family: 'IM Fell English', serif;
+  font-family: var(--ff-manuscript);
   font-style: italic;
   font-size: clamp(2rem, 5vw, 3.25rem);
   margin-bottom: 1.5rem;
