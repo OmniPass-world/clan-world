@@ -90,8 +90,26 @@ export function App() {
   }
 
   return (
-    <main style={{ background: '#0d1a0d', minHeight: '100vh' }}>
-      <h1 style={{ color: 'white', fontFamily: 'monospace', padding: '8px' }}>
+    <main
+      style={{
+        background: '#0d1a0d',
+        minHeight: '100dvh',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <h1
+        style={{
+          color: 'white',
+          fontFamily: '"Cinzel", "Times New Roman", serif',
+          fontSize: 20,
+          letterSpacing: '0.12em',
+          margin: 0,
+          padding: '14px 12px 10px',
+          lineHeight: 1,
+          flex: '0 0 auto',
+        }}
+      >
         ClanWorld
       </h1>
       {!verified && (
