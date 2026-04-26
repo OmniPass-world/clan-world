@@ -118,6 +118,8 @@ If `Gate 4 (soft)` hasn't fired by H5:
 
 - **Time-box every task.** If a task takes >25 min over its slot estimate, **cut and use the stub.**
 - **Commit at every gate.** Even partial work — branches must build.
+- **Minimal tests only.** Happy-path + a few important error cases. No regression suites, no coverage chasing. Full rule: `docs/conventions/hackathon-rules.md`.
+- **Env var simplicity.** ONE env var per concept, sensible defaults, no duplicates, no backwards-compat shims. Full rule: `docs/conventions/hackathon-rules.md`.
 - **Cut if behind** (priority order):
   1. Real Elders → mock Elders (orchestrator emits canned orders).
   2. Pixi sprites → SVG region polygons only.

@@ -39,7 +39,14 @@ Submission 1 is a thin wrapper — MiniKit + idkit are listed as deps and mentio
 - All 3 local reviewers (Claude subagent → Codex → Gemini flash) must be GREEN before opening a PR. Cloud is a single sanity pass per the cloud-thrift policy.
 - Full rules: `docs/conventions/gitflow.md`.
 
-## 4. Integration Boundaries (the contract)
+## 4. Hackathon Coding Rules
+
+Hackathon time is the bottleneck. Two rules override default coding instincts. Full rationale + examples: `docs/conventions/hackathon-rules.md`.
+
+- **Minimal tests only.** Happy-path + a few important error cases. NO regression tests, exhaustive coverage, edge-case spam, or "test for completeness" suites. A failing happy-path test is the only kind that should block a PR. Applies to vitest, playwright, forge test in any package.
+- **Env var simplicity.** ONE env var per concept, with sensible defaults. NO duplicate env vars for the same value. NO backwards-compat shims when renaming/upgrading — this codebase has no production users yet, break things freely. Minimum config to deploy. Applies to `.env.template`, every adapter factory, every config file.
+
+## 5. Integration Boundaries (the contract)
 
 Every parallel stream talks to its dependencies through one of four adapter interfaces in `packages/shared/src/adapters/`. Stubs and reals coexist; the factory chooses based on env vars.
 
@@ -52,7 +59,7 @@ Every parallel stream talks to its dependencies through one of four adapter inte
 
 Pattern + worked example: `docs/conventions/adapter-interfaces.md`.
 
-## 5. Validated Architecture Decisions
+## 6. Validated Architecture Decisions
 
 Per `docs/planning/V1/07 clanworld_v4_5_alignment_addendum.md` (authoritative; supersedes prior specs).
 
@@ -69,7 +76,7 @@ Per `docs/planning/V1/07 clanworld_v4_5_alignment_addendum.md` (authoritative; s
 
 Full extraction: `docs/reference/architecture-decisions.md`.
 
-## 6. Environment & Secrets
+## 7. Environment & Secrets
 
 - `.env.template` at repo root lists every variable the system reads.
 - Copy to `.env.local` (gitignored) and fill values. Never commit real secrets.
@@ -77,7 +84,7 @@ Full extraction: `docs/reference/architecture-decisions.md`.
 - Two-wallet model for Submission 2: agent wallets hold no real funds; treasury wallet is offline-signed only.
 - For the do-box / shared host: per-package OAuth via Claude Code session, not API keys (per `~/claudes-world` ADR 0013).
 
-## 7. Progressive Discovery Index
+## 8. Progressive Discovery Index
 
 Start at the package-level `AGENTS.md` for whatever you're touching, then dive into `docs/` only when you need the deeper context.
 
@@ -108,7 +115,7 @@ Start at the package-level `AGENTS.md` for whatever you're touching, then dive i
 
 **Build plan:** `BUILD_PLAN.md` (Submission 1 hour-by-hour). Submission 2 plan written when S1 ships.
 
-## 8. PR / Code Review
+## 9. PR / Code Review
 
 - One PR per issue. PR body must include `Closes #N`.
 - Run the local 3-tier swarm before opening the PR (Claude subagent + Codex + Gemini flash). All three GREEN.
@@ -116,7 +123,7 @@ Start at the package-level `AGENTS.md` for whatever you're touching, then dive i
 - Conventional commit messages, scope tagged: `feat(scope): …`, `fix(scope): …`, `docs(scope): …`, `chore(scope): …`.
 - Hackathon discipline: speed > polish, but every gate commit must be on a branch that builds and typechecks.
 
-## 9. Security
+## 10. Security
 
 - **No real funds in agent wallets.** Agents transact with testnet faucet funds only.
 - **Two-wallet model (S2):** treasury wallet for high-value ops is offline-signed; agent wallets are hot but capped.
