@@ -4,6 +4,7 @@
 >
 > | | Link |
 > |---|---|
+> | **Submission video** | https://youtube.com/shorts/BCpLRwSvReI (3-min YouTube short) |
 > | **Live mini app** | https://app.clan-world.com — open inside World App or in any browser |
 > | **Landing page** | https://clan-world.com |
 > | **Submission 1 release branch** | [`release/worldbuild-FINAL`](https://github.com/OmniPass-world/clan-world/tree/release/worldbuild-FINAL) (frozen at submission state) |
@@ -11,9 +12,10 @@
 > | **Submission Notion form** | https://worldbuildlabs.notion.site/304f949f7ec0809b9b39f7d1f2147b9b |
 >
 > **What to look at first:**
-> 1. Open https://app.clan-world.com in any browser. The mini app is a Pixi.js canvas with 4 AI Elder bases (Iron Guard, Ember Hand, Dawn Watch, Storm Riders), real-time speech bubbles driven by a Convex backend, a parchment world-notice panel for events, and pinch-to-zoom on mobile.
-> 2. Skim the [Tech stack table](#tech-stack) below — it shows what's live (S1) vs. what's coming (S2).
-> 3. The release-branch tree (`release/worldbuild-FINAL`) contains every PR landed during the 8-hour build sprint. PR descriptions document the design choices.
+> 1. Watch the [3-min submission video](https://youtube.com/shorts/BCpLRwSvReI) — it shows the live mini app, the four Elders in motion, and the demo flow end-to-end.
+> 2. Open https://app.clan-world.com in any browser. The mini app is a Pixi.js canvas with 4 AI Elder bases (Iron Guard, Ember Hand, Dawn Watch, Storm Riders), real-time speech bubbles driven by a Convex backend, a parchment world-notice panel for events, and pinch-to-zoom on mobile.
+> 3. Skim the [Tech stack table](#tech-stack) below — it shows what's live (S1) vs. what's coming (S2).
+> 4. The release-branch tree (`release/worldbuild-FINAL`) contains every PR landed during the 8-hour build sprint. PR descriptions document the design choices.
 >
 > **What we built in 8 hours:** 41 PRs, 8-house landing page, 4-clan in-game roster with hand-curated 5-level base sprite sets, real clansman walking sprites, a Telegram-cue dispatcher for live demo recording, viewport pinch-zoom via `pixi-viewport`, parchment world-notice panel, 2-line speech bubbles with clan-colored Elder headers, Vercel monorepo per-app linkage, and Cloudflare DNS for the two custom domains.
 >
@@ -54,7 +56,7 @@ ClanWorld is a **World mini app** — wrapped with `@worldcoin/minikit-js` for i
 
 ## Demo
 
-🎥 [Demo video](https://youtube.com/placeholder) — recording in progress
+🎥 [Submission 1 demo video](https://youtube.com/shorts/BCpLRwSvReI) — 3-min YouTube short
 🌍 Live on World Chain Sepolia — contract `0xC012275376b867944cd874FB2d600d6dA3B4A56e`
 
 ## Quick start
