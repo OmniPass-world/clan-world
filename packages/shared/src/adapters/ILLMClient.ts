@@ -1,5 +1,6 @@
 // ILLMClient — abstraction over Elder reasoning backends.
-//   - AnthropicClient — direct Claude API (used by Submission 1 Elders)
+//   - StubLLMClient   — local no-network stub for dev/testing
+//   - AnthropicClient — direct Claude API (Wave 1+ narrator/utility uses)
 //   - ZeroGClient     — 0G sealed inference (Submission 2 OpenAgents Track 2 punchline)
 //
 // Note (per ~/claudes-world policy): Submission 1's Elders run as Claude Code sessions
@@ -9,6 +10,12 @@ import { readEnv } from './_env';
 
 export interface ILLMClient {
   complete(prompt: string): Promise<string>;
+}
+
+class StubLLMClient implements ILLMClient {
+  async complete(_prompt: string): Promise<string> {
+    return '[stub LLM response]';
+  }
 }
 
 class AnthropicClient implements ILLMClient {
@@ -24,7 +31,6 @@ class ZeroGClient implements ILLMClient {
 }
 
 export function createLLMClient(): ILLMClient {
-  return readEnv('CLAN_WORLD_USE_STUB_LLM') === 'true'
-    ? new AnthropicClient() // stub flag = use Anthropic; toggle to ZeroG when sealed inference lands
-    : new ZeroGClient();
+  if (readEnv('CLAN_WORLD_USE_STUB_LLM') === 'true') return new StubLLMClient();
+  return new AnthropicClient();
 }

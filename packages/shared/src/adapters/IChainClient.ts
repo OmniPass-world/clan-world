@@ -16,7 +16,7 @@ class StubChainClient implements IChainClient {
   }
   async getClanFullView(clanId: string): Promise<ClanFullView> {
     return {
-      clan: { id: clanId, name: `clan-${clanId}`, treasury: 0n },
+      clan: { id: clanId, name: `clan-${clanId}`, treasury: '0' },
       controlledRegions: [],
       pendingOrders: [],
       whispers: [],

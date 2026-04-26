@@ -1,8 +1,9 @@
-import type { Whisper, WorldSnapshot } from '../types';
+import type { ClanFullView, Whisper, WorldSnapshot } from '../types';
 import { readEnv } from './_env';
 
 export interface IConvexClient {
   getSnapshot(): Promise<WorldSnapshot>;
+  getClanFullView(clanId: string): Promise<ClanFullView>;
   postLog(level: 'info' | 'warn' | 'error', message: string): Promise<void>;
   subscribeWhispers(clanId: string, onWhisper: (w: Whisper) => void): () => void;
 }
@@ -14,6 +15,14 @@ class StubConvexClient implements IConvexClient {
       tickEpoch: { startedAt: 0, durationMs: 20_000 },
       regions: [],
       clans: [],
+    };
+  }
+  async getClanFullView(clanId: string): Promise<ClanFullView> {
+    return {
+      clan: { id: clanId, name: `Stub Clan ${clanId}`, treasury: '0' },
+      controlledRegions: [],
+      pendingOrders: [],
+      whispers: [],
     };
   }
   async postLog(_level: 'info' | 'warn' | 'error', _message: string): Promise<void> {
@@ -28,6 +37,9 @@ class StubConvexClient implements IConvexClient {
 
 class RealConvexClient implements IConvexClient {
   async getSnapshot(): Promise<WorldSnapshot> {
+    throw new Error('RealConvexClient: not implemented (Wave 1+)');
+  }
+  async getClanFullView(_clanId: string): Promise<ClanFullView> {
     throw new Error('RealConvexClient: not implemented (Wave 1+)');
   }
   async postLog(_level: 'info' | 'warn' | 'error', _message: string): Promise<void> {

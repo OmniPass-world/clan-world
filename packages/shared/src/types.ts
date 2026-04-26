@@ -20,8 +20,8 @@ export interface Region {
 export interface Clan {
   id: string;
   name: string;
-  /** Treasury balance in chain native units (wei equivalent). */
-  treasury: bigint;
+  /** Decimal string representation of wei amount; consumers parse with BigInt() if arithmetic needed. */
+  treasury: string;
 }
 
 export interface WorldSnapshot {
