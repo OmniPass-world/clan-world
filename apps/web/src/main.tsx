@@ -1,14 +1,22 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { ConvexProvider, ConvexReactClient } from 'convex/react';
+import { MiniKit } from '@worldcoin/minikit-js';
 import { App } from './App';
 
-// MiniKit + World ID integration TBD — Submission 1 wraps this app as a World mini app.
-// We'll initialize @worldcoin/minikit-js at the top of the tree and gate clan-mint
-// behind @worldcoin/idkit verification once the World hackathon UX requirements are
-// resolved (see docs/reference/sponsor-tech.md).
+// MiniKit v2: install() must be called before rendering in the World App webview.
+// No MiniKitProvider component in v2 — install() is a static class call.
+MiniKit.install(import.meta.env.VITE_WORLD_APP_ID);
+
+const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL ?? '');
+
+// Cast required: convex's React.FC type conflicts with @types/react@18.3 ReactNode (bigint addition)
+const Provider = ConvexProvider as React.ComponentType<{ client: ConvexReactClient; children?: React.ReactNode }>;
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    <Provider client={convex}>
+      <App />
+    </Provider>
   </React.StrictMode>,
 );

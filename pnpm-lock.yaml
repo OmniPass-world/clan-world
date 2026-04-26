@@ -89,6 +89,9 @@ importers:
       '@worldcoin/minikit-js':
         specifier: 2.0.3
         version: 2.0.3(react@18.3.1)(typescript@5.9.3)(viem@2.48.4(typescript@5.9.3))
+      convex:
+        specifier: 1.17.4
+        version: 1.17.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       pixi.js:
         specifier: ^8.18.1
         version: 8.18.1
@@ -2345,6 +2348,15 @@ snapshots:
   color-name@1.1.4: {}
 
   convert-source-map@2.0.0: {}
+
+  convex@1.17.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+    dependencies:
+      esbuild: 0.23.0
+      jwt-decode: 3.1.2
+      prettier: 3.2.5
+    optionalDependencies:
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
 
   convex@1.17.4(react-dom@19.2.5(react@19.2.5))(react@19.2.5):
     dependencies:
