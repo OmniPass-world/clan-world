@@ -1,20 +1,10 @@
-import type { WorldSnapshot } from '@clan-world/shared';
-
-const mockSnapshot: WorldSnapshot = {
-  tick: 0,
-  tickEpoch: { startedAt: 0, durationMs: 20_000 },
-  regions: [],
-  clans: [],
-};
+import { WorldMap } from './WorldMap';
 
 export function App() {
   return (
-    <main style={{ fontFamily: 'system-ui, sans-serif', padding: '2rem' }}>
-      <h1>Hello ClanWorld</h1>
-      <p>Wave 0 placeholder. Mock snapshot:</p>
-      <pre style={{ background: '#f6f6f6', padding: '1rem', borderRadius: 8 }}>
-        {JSON.stringify(mockSnapshot, null, 2)}
-      </pre>
+    <main style={{ background: '#0d1a0d', minHeight: '100vh' }}>
+      <h1 style={{ color: 'white', fontFamily: 'monospace', padding: '8px' }}>ClanWorld v0.2.0</h1>
+      <WorldMap />
     </main>
   );
 }
