@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from 'convex/react';
 import { type FunctionReference, anyApi } from 'convex/server';
 import { Application, Assets, Container, Graphics, Sprite, Text } from 'pixi.js';
 import { Viewport } from 'pixi-viewport';
 import { useAgentLogs, type AgentLog } from './useAgentLogs';
+import { WorldNoticePanel } from './WorldNoticePanel';
 import worldMapBg from './assets/world-map.png';
 
 // World dimensions used by pixi-viewport for pan/clamp/center math.
@@ -80,12 +81,19 @@ const HOLD_MS = 4500;
 const FADE_OUT_MS = 500;
 const MAX_BUBBLES_PER_CLAN = 3;
 
+// Tail visual constants — tuned for high contrast against dark/textured background.
+const BUBBLE_TAIL_HEIGHT = 14;       // Tall enough to read as a pointer, not a chin.
+const BUBBLE_TAIL_HALF_WIDTH = 7;    // Wide-ish base on the bubble side.
+const BUBBLE_TAIL_OUTLINE = 0xffffff;
+const BUBBLE_TAIL_OUTLINE_WIDTH = 2;
+
 type BubbleHandle = {
   container: Container;
   bornAt: number;
   lifeMs: number;
   height: number; // backdrop + tail; used for vertical stacking
   clanId: string;
+  tail: Graphics; // separate from backdrop so we can hide it on stacked (non-bottom) bubbles
 };
 
 // Worker travel animation (PR #44) — small clan-colored dots crossing between regions.
@@ -285,6 +293,14 @@ export function WorldMap() {
   const logs = useAgentLogs();
   const snapshot = useQuery(getSnapshotRef) as SnapshotData | undefined;
 
+  // Derived live tick counter — the worldSnapshot.tick field is currently
+  // unwritten by the orchestrator script (it only writes to agentLogs), so
+  // we surface a moving counter by deriving from log count. Floors at the
+  // snapshot value so we never go BACKWARDS if the schema is wired later.
+  const liveTick = useMemo(() => {
+    return Math.max(snapshot?.tick ?? 0, logs.length);
+  }, [logs, snapshot?.tick]);
+
   // ---- Pixi init ------------------------------------------------------------
   useEffect(() => {
     let mounted = true;
@@ -396,6 +412,8 @@ export function WorldMap() {
               }
             }
             // Restack: oldest closest to flag, newest on top.
+            // Only the bottommost bubble (index 0) shows its tail — upper bubbles
+            // would point to empty air, which looks broken.
             const anchor = flagAnchorsRef.current.get(clanId);
             if (anchor && list.length > 0) {
               let cursorY = anchor.y - BUBBLE_FLAG_OFFSET_Y;
@@ -404,6 +422,7 @@ export function WorldMap() {
                 if (!b) continue;
                 b.container.x = anchor.x;
                 b.container.y = cursorY;
+                b.tail.visible = i === 0;
                 cursorY -= b.height + BUBBLE_STACK_GAP;
               }
             }
@@ -1024,7 +1043,8 @@ export function WorldMap() {
       if (!clanId) continue; // skip unattributable logs (rather than corner-clutter)
 
       const msg = log.message.slice(0, 240);
-      const handle = makeBubble(msg, clanId);
+      const clanColor = MOCK_CLANS.find(c => c.id === clanId)?.color ?? 0xcccccc;
+      const handle = makeBubble(msg, clanId, clanColor);
       layer.addChild(handle.container);
 
       const list = bubblesByClanRef.current.get(clanId) ?? [];
@@ -1192,11 +1212,9 @@ export function WorldMap() {
           maxWidth: '70%',
         }}
       >
-        {snapshot?.tick !== undefined && (
-          <div style={{ color: '#e8d68f', fontWeight: 600, letterSpacing: '0.05em' }}>
-            tick {snapshot.tick}
-          </div>
-        )}
+        <div style={{ color: '#e8d68f', fontWeight: 600, letterSpacing: '0.05em' }}>
+          tick {liveTick}
+        </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', opacity: 0.85 }}>
           {scoreboardClans.map((c) => {
             const initials =
@@ -1213,16 +1231,26 @@ export function WorldMap() {
           })}
         </div>
       </div>
+
+      {/* World-level notice parchment — bottom-center, surfaces warn-level
+          WORLD events (bandits, raids, weather). Distinct from per-clan
+          speech bubbles. */}
+      <WorldNoticePanel />
     </div>
   );
 }
 
 /**
- * Build one speech bubble (PR #43).
- * Container origin = the anchor on the flag (= bottom tip of the tail).
+ * Build one speech bubble (PR #43, tail-rework PR for hackathon).
+ * Container origin = the anchor on the base sprite (= tip of the tail).
  * Backdrop is drawn ABOVE the origin; tail points down to (0, 0).
+ *
+ * The tail is a separate Graphics object so the ticker can hide it on
+ * stacked (non-bottom) bubbles. Tail uses clan color + thick white outline
+ * so it's clearly visible against dark/textured backgrounds and visually
+ * attributes the bubble to its base.
  */
-function makeBubble(message: string, clanId: string): BubbleHandle {
+function makeBubble(message: string, clanId: string, clanColor: number): BubbleHandle {
   const container = new Container();
   container.alpha = 0;
 
@@ -1243,21 +1271,29 @@ function makeBubble(message: string, clanId: string): BubbleHandle {
   const w = textW + BUBBLE_PAD_X * 2;
   const h = textH + BUBBLE_PAD_Y * 2;
 
-  const tailH = 8;
+  const tailH = BUBBLE_TAIL_HEIGHT;
   const backdrop = new Graphics();
   const bx = -w / 2;
   const by = -h - tailH;
   backdrop.roundRect(bx, by, w, h, BUBBLE_CORNER);
   backdrop.fill({ color: BUBBLE_FILL, alpha: BUBBLE_FILL_ALPHA });
-
-  // Tail triangle: from backdrop bottom edge down to the anchor (0, 0)
-  backdrop.moveTo(-6, -tailH);
-  backdrop.lineTo(6, -tailH);
-  backdrop.lineTo(0, 0);
-  backdrop.closePath();
-  backdrop.fill({ color: BUBBLE_FILL, alpha: BUBBLE_FILL_ALPHA });
+  backdrop.stroke({ color: clanColor, width: 1.5, alpha: 0.85 });
 
   container.addChild(backdrop);
+
+  // Tail: clan-colored fill with thick white outline. Drawn as a separate
+  // Graphics so the ticker can hide it on non-bottom (stacked) bubbles —
+  // upper-stack tails would point to empty air and look broken.
+  const tail = new Graphics();
+  // Triangle: top edge sits flush with backdrop bottom (y = -tailH),
+  // tip at (0, 0) which is the anchor on the base sprite.
+  tail.moveTo(-BUBBLE_TAIL_HALF_WIDTH, -tailH);
+  tail.lineTo(BUBBLE_TAIL_HALF_WIDTH, -tailH);
+  tail.lineTo(0, 0);
+  tail.closePath();
+  tail.fill({ color: clanColor, alpha: 1 });
+  tail.stroke({ color: BUBBLE_TAIL_OUTLINE, width: BUBBLE_TAIL_OUTLINE_WIDTH, alpha: 1 });
+  container.addChild(tail);
 
   text.x = bx + BUBBLE_PAD_X;
   text.y = by + BUBBLE_PAD_Y;
@@ -1269,5 +1305,6 @@ function makeBubble(message: string, clanId: string): BubbleHandle {
     lifeMs: FADE_IN_MS + HOLD_MS + FADE_OUT_MS,
     height: h + tailH,
     clanId,
+    tail,
   };
 }
