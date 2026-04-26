@@ -42,6 +42,10 @@ export function App() {
 
   useEffect(() => {
     if (!isSuccess || result === null) return;
+    if (!CONVEX_SITE_URL) {
+      console.error('CONVEX_SITE_URL not set — VITE_CONVEX_URL missing');
+      return;
+    }
     fetch(`${CONVEX_SITE_URL}/api/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

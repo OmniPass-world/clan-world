@@ -1,4 +1,4 @@
-import { httpAction, internalMutation, internalQuery } from './_generated/server';
+import { httpAction, internalMutation } from './_generated/server';
 import { internal } from './_generated/api';
 import { v } from 'convex/values';
 
@@ -7,21 +7,16 @@ const corsHeaders = {
   'Content-Type': 'application/json',
 };
 
-export const isNullifierVerified = internalQuery({
+export const checkAndInsertNullifier = internalMutation({
   args: { nullifier: v.string() },
   handler: async (ctx, { nullifier }) => {
     const existing = await ctx.db
       .query('verifiedNullifiers')
       .withIndex('by_nullifier', (q) => q.eq('nullifier', nullifier))
       .first();
-    return existing !== null;
-  },
-});
-
-export const insertNullifier = internalMutation({
-  args: { nullifier: v.string() },
-  handler: async (ctx, { nullifier }) => {
+    if (existing) return { alreadyExists: true };
     await ctx.db.insert('verifiedNullifiers', { nullifier });
+    return { alreadyExists: false };
   },
 });
 
@@ -47,11 +42,12 @@ export const verifyWorldId = httpAction(async (ctx, request) => {
     });
   }
 
-  // Idempotency: return success without re-verifying if already stored
-  const alreadyVerified = await ctx.runQuery(internal.verify.isNullifierVerified, {
-    nullifier: nullifier_hash,
-  });
-  if (alreadyVerified) {
+  // Idempotency: atomic check-and-insert inside one serialized mutation
+  const { alreadyExists } = await ctx.runMutation(
+    internal.verify.checkAndInsertNullifier,
+    { nullifier: nullifier_hash },
+  );
+  if (alreadyExists) {
     return new Response(JSON.stringify({ success: true, cached: true }), {
       status: 200,
       headers: corsHeaders,
@@ -78,9 +74,6 @@ export const verifyWorldId = httpAction(async (ctx, request) => {
       headers: corsHeaders,
     });
   }
-
-  // Persist nullifier to prevent replay attacks
-  await ctx.runMutation(internal.verify.insertNullifier, { nullifier: nullifier_hash });
 
   return new Response(JSON.stringify({ success: true }), {
     status: 200,
