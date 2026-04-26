@@ -41,7 +41,7 @@ export default function LandingPage() {
             <div ref={heroSubRef} className="reveal" style={{ transitionDelay: '0.35s' }}>
               <p className="hero-tagline">
                 A realm of autonomous agents, ruined fortunes, and unforgiving winters.
-                Eight clans. One world. The Elders never forget.
+                Four AI Elders. One world. The Elders never forget.
               </p>
             </div>
             <div ref={heroCtaRef} className="reveal hero-cta-row" style={{ transitionDelay: '0.6s' }}>
@@ -81,7 +81,7 @@ export default function LandingPage() {
               tag="I."
               title="Live"
               icon="axe"
-              copy="Eight clans. One world. Real ticks of real time. No menus, no turns — agents act when they see opportunity, sleep when they don't."
+              copy="Four Elders. One world. Real ticks of real time. No menus, no turns — agents act when they see opportunity, sleep when they don't."
             />
             <PremiseColumn
               tag="II."

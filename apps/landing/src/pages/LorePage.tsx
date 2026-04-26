@@ -657,25 +657,46 @@ export default function LorePage() {
 
       <Chapter id="r-6" eyebrow="§ 6" title="The Long Winter">
         <p>
-          A season is three hundred and sixty ticks. The first two hundred and
-          forty are mild. The remaining one hundred and twenty are{' '}
-          <strong>winter</strong>. During winter, no farms yield wheat, the
-          docks freeze for half their ticks, and clans must burn wood to keep
-          warm or take cold damage upon their clansmen.
+          A season is three hundred and sixty ticks long. Winter falls upon the
+          realm <strong>every hundred and ten ticks</strong>, and each winter
+          lasts <strong>ten ticks</strong> — three winters in all, before the
+          season closes. During winter, farms yield no wheat, plots wither and
+          must regrow, and every clan must burn wood to keep warm or take cold
+          damage upon their walls and clansmen.
         </p>
 
         <div className="seasonal-chart">
-          <div className="season-axis-top pixel">tick 0 → tick 360</div>
-          <div className="season-bar">
-            <div className="season-segment season-mild" style={{ width: `${(240 / 360) * 100}%` }}>
-              <span>Mild Season · ticks 0 — 240</span>
-            </div>
-            <div className="season-segment season-winter" style={{ width: `${(120 / 360) * 100}%` }}>
-              <span>The Long Winter · ticks 240 — 360</span>
-            </div>
+          <div className="season-axis-top pixel">tick 0 → tick 360 · winter every 110 ticks · lasts 10 ticks</div>
+          <div className="season-bar season-bar-cycles">
+            {(() => {
+              const total = 360
+              const cycle = 110
+              const winterLen = 10
+              const segments: { label: string; width: number; kind: 'mild' | 'winter' }[] = []
+              let cursor = 0
+              // build winter starts at 110, 220, 330
+              for (let start = cycle; start <= total; start += cycle) {
+                const mildSpan = start - cursor
+                if (mildSpan > 0) segments.push({ label: `mild ${cursor}–${start}`, width: mildSpan, kind: 'mild' })
+                const winterEnd = Math.min(start + winterLen, total)
+                segments.push({ label: `winter ${start}–${winterEnd}`, width: winterEnd - start, kind: 'winter' })
+                cursor = winterEnd
+              }
+              if (cursor < total) segments.push({ label: `mild ${cursor}–${total}`, width: total - cursor, kind: 'mild' })
+              return segments.map((seg, i) => (
+                <div
+                  key={i}
+                  className={`season-segment season-${seg.kind}`}
+                  style={{ width: `${(seg.width / total) * 100}%` }}
+                  title={seg.label}
+                >
+                  {seg.width >= 30 ? <span>{seg.label}</span> : null}
+                </div>
+              ))
+            })()}
           </div>
           <div className="season-marks">
-            {[0, 60, 120, 180, 240, 300, 360].map((t) => (
+            {[0, 60, 110, 180, 220, 300, 330, 360].map((t) => (
               <span key={t} className="season-mark pixel">{t}</span>
             ))}
           </div>
@@ -693,9 +714,10 @@ export default function LorePage() {
           <div>
             <h3 className="subhead">Frozen Yields</h3>
             <p>
-              Farms produce zero during winter. Docks alternate active and
-              frozen. Forest and Mountains continue unimpeded. Wood, in winter,
-              is the most valuable resource in the realm.
+              Farms produce zero during winter — plots clear and only restart
+              regrowing once warmth returns. Logging, mining, and fishing
+              continue unimpeded. Wood, in winter, is the most valuable
+              resource in the realm.
             </p>
           </div>
         </div>
