@@ -1,0 +1,18 @@
+{
+  "chainId": 4801,
+  "ClanWorldStub": "0xC012275376b867944cd874FB2d600d6dA3B4A56e",
+  "tokens": {
+    "wood": "0x994aAef88d06fbea7D99E0F3Ae6f04B59b829669",
+    "iron": "0x55c1857EAe48c03c31A0ca533A893Ae113bfBc0c",
+    "wheat": "0x93108a0494a6C160ffD20Cf27A4904E9ea0145ad",
+    "fish": "0xE2c55D1967F45AF90120a80FA82918FB530566FD",
+    "gold": "0xf0D6CFe1c8733eF2b8D45A6bB59E022f20cbE2ea",
+    "blueprint": "0xf9eD9605cFDE5D1BE2fac9024c6794F8c6e03D0A"
+  },
+  "pools": {
+    "woodGold": "0xfCDFD3f29fEeCa7a409Ade1C863E1D75bB9F285E",
+    "wheatGold": "0x94c49504053D8074265cC237A73080cb338E7f0B",
+    "fishGold": "0x29FCbf0f17eB8f91eE9eb554a7f9D074243BCd0C",
+    "ironGold": "0x9630Ab52756Cc090b058860436961F06688d871a"
+  }
+}
