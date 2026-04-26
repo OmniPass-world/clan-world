@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Application, Graphics, Text } from 'pixi.js';
+import { Application, Assets, Graphics, Sprite, Text } from 'pixi.js';
 import { useAgentLogs } from './useAgentLogs';
 
 interface RegionDef {
@@ -15,6 +15,7 @@ interface ClanDef {
   name: string;
   homeRegion: string;
   color: number;
+  sigil: string;
 }
 
 const REGIONS: RegionDef[] = [
@@ -29,11 +30,13 @@ const REGIONS: RegionDef[] = [
 ];
 
 const MOCK_CLANS: ClanDef[] = [
-  { id: 'clan-iron',  name: 'Iron Guard',   homeRegion: 'forest',     color: 0x4488cc },
-  { id: 'clan-ember', name: 'Ember Hand',   homeRegion: 'mountains',  color: 0xcc4422 },
-  { id: 'clan-dawn',  name: 'Dawn Watch',   homeRegion: 'west-farms', color: 0xccaa22 },
-  { id: 'clan-storm', name: 'Storm Riders', homeRegion: 'east-farms', color: 0x44aacc },
+  { id: 'clan-iron',  name: 'Iron Guard',   homeRegion: 'forest',     color: 0x4488cc, sigil: '/sigils/iron-guard-sigil.png' },
+  { id: 'clan-ember', name: 'Ember Hand',   homeRegion: 'mountains',  color: 0xcc4422, sigil: '/sigils/ember-hand-sigil.png' },
+  { id: 'clan-dawn',  name: 'Dawn Watch',   homeRegion: 'west-farms', color: 0xccaa22, sigil: '/sigils/dawn-watch-sigil.png' },
+  { id: 'clan-storm', name: 'Storm Riders', homeRegion: 'east-farms', color: 0x44aacc, sigil: '/sigils/storm-riders-sigil.png' },
 ];
+
+const SIGIL_SIZE = 36;
 
 export function WorldMap() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -72,27 +75,45 @@ export function WorldMap() {
         app.stage.addChild(label);
       }
 
-      // Draw clan flags at homebase regions
+      // Draw clan sigils at homebase regions
       for (const clan of MOCK_CLANS) {
         const base = regionMap.get(clan.homeRegion);
         if (!base) continue;
 
-        const flagX = base.x + 18;
-        const flagY = base.y - 38;
+        const sigilX = base.x + 18;
+        const sigilY = base.y - 46;
 
-        const flag = new Graphics();
-        flag.rect(flagX, flagY, 20, 20);
-        flag.fill({ color: clan.color });
-        flag.stroke({ color: 0xffffff, width: 1 });
-        app.stage.addChild(flag);
+        // Fallback rectangle drawn immediately while sprite loads async.
+        const fallback = new Graphics();
+        fallback.rect(sigilX, sigilY, SIGIL_SIZE, SIGIL_SIZE);
+        fallback.fill({ color: clan.color, alpha: 0.85 });
+        fallback.stroke({ color: 0xffffff, width: 1 });
+        app.stage.addChild(fallback);
+
+        // Async sprite load — replaces fallback once texture is ready.
+        Assets.load(clan.sigil)
+          .then((texture) => {
+            if (!mounted) return;
+            const sprite = new Sprite(texture);
+            sprite.width = SIGIL_SIZE;
+            sprite.height = SIGIL_SIZE;
+            sprite.x = sigilX;
+            sprite.y = sigilY;
+            app.stage.addChild(sprite);
+            // Remove fallback once sprite is up.
+            fallback.destroy();
+          })
+          .catch(() => {
+            // Keep fallback visible if sprite fails to load.
+          });
 
         const clanLabel = new Text({
           text: clan.name,
           style: { fill: clan.color, fontSize: 10, fontFamily: 'monospace', fontWeight: 'bold' },
         });
         clanLabel.anchor.set(0, 1);
-        clanLabel.x = flagX + 24;
-        clanLabel.y = flagY + 20;
+        clanLabel.x = sigilX + SIGIL_SIZE + 4;
+        clanLabel.y = sigilY + SIGIL_SIZE;
         app.stage.addChild(clanLabel);
       }
 
