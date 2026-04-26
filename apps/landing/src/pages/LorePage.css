@@ -1,0 +1,761 @@
+/* ============ Frontispiece ============ */
+
+.lore-front {
+  padding: 5rem 0 4rem;
+  text-align: center;
+}
+
+.lore-eyebrow {
+  font-size: 0.85rem !important;
+  letter-spacing: 0.3em !important;
+  color: var(--gold-leaf) !important;
+  margin-bottom: 1.5rem;
+}
+
+.lore-title {
+  font-family: 'IM Fell English', serif;
+  margin-bottom: 1.5rem;
+  line-height: 1;
+}
+
+.lore-title-pre {
+  display: block;
+  font-style: italic;
+  font-size: 1.5rem;
+  color: var(--ink-soft);
+  margin-bottom: 0.5rem;
+}
+
+.lore-title-main {
+  display: block;
+  font-size: clamp(2.75rem, 7vw, 5.5rem);
+  color: var(--ink);
+  letter-spacing: -0.005em;
+}
+
+.lore-title-italic {
+  display: block;
+  font-style: italic;
+  font-size: clamp(1.75rem, 4vw, 3rem);
+  color: var(--vermillion);
+  margin-top: 0.25rem;
+}
+
+.lore-subtitle {
+  font-size: 1.2rem;
+  line-height: 1.6;
+  color: var(--ink-soft);
+  max-width: 32rem;
+  margin: 0 auto 3rem;
+}
+
+.lore-toc {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3rem;
+  max-width: 36rem;
+  margin: 3rem auto 0;
+  padding: 2rem;
+  background: var(--parchment-aged);
+  border: 1px solid var(--ink);
+  position: relative;
+}
+
+.lore-toc::before,
+.lore-toc::after {
+  content: '';
+  position: absolute;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 1.5px solid var(--gold-leaf);
+}
+.lore-toc::before { top: -6px; left: -6px; border-right: none; border-bottom: none; }
+.lore-toc::after { bottom: -6px; right: -6px; border-left: none; border-top: none; }
+
+@media (max-width: 600px) {
+  .lore-toc { grid-template-columns: 1fr; gap: 1.5rem; }
+}
+
+.toc-label {
+  font-size: 0.75rem !important;
+  letter-spacing: 0.2em !important;
+  color: var(--vermillion) !important;
+  display: block;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--ink-faded);
+  padding-bottom: 0.5rem;
+  text-align: left;
+}
+
+.lore-toc ol {
+  list-style: none;
+  text-align: left;
+}
+
+.lore-toc ol li {
+  counter-increment: toc-counter;
+  position: relative;
+  margin-bottom: 0.5rem;
+  padding-left: 2.25rem;
+  font-family: 'EB Garamond', serif;
+}
+
+.lore-toc-section ol {
+  counter-reset: toc-counter;
+}
+
+.lore-toc ol li::before {
+  content: counter(toc-counter, upper-roman) '.';
+  position: absolute;
+  left: 0;
+  font-family: 'IM Fell English', serif;
+  font-style: italic;
+  color: var(--gold-leaf);
+  width: 2rem;
+  text-align: right;
+  padding-right: 0.5rem;
+}
+
+.lore-toc a {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.lore-toc a:hover {
+  color: var(--vermillion);
+  text-decoration: underline;
+}
+
+/* ============ Chapter ============ */
+
+.chapter {
+  padding: 4rem 0 2rem;
+  scroll-margin-top: 5rem;
+}
+
+.chapter-header {
+  margin-bottom: 2.5rem;
+  border-bottom: 1px solid var(--gold-leaf);
+  padding-bottom: 1.5rem;
+}
+
+.chapter-eyebrow {
+  font-size: 0.85rem !important;
+  letter-spacing: 0.3em !important;
+  color: var(--vermillion) !important;
+  margin-bottom: 0.75rem;
+}
+
+.chapter-title {
+  font-family: 'IM Fell English', serif;
+  font-size: clamp(2.25rem, 5vw, 3.5rem);
+  font-style: italic;
+  line-height: 1.05;
+  color: var(--ink);
+  margin-bottom: 0;
+}
+
+.chapter-body {
+  font-size: 1.15rem;
+  line-height: 1.7;
+}
+
+.chapter-body p {
+  margin-bottom: 1.25rem;
+}
+
+.subhead {
+  font-family: 'IM Fell English', serif;
+  font-size: 1.5rem;
+  font-style: italic;
+  color: var(--vermillion);
+  margin-top: 2.5rem;
+  margin-bottom: 1.25rem;
+  letter-spacing: 0.005em;
+}
+
+/* ============ Anatomy diagram ============ */
+
+.anatomy-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2.5rem;
+  align-items: center;
+  margin: 2.5rem 0;
+}
+
+@media (max-width: 720px) {
+  .anatomy-grid { grid-template-columns: 1fr; }
+}
+
+.anatomy-svg svg {
+  width: 100%;
+  height: auto;
+  filter: drop-shadow(4px 4px 0 rgba(168, 124, 47, 0.15));
+}
+
+/* ============ Houses table ============ */
+
+.houses-table-wrap {
+  overflow-x: auto;
+  margin: 2rem -0.5rem;
+}
+
+.houses-table th,
+.houses-table td {
+  padding: 1rem 1rem !important;
+}
+
+.houses-table tr:hover td {
+  background: rgba(168, 124, 47, 0.08);
+}
+
+.house-name {
+  font-family: 'IM Fell English', serif;
+  font-size: 1.2rem;
+  color: var(--ink);
+  font-style: italic;
+}
+
+.houses-table svg {
+  display: block;
+}
+
+/* ============ Diplomacy diagram ============ */
+
+.diplomacy-diagram {
+  margin: 2.5rem 0 1rem;
+  background: rgba(232, 216, 181, 0.4);
+  border: 1px solid var(--ink-faded);
+  padding: 1.5rem 1rem;
+}
+
+.diplomacy-diagram svg {
+  width: 100%;
+  height: auto;
+  max-width: 600px;
+  margin: 0 auto;
+  display: block;
+}
+
+/* ============ Transitional spread ============ */
+
+.transition-spread {
+  padding: 6rem 0;
+  background: rgba(168, 149, 106, 0.18);
+  border-top: 1.5px solid var(--gold-leaf);
+  border-bottom: 1.5px solid var(--gold-leaf);
+  text-align: center;
+}
+
+.transition-eyebrow {
+  font-size: 1.25rem !important;
+  letter-spacing: 1em !important;
+  color: var(--gold-leaf) !important;
+  margin-bottom: 2rem !important;
+  padding-left: 1em;
+}
+
+.transition-title {
+  font-family: 'IM Fell English', serif;
+  font-size: clamp(2rem, 4.5vw, 3.25rem);
+  line-height: 1.25;
+  color: var(--ink);
+  max-width: 32rem;
+  margin: 0 auto 1.5rem;
+}
+
+.transition-title .italic {
+  color: var(--vermillion);
+  font-size: 0.85em;
+}
+
+.transition-sub {
+  font-size: 1.15rem;
+  font-style: italic;
+  color: var(--ink-soft);
+  max-width: 28rem;
+  margin: 0 auto;
+}
+
+/* ============ Tick wheel ============ */
+
+.tick-wheel-wrap {
+  display: flex;
+  justify-content: center;
+  margin: 2.5rem 0;
+}
+
+.tick-wheel {
+  width: 100%;
+  max-width: 360px;
+  height: auto;
+  filter: drop-shadow(4px 4px 0 rgba(168, 124, 47, 0.15));
+}
+
+/* ============ Rules map ============ */
+
+.rules-map {
+  margin: 2rem 0;
+  max-width: 40rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.rules-map svg {
+  width: 100%;
+  height: auto;
+  filter: drop-shadow(4px 4px 0 rgba(168, 124, 47, 0.15));
+}
+
+/* ============ Bar chart ============ */
+
+.bar-chart {
+  background: rgba(232, 216, 181, 0.45);
+  border: 1px solid var(--ink-faded);
+  padding: 1.5rem;
+  margin: 1rem 0 2rem;
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: 8rem 1fr;
+  gap: 1rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.bar-label {
+  font-family: 'IM Fell English', serif;
+  font-style: italic;
+  color: var(--ink);
+  font-size: 1rem;
+  text-align: right;
+}
+
+.bar-track {
+  height: 1.5rem;
+  background: var(--parchment-aged);
+  border: 1px solid var(--ink);
+  position: relative;
+}
+
+.bar-fill {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 0.5rem;
+  position: relative;
+  transition: width 0.6s ease-out;
+}
+
+.bar-value {
+  font-family: 'VT323', monospace;
+  font-size: 0.9rem;
+  color: var(--parchment);
+  letter-spacing: 0.05em;
+}
+
+.bar-axis {
+  text-align: right;
+  margin-top: 0.5rem;
+  font-size: 0.7rem !important;
+  color: var(--ink-faded) !important;
+}
+
+/* ============ Vault grid ============ */
+
+.vault-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2.5rem;
+  margin: 2rem 0;
+}
+
+@media (max-width: 720px) {
+  .vault-grid { grid-template-columns: 1fr; }
+}
+
+.vault-side {
+  background: rgba(232, 216, 181, 0.4);
+  border: 1px solid var(--ink);
+  padding: 1.5rem;
+}
+
+.vault-side-title {
+  font-family: 'IM Fell English', serif;
+  font-style: italic;
+  font-size: 1.25rem;
+  color: var(--vermillion);
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid var(--gold-leaf);
+  padding-bottom: 0.5rem;
+}
+
+.compact-table {
+  margin: 1rem 0 0;
+}
+
+.compact-table td {
+  padding: 0.5rem 0.75rem !important;
+  font-size: 1rem;
+}
+
+.compact-table .num {
+  text-align: right;
+  font-family: 'VT323', monospace;
+  font-size: 1.15rem;
+  color: var(--vermillion);
+}
+
+.vault-rules {
+  list-style: none;
+  margin-top: 1rem;
+}
+
+.vault-rules li {
+  padding-left: 1.5rem;
+  position: relative;
+  margin-bottom: 0.5rem;
+  font-style: italic;
+}
+
+.vault-rules li::before {
+  content: '✦';
+  position: absolute;
+  left: 0;
+  color: var(--gold-leaf);
+}
+
+/* ============ State machine ============ */
+
+.state-machine {
+  margin: 2.5rem 0;
+}
+
+.state-machine svg {
+  width: 100%;
+  height: auto;
+}
+
+/* ============ Bestiary table ============ */
+
+.bestiary-table {
+  margin: 1rem 0 2rem;
+}
+
+.bestiary-tier {
+  font-family: 'IM Fell English', serif;
+  font-style: italic;
+  font-size: 1.5rem;
+  color: var(--vermillion);
+  text-align: center;
+}
+
+.num {
+  font-family: 'VT323', monospace;
+  font-size: 1.1rem;
+  color: var(--ink);
+}
+
+/* ============ Combat formula ============ */
+
+.combat-formula {
+  text-align: center;
+  margin: 2rem 0;
+  padding: 2rem;
+  background: var(--parchment-aged);
+  border: 1px solid var(--ink);
+  position: relative;
+}
+
+.combat-formula::before,
+.combat-formula::after {
+  content: '';
+  position: absolute;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 1.5px solid var(--gold-leaf);
+}
+.combat-formula::before { top: -6px; left: -6px; border-right: none; border-bottom: none; }
+.combat-formula::after { bottom: -6px; right: -6px; border-left: none; border-top: none; }
+
+.formula-script {
+  font-family: 'IM Fell English', serif;
+  font-style: italic;
+  font-size: clamp(1.25rem, 3vw, 1.75rem);
+  line-height: 1.6;
+  color: var(--ink);
+}
+
+.formula-op {
+  color: var(--vermillion);
+  font-weight: 600;
+  font-style: normal;
+  margin: 0 0.25rem;
+}
+
+.formula-plus {
+  color: var(--gold-leaf);
+  font-style: normal;
+  font-size: 1.5rem;
+  margin: 0 0.5rem;
+}
+
+.formula-eq {
+  color: var(--vermillion);
+  font-style: normal;
+  font-size: 1.75rem;
+  margin: 0 0.5rem;
+  font-weight: 600;
+}
+
+.formula-caption {
+  font-style: italic;
+  color: var(--ink-soft);
+  margin-top: 1rem;
+  font-size: 1rem;
+}
+
+/* ============ Seasonal chart ============ */
+
+.seasonal-chart {
+  margin: 2rem 0;
+}
+
+.season-axis-top {
+  text-align: center;
+  margin-bottom: 0.75rem;
+  color: var(--ink-faded) !important;
+  font-size: 0.75rem !important;
+  letter-spacing: 0.15em !important;
+}
+
+.season-bar {
+  display: flex;
+  height: 3.5rem;
+  border: 1.5px solid var(--ink);
+  overflow: hidden;
+}
+
+.season-segment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'IM Fell English', serif;
+  font-style: italic;
+  font-size: 1rem;
+  white-space: nowrap;
+  padding: 0 1rem;
+  transition: filter 0.3s ease;
+}
+
+@media (max-width: 600px) {
+  .season-segment { font-size: 0.75rem; padding: 0 0.5rem; }
+}
+
+.season-mild {
+  background: linear-gradient(180deg, #C9B58A 0%, #A8956A 100%);
+  color: var(--ink);
+}
+
+.season-winter {
+  background: linear-gradient(180deg, #B5C9D8 0%, #6B8AAA 100%);
+  color: var(--lapis);
+  position: relative;
+}
+
+.season-winter::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    repeating-linear-gradient(45deg, transparent 0, transparent 8px, rgba(255,255,255,0.15) 8px, rgba(255,255,255,0.15) 9px);
+}
+
+.season-marks {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.5rem;
+}
+
+.season-mark {
+  font-size: 0.75rem !important;
+  color: var(--ink-faded) !important;
+}
+
+.winter-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  margin-top: 2rem;
+}
+
+@media (max-width: 720px) {
+  .winter-grid { grid-template-columns: 1fr; }
+}
+
+/* ============ Monument tower ============ */
+
+.monument-tower {
+  margin: 2rem auto;
+  max-width: 28rem;
+}
+
+.monument-row {
+  display: grid;
+  grid-template-columns: 3rem auto 1fr;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.25rem;
+}
+
+.monument-level {
+  text-align: right;
+  font-size: 0.75rem !important;
+  color: var(--ink-faded) !important;
+  letter-spacing: 0.1em !important;
+}
+
+.monument-block {
+  height: 1.5rem;
+  background: linear-gradient(180deg, #A87C2F 0%, #7a5821 100%);
+  border: 1px solid var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
+  position: relative;
+  color: var(--parchment);
+  font-family: 'VT323', monospace;
+  font-size: 0.9rem;
+}
+
+.monument-row:first-child .monument-block {
+  background: linear-gradient(180deg, #c8a04a 0%, #A87C2F 100%);
+  height: 2rem;
+  border-color: var(--gold-leaf);
+  border-width: 2px;
+  box-shadow: 0 0 0 1px var(--ink), 2px 2px 0 var(--vermillion);
+}
+
+.crown {
+  font-size: 1.25rem;
+  color: var(--vermillion);
+  text-shadow: 0 0 4px rgba(155, 42, 47, 0.3);
+}
+
+.monument-glyph {
+  opacity: 0.5;
+  font-size: 0.7rem;
+}
+
+.monument-cost {
+  font-size: 0.75rem !important;
+  color: var(--ink-soft) !important;
+  letter-spacing: 0.05em !important;
+}
+
+/* ============ Markets ============ */
+
+.markets-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin: 2rem 0;
+}
+
+@media (max-width: 720px) {
+  .markets-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+.market-card {
+  text-align: center;
+  padding: 1.5rem 1rem;
+  background: rgba(232, 216, 181, 0.5);
+  border: 1px solid var(--ink);
+  position: relative;
+}
+
+.market-card::before,
+.market-card::after {
+  content: '';
+  position: absolute;
+  width: 0.6rem;
+  height: 0.6rem;
+  border: 1px solid var(--gold-leaf);
+}
+.market-card::before { top: -3px; left: -3px; border-right: none; border-bottom: none; }
+.market-card::after { bottom: -3px; right: -3px; border-left: none; border-top: none; }
+
+.market-icon {
+  font-size: 2rem;
+  color: var(--gold-leaf);
+  margin-bottom: 0.5rem;
+  line-height: 1;
+}
+
+.market-name {
+  font-family: 'IM Fell English', serif;
+  font-style: italic;
+  font-size: 1.35rem;
+  color: var(--ink);
+  margin-bottom: 0.25rem;
+}
+
+.market-pair {
+  font-size: 0.7rem !important;
+  color: var(--ink-faded) !important;
+  margin-bottom: 0.75rem;
+}
+
+.market-price {
+  font-family: 'IM Fell English', serif;
+  font-size: 1.5rem;
+  color: var(--vermillion);
+  margin-bottom: 0.25rem;
+}
+
+.market-sub {
+  font-size: 0.65rem !important;
+  color: var(--ink-faded) !important;
+}
+
+/* ============ Coda ============ */
+
+.lore-coda {
+  padding: 5rem 0;
+  text-align: center;
+}
+
+.coda-quill {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 2rem;
+  filter: drop-shadow(2px 2px 0 rgba(168, 124, 47, 0.2));
+}
+
+.coda-title {
+  font-family: 'IM Fell English', serif;
+  font-style: italic;
+  font-size: clamp(2rem, 5vw, 3.25rem);
+  margin-bottom: 1.5rem;
+  color: var(--ink);
+}
+
+.coda-prose {
+  font-size: 1.2rem;
+  font-style: italic;
+  color: var(--ink-soft);
+  max-width: 28rem;
+  margin: 0 auto 2.5rem;
+  line-height: 1.6;
+}
+
+.coda-cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1.25rem;
+}

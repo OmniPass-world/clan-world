@@ -1,0 +1,592 @@
+/* ============================================================
+   Clan World: Ælder Whispers — global styles
+   Theme: illuminated manuscript / parchment / heraldry
+   ============================================================ */
+
+:root {
+  /* Parchment palette */
+  --parchment: #E8D8B5;
+  --parchment-aged: #C9B58A;
+  --parchment-dark: #A8956A;
+  --parchment-deep: #8a7847;
+  
+  /* Inks */
+  --ink: #2A1810;
+  --ink-soft: #5A3D28;
+  --ink-faded: #8a6f4f;
+  
+  /* Illumination */
+  --vermillion: #9B2A2F;
+  --vermillion-deep: #7a1f23;
+  --gold-leaf: #A87C2F;
+  --gold-bright: #d4a24c;
+  --lapis: #1F4068;
+  --lapis-bright: #2d5a8a;
+  
+  /* Clan banners (8) */
+  --clan-1: #B23A48;
+  --clan-2: #2C5F8D;
+  --clan-3: #D4A24C;
+  --clan-4: #3F704D;
+  --clan-5: #7B3F8C;
+  --clan-6: #A85A2C;
+  --clan-7: #c9b58a;
+  --clan-8: #475569;
+  
+  --maxw: 72rem;
+  --maxw-prose: 38rem;
+  
+  /* Type scale */
+  --fs-display: clamp(3rem, 8vw, 7rem);
+  --fs-h1: clamp(2.25rem, 5vw, 4rem);
+  --fs-h2: clamp(1.75rem, 3.5vw, 2.75rem);
+  --fs-h3: 1.5rem;
+  --fs-body: 1.125rem;
+  --fs-small: 0.875rem;
+  --fs-pixel: 0.7rem;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: 'EB Garamond', 'Garamond', Georgia, serif;
+  font-size: var(--fs-body);
+  line-height: 1.65;
+  color: var(--ink);
+  background: var(--parchment);
+  background-image:
+    radial-gradient(ellipse at top left, rgba(168, 124, 47, 0.08), transparent 60%),
+    radial-gradient(ellipse at bottom right, rgba(155, 42, 47, 0.05), transparent 60%),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'><filter id='n'><feTurbulence baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.3 0 0 0 0 0.2 0 0 0 0 0.1 0 0 0 0.08 0'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>");
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ============ Typography primitives ============ */
+
+.display-font, h1, h2, .h1, .h2 {
+  font-family: 'IM Fell English', 'IM Fell DW Pica', 'Times New Roman', serif;
+  font-weight: 400;
+  letter-spacing: 0.005em;
+  color: var(--ink);
+}
+
+.display-italic, h1 i, h2 i {
+  font-style: italic;
+}
+
+h1 {
+  font-size: var(--fs-h1);
+  line-height: 1.05;
+  margin-bottom: 1rem;
+}
+
+h2 {
+  font-size: var(--fs-h2);
+  line-height: 1.1;
+  margin-bottom: 1.5rem;
+}
+
+h3 {
+  font-family: 'IM Fell English', serif;
+  font-size: var(--fs-h3);
+  font-weight: 400;
+  margin-bottom: 0.75rem;
+  color: var(--ink);
+}
+
+p {
+  margin-bottom: 1rem;
+}
+
+p + p {
+  text-indent: 1.5em;
+}
+
+p.lead, .lead {
+  font-size: 1.25rem;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+p.lead + p, .lead + p {
+  text-indent: 0;
+}
+
+a {
+  color: var(--vermillion);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  color: var(--vermillion-deep);
+  text-decoration-style: double;
+}
+
+em {
+  font-style: italic;
+  color: var(--ink-soft);
+}
+
+strong {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* Pixel-text annotations — bridge to game's pixel art */
+.pixel {
+  font-family: 'VT323', 'Courier New', monospace;
+  font-size: var(--fs-pixel);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-faded);
+  line-height: 1;
+}
+
+.pixel-marg {
+  display: inline-block;
+  background: var(--parchment-aged);
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--ink-faded);
+  font-family: 'VT323', monospace;
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+
+/* Drop cap */
+.dropcap::first-letter {
+  font-family: 'IM Fell English', serif;
+  font-size: 4.5em;
+  line-height: 0.85;
+  float: left;
+  padding-right: 0.5rem;
+  padding-top: 0.2rem;
+  color: var(--vermillion);
+  font-style: italic;
+}
+
+/* ============ Layout primitives ============ */
+
+.container {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+.container-prose {
+  max-width: var(--maxw-prose);
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+.section {
+  padding: 5rem 0;
+}
+
+@media (max-width: 640px) {
+  .section { padding: 3rem 0; }
+}
+
+/* ============ Frame / border decorations ============ */
+
+.illuminated-frame {
+  position: relative;
+  border: 1.5px solid var(--ink);
+  background: rgba(232, 216, 181, 0.4);
+  padding: 2rem;
+}
+
+.illuminated-frame::before,
+.illuminated-frame::after {
+  content: '';
+  position: absolute;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 1.5px solid var(--gold-leaf);
+}
+
+.illuminated-frame::before {
+  top: -6px;
+  left: -6px;
+  border-right: none;
+  border-bottom: none;
+}
+
+.illuminated-frame::after {
+  bottom: -6px;
+  right: -6px;
+  border-left: none;
+  border-top: none;
+}
+
+.gold-corner-frame {
+  position: relative;
+  border: 1px solid var(--ink-faded);
+  background: rgba(232, 216, 181, 0.5);
+  padding: 1.5rem;
+}
+
+.gold-corner-frame::before,
+.gold-corner-frame::after {
+  content: '✦';
+  position: absolute;
+  color: var(--gold-leaf);
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.gold-corner-frame::before { top: 6px; left: 8px; }
+.gold-corner-frame::after { bottom: 6px; right: 8px; }
+
+/* Section divider — chapter ornament */
+.ornament {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 3.5rem 0;
+  color: var(--gold-leaf);
+}
+
+.ornament::before,
+.ornament::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--gold-leaf);
+  max-width: 8rem;
+  margin: 0 1.5rem;
+  opacity: 0.6;
+}
+
+.ornament-glyph {
+  font-family: 'IM Fell English', serif;
+  font-size: 1.5rem;
+  letter-spacing: 0.5em;
+  padding-left: 0.5em;
+}
+
+/* ============ Buttons ============ */
+
+.cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 2rem;
+  font-family: 'IM Fell English', serif;
+  font-size: 1.25rem;
+  letter-spacing: 0.04em;
+  background: var(--ink);
+  color: var(--parchment);
+  border: none;
+  text-decoration: none;
+  position: relative;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 4px 4px 0 var(--vermillion-deep);
+}
+
+.cta::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border: 1px solid var(--gold-leaf);
+  pointer-events: none;
+}
+
+.cta:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 var(--vermillion-deep);
+  color: var(--parchment);
+  text-decoration: none;
+}
+
+.cta-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  font-family: 'IM Fell English', serif;
+  font-size: 1.1rem;
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--ink);
+  text-decoration: none;
+  transition: background 0.2s ease;
+}
+
+.cta-secondary:hover {
+  background: var(--ink);
+  color: var(--parchment);
+}
+
+/* ============ Header / Footer ============ */
+
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  backdrop-filter: blur(6px);
+  background: rgba(232, 216, 181, 0.85);
+  border-bottom: 1px solid var(--gold-leaf);
+}
+
+.site-header-inner {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 0.85rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+}
+
+.site-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-family: 'IM Fell English', serif;
+  font-size: 1.35rem;
+  color: var(--ink);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+
+.site-brand:hover {
+  color: var(--vermillion);
+  text-decoration: none;
+}
+
+.site-brand-mark {
+  width: 2rem;
+  height: 2rem;
+  flex-shrink: 0;
+}
+
+.site-nav {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.site-nav a {
+  color: var(--ink);
+  text-decoration: none;
+  font-family: 'IM Fell English', serif;
+  font-size: 1.05rem;
+}
+
+.site-nav a:hover {
+  color: var(--vermillion);
+}
+
+.site-nav .pixel-link {
+  font-family: 'VT323', monospace;
+  font-size: 0.95rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+@media (max-width: 720px) {
+  .site-nav { gap: 1rem; }
+  .site-nav .desktop-only { display: none; }
+}
+
+.site-footer {
+  border-top: 1px solid var(--gold-leaf);
+  padding: 4rem 0 2rem;
+  margin-top: 6rem;
+  background: rgba(168, 149, 106, 0.18);
+}
+
+.site-footer-inner {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+.site-footer-grid {
+  display: grid;
+  grid-template-columns: 2fr repeat(3, 1fr);
+  gap: 3rem;
+  margin-bottom: 3rem;
+}
+
+@media (max-width: 720px) {
+  .site-footer-grid { grid-template-columns: 1fr; gap: 2rem; }
+}
+
+.site-footer-grid h4 {
+  font-family: 'IM Fell English', serif;
+  font-size: 1.1rem;
+  margin-bottom: 0.75rem;
+  color: var(--ink);
+}
+
+.site-footer-grid ul {
+  list-style: none;
+}
+
+.site-footer-grid li {
+  margin-bottom: 0.4rem;
+}
+
+.site-footer-grid a {
+  color: var(--ink-soft);
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+
+.site-footer-grid a:hover {
+  color: var(--vermillion);
+  text-decoration: underline;
+}
+
+.colophon {
+  text-align: center;
+  padding-top: 2rem;
+  border-top: 1px solid var(--ink-faded);
+  font-family: 'IM Fell English', serif;
+  font-style: italic;
+  color: var(--ink-faded);
+  font-size: 0.95rem;
+}
+
+/* ============ Reveal animation ============ */
+
+.reveal {
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 0.9s ease-out, transform 0.9s ease-out;
+}
+
+.reveal.in {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; transition: none; }
+  html { scroll-behavior: auto; }
+}
+
+/* ============ Tables ============ */
+
+.manuscript-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: 'EB Garamond', serif;
+  font-size: 1.05rem;
+  margin: 2rem 0;
+}
+
+.manuscript-table th {
+  text-align: left;
+  padding: 0.85rem 1rem;
+  font-family: 'IM Fell English', serif;
+  font-weight: 400;
+  font-size: 1.1rem;
+  border-bottom: 2px solid var(--ink);
+  color: var(--ink);
+  background: var(--parchment-aged);
+}
+
+.manuscript-table td {
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--parchment-dark);
+  vertical-align: top;
+}
+
+.manuscript-table tr:last-child td {
+  border-bottom: 1.5px solid var(--ink);
+}
+
+.manuscript-table tr:hover td {
+  background: rgba(168, 124, 47, 0.06);
+}
+
+/* ============ Pull quote ============ */
+
+.pull-quote {
+  font-family: 'IM Fell English', serif;
+  font-style: italic;
+  font-size: 1.65rem;
+  line-height: 1.35;
+  color: var(--vermillion);
+  border-left: 3px solid var(--vermillion);
+  padding-left: 2rem;
+  margin: 3rem 0;
+  max-width: 36rem;
+}
+
+.pull-quote-attr {
+  display: block;
+  margin-top: 1rem;
+  font-size: 1rem;
+  color: var(--ink-faded);
+  font-style: italic;
+}
+
+/* ============ Aside / sidebar ============ */
+
+.aside-scroll {
+  background: var(--parchment-aged);
+  border: 1px solid var(--ink-soft);
+  padding: 1.5rem;
+  margin: 2rem 0;
+  position: relative;
+}
+
+.aside-scroll::before {
+  content: 'NOTABENE';
+  position: absolute;
+  top: -0.6rem;
+  left: 1rem;
+  background: var(--parchment);
+  padding: 0 0.5rem;
+  font-family: 'VT323', monospace;
+  font-size: 0.8rem;
+  letter-spacing: 0.15em;
+  color: var(--ink-soft);
+}
+
+/* Utilities */
+
+.center { text-align: center; }
+.muted { color: var(--ink-soft); }
+.faded { color: var(--ink-faded); }
+.italic { font-style: italic; }
+.uppercase { text-transform: uppercase; letter-spacing: 0.1em; }
+
+.flex { display: flex; }
+.grid { display: grid; }
+.gap-1 { gap: 0.5rem; }
+.gap-2 { gap: 1rem; }
+.gap-3 { gap: 1.5rem; }
+.gap-4 { gap: 2rem; }
+
+.mt-1 { margin-top: 0.5rem; }
+.mt-2 { margin-top: 1rem; }
+.mt-3 { margin-top: 1.5rem; }
+.mt-4 { margin-top: 2rem; }
+.mb-1 { margin-bottom: 0.5rem; }
+.mb-2 { margin-bottom: 1rem; }
+.mb-3 { margin-bottom: 1.5rem; }
+.mb-4 { margin-bottom: 2rem; }
+
+/* Selection styling */
+::selection {
+  background: var(--vermillion);
+  color: var(--parchment);
+}

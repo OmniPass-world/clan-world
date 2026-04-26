@@ -1,0 +1,146 @@
+.sponsor-card {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  height: 100%;
+  transition: transform 0.3s ease;
+}
+
+.sponsor-card:hover {
+  text-decoration: none;
+  transform: translateY(-3px);
+}
+
+.sponsor-card:hover .sponsor-card-frame {
+  border-color: var(--vermillion);
+  box-shadow: 4px 4px 0 var(--gold-leaf);
+}
+
+.sponsor-card:hover .sponsor-card-name {
+  color: var(--vermillion);
+}
+
+.sponsor-card-frame {
+  position: relative;
+  height: 100%;
+  border: 1.5px solid var(--ink);
+  background: rgba(232, 216, 181, 0.55);
+  padding: 2rem 1.75rem 1.75rem;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.sponsor-card-frame::before,
+.sponsor-card-frame::after {
+  content: '';
+  position: absolute;
+  width: 0.85rem;
+  height: 0.85rem;
+  border: 1.5px solid var(--gold-leaf);
+}
+
+.sponsor-card-frame::before {
+  top: -4px;
+  left: -4px;
+  border-right: none;
+  border-bottom: none;
+}
+
+.sponsor-card-frame::after {
+  bottom: -4px;
+  right: -4px;
+  border-left: none;
+  border-top: none;
+}
+
+/* Wax-seal logo frame */
+.sponsor-card-seal {
+  width: 4.5rem;
+  height: 4.5rem;
+  border-radius: 50%;
+  background: var(--parchment);
+  border: 2px solid var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1.25rem;
+  flex-shrink: 0;
+  position: relative;
+  box-shadow:
+    inset 0 0 0 3px var(--parchment-aged),
+    inset 0 0 0 4px var(--ink),
+    2px 2px 0 var(--gold-leaf);
+}
+
+.sponsor-card-logo {
+  max-width: 65%;
+  max-height: 65%;
+  object-fit: contain;
+  filter: contrast(1.1) brightness(0.9);
+}
+
+.sponsor-card-fallback {
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  font-family: 'IM Fell English', serif;
+  font-size: 1.4rem;
+  color: var(--vermillion);
+  letter-spacing: 0.05em;
+}
+
+.sponsor-card-body {
+  position: relative;
+  flex: 1;
+}
+
+.sponsor-card-margin {
+  position: absolute;
+  top: -2.5rem;
+  right: -0.5rem;
+  background: var(--parchment-aged);
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--ink-faded);
+  font-size: 0.75rem !important;
+  white-space: nowrap;
+  transform: rotate(-2deg);
+}
+
+.sponsor-card-name {
+  font-family: 'IM Fell English', serif;
+  font-size: 1.6rem;
+  line-height: 1.1;
+  color: var(--ink);
+  margin-bottom: 0.15rem;
+  transition: color 0.25s ease;
+}
+
+.sponsor-card-lorename {
+  font-family: 'IM Fell English', serif;
+  font-style: italic;
+  font-size: 1rem;
+  color: var(--vermillion);
+  margin-bottom: 0.85rem;
+  letter-spacing: 0.02em;
+}
+
+.sponsor-card-lore {
+  font-family: 'EB Garamond', serif;
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--ink);
+  margin-bottom: 0.85rem;
+}
+
+.sponsor-card-tech {
+  font-family: 'EB Garamond', serif;
+  font-size: 0.85rem;
+  font-style: italic;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  padding-top: 0.85rem;
+  border-top: 1px dashed var(--parchment-dark);
+  margin-bottom: 0;
+}
