@@ -37,6 +37,8 @@ interface ClanDef {
   archetype: string;
   /** Base sprite (longhouse / tower / dock keep) shown at the home region. */
   basePng: string;
+  /** Clansman worker sprite shown for traveling units (replaces colored dot). */
+  clansmanPng: string;
 }
 
 // Reference design size — coords below were authored against this frame.
@@ -61,11 +63,15 @@ const REGIONS: RegionDef[] = [
 //   Dawn Watch ↔ Sora    (long-game monument-builder)
 //   Storm Riders ↔ Mira  (transactional trader)
 const MOCK_CLANS: ClanDef[] = [
-  { id: 'clan-iron',  name: 'Iron Guard',   homeRegion: 'forest',     color: 0x4488cc, sigil: '/sigils/iron-guard-sigil.png',  portrait: '/portraits/aldric-portrait.png',  archetype: 'Cautious',   basePng: '/bases/iron-guard.png'   },
-  { id: 'clan-ember', name: 'Ember Hand',   homeRegion: 'mountains',  color: 0xcc4422, sigil: '/sigils/ember-hand-sigil.png',  portrait: '/portraits/brennan-portrait.png', archetype: 'Aggressive', basePng: '/bases/ember-hand.png'   },
-  { id: 'clan-dawn',  name: 'Dawn Watch',   homeRegion: 'west-farms', color: 0xccaa22, sigil: '/sigils/dawn-watch-sigil.png',  portrait: '/portraits/sora-portrait.png',    archetype: 'Builder',    basePng: '/bases/dawn-watch.png'   },
-  { id: 'clan-storm', name: 'Storm Riders', homeRegion: 'east-farms', color: 0x44aacc, sigil: '/sigils/storm-riders-sigil.png', portrait: '/portraits/mira-portrait.png',   archetype: 'Trader',     basePng: '/bases/storm-riders.png' },
+  { id: 'clan-iron',  name: 'Iron Guard',   homeRegion: 'forest',     color: 0x4488cc, sigil: '/sigils/iron-guard-sigil.png',  portrait: '/portraits/aldric-portrait.png',  archetype: 'Cautious',   basePng: '/bases/iron-guard.png',   clansmanPng: '/clansmen/clan-iron.png'  },
+  { id: 'clan-ember', name: 'Ember Hand',   homeRegion: 'mountains',  color: 0xcc4422, sigil: '/sigils/ember-hand-sigil.png',  portrait: '/portraits/brennan-portrait.png', archetype: 'Aggressive', basePng: '/bases/ember-hand.png',   clansmanPng: '/clansmen/clan-ember.png' },
+  { id: 'clan-dawn',  name: 'Dawn Watch',   homeRegion: 'west-farms', color: 0xccaa22, sigil: '/sigils/dawn-watch-sigil.png',  portrait: '/portraits/sora-portrait.png',    archetype: 'Builder',    basePng: '/bases/dawn-watch.png',   clansmanPng: '/clansmen/clan-dawn.png'  },
+  { id: 'clan-storm', name: 'Storm Riders', homeRegion: 'east-farms', color: 0x44aacc, sigil: '/sigils/storm-riders-sigil.png', portrait: '/portraits/mira-portrait.png',   archetype: 'Trader',     basePng: '/bases/storm-riders.png', clansmanPng: '/clansmen/clan-storm.png' },
 ];
+
+// Worker sprite textures, loaded once at init. Keyed by clan id.
+// Falls back to colored Graphics dot if texture missing.
+const clansmanTextureCache: Record<string, import('pixi.js').Texture | undefined> = {};
 
 const SIGIL_SIZE = 36;
 
@@ -106,7 +112,8 @@ interface WorkerTravel {
   startedAt: number;
   durationMs: number;
   color: number;
-  gfx: Graphics;
+  /** Display node — Sprite when clansman texture loaded, Graphics dot fallback. */
+  gfx: Container;
 }
 
 const TRAVEL_DOT_RADIUS = 4; // 8px diameter — slightly bigger so it reads in the demo
@@ -753,6 +760,16 @@ export function WorldMap() {
         .catch(() => {
           // fallback rect stays visible
         });
+
+      // Worker (clansman) sprite for traveling units. Cached per clan id.
+      // If load fails we silently fall back to the colored Graphics dot.
+      Assets.load(clan.clansmanPng)
+        .then((texture) => {
+          clansmanTextureCache[clan.id] = texture;
+        })
+        .catch(() => {
+          // Travel dot fallback handles missing texture.
+        });
     }
 
     // Floating "Lv N" badges — drawn last so they overlay everything.
@@ -1091,7 +1108,7 @@ export function WorldMap() {
   }, [logs, pixiReady]);
 
   // ---- Worker travel (PR #44): spawn dots from log "send X to Y" + canned demos
-  function spawnTravel(fromRegionKey: string, toRegionKey: string, color: number) {
+  function spawnTravel(fromRegionKey: string, toRegionKey: string, color: number, clanId?: string) {
     const layer = travelLayerRef.current;
     if (!layer) return;
     if (fromRegionKey === toRegionKey) return;
@@ -1099,11 +1116,28 @@ export function WorldMap() {
     const to = REGIONS.find(r => r.id === toRegionKey);
     if (!from || !to) return;
 
-    const gfx = new Graphics();
-    gfx.circle(0, 0, TRAVEL_DOT_RADIUS);
-    gfx.fill({ color });
-    gfx.stroke({ color: 0x000000, width: 1, alpha: 0.55 });
-    gfx.alpha = 0;
+    // Prefer the clansman sprite (replaces the old colored dot). Falls back to the
+    // dot if the texture hasn't loaded yet — keeps the demo robust on slow assets.
+    const tex = clanId ? clansmanTextureCache[clanId] : undefined;
+    let gfx: Container;
+    if (tex) {
+      const sprite = new Sprite(tex);
+      sprite.anchor.set(0.5, 0.5);
+      // Workers are smaller than bases — keep them readable but not chunky.
+      const targetH = 28;
+      const ratio = targetH / sprite.texture.height;
+      sprite.height = targetH;
+      sprite.width = sprite.texture.width * ratio;
+      sprite.alpha = 0;
+      gfx = sprite;
+    } else {
+      const dot = new Graphics();
+      dot.circle(0, 0, TRAVEL_DOT_RADIUS);
+      dot.fill({ color });
+      dot.stroke({ color: 0x000000, width: 1, alpha: 0.55 });
+      dot.alpha = 0;
+      gfx = dot;
+    }
     layer.addChild(gfx);
 
     const durationMs =
@@ -1135,7 +1169,7 @@ export function WorldMap() {
       const clan = clanId ? MOCK_CLANS.find(c => c.id === clanId) : null;
       if (!clan) continue;
       if (clan.homeRegion === dest) continue;
-      spawnTravel(clan.homeRegion, dest, clan.color);
+      spawnTravel(clan.homeRegion, dest, clan.color, clan.id);
     }
   }, [logs, pixiReady]);
 
@@ -1149,7 +1183,7 @@ export function WorldMap() {
       const candidates = REGIONS.filter(r => r.id !== clan.homeRegion);
       const dest = candidates[Math.floor(Math.random() * candidates.length)];
       if (!dest) return;
-      spawnTravel(clan.homeRegion, dest.id, clan.color);
+      spawnTravel(clan.homeRegion, dest.id, clan.color, clan.id);
     };
     // Initial burst — one worker from EACH clan, staggered so they're visible
     // immediately when the canvas loads.
@@ -1158,7 +1192,7 @@ export function WorldMap() {
         const candidates = REGIONS.filter(r => r.id !== clan.homeRegion);
         const dest = candidates[Math.floor(Math.random() * candidates.length)];
         if (!dest) return;
-        spawnTravel(clan.homeRegion, dest.id, clan.color);
+        spawnTravel(clan.homeRegion, dest.id, clan.color, clan.id);
       }, i * 250);
     });
     const interval = window.setInterval(fireOne, CANNED_TRAVEL_INTERVAL_MS);
