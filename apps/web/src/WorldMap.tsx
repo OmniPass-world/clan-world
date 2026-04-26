@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Application, Graphics, Text } from 'pixi.js';
 import { useAgentLogs } from './useAgentLogs';
 
@@ -40,6 +40,7 @@ export function WorldMap() {
   const bubbleTextRef = useRef<Text | null>(null);
   const bubbleRef = useRef<Graphics | null>(null);
   const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [pixiReady, setPixiReady] = useState(false);
 
   const logs = useAgentLogs();
 
@@ -126,6 +127,7 @@ export function WorldMap() {
       // Store refs so the log-watcher effect can update them
       bubbleRef.current = bubble;
       bubbleTextRef.current = bubbleText;
+      setPixiReady(true);
     });
 
     return () => {
@@ -137,9 +139,9 @@ export function WorldMap() {
     };
   }, []);
 
-  // Reactive: update bubble whenever a new log entry arrives
+  // Reactive: update bubble whenever a new log entry arrives or Pixi finishes init
   useEffect(() => {
-    if (!bubbleTextRef.current || !bubbleRef.current || logs.length === 0) return;
+    if (!pixiReady || !bubbleTextRef.current || !bubbleRef.current || logs.length === 0) return;
     const latest = logs[0]; // desc order — first = newest
     if (!latest) return;
     const msg = latest.message.slice(0, 240);
@@ -152,7 +154,7 @@ export function WorldMap() {
       if (bubbleRef.current) bubbleRef.current.alpha = 0;
       if (bubbleTextRef.current) bubbleTextRef.current.alpha = 0;
     }, 5000);
-  }, [logs]);
+  }, [logs, pixiReady]);
 
   return <div ref={containerRef} />;
 }

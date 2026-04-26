@@ -8,7 +8,9 @@ import { App } from './App';
 // No MiniKitProvider component in v2 — install() is a static class call.
 MiniKit.install(import.meta.env.VITE_WORLD_APP_ID);
 
-const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL ?? '');
+const convexUrl = import.meta.env.VITE_CONVEX_URL;
+if (!convexUrl) throw new Error('VITE_CONVEX_URL is not set');
+const convex = new ConvexReactClient(convexUrl);
 
 // Cast required: convex's React.FC type conflicts with @types/react@18.3 ReactNode (bigint addition)
 const Provider = ConvexProvider as React.ComponentType<{ client: ConvexReactClient; children?: React.ReactNode }>;
