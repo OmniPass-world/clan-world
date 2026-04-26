@@ -306,16 +306,6 @@ class RealChainClient implements IChainClient {
       console.warn(`[RealChainClient] submitOrders: ${nonMissionOrders.length} non-mission order(s) skipped (Wave 0 only supports 'mission' kind)`);
     }
 
-    const pk = readEnv('DEPLOYER_PRIVATE_KEY');
-    if (!pk) throw new Error('DEPLOYER_PRIVATE_KEY not set');
-
-    const account = privateKeyToAccount(pk as `0x${string}`);
-    const walletClient = createWalletClient({
-      account,
-      chain: worldChainSepolia,
-      transport: this.transport,
-    });
-
     const contractOrders = orders
       .filter(o => o.kind === 'mission')
       .map(o => ({
@@ -327,6 +317,20 @@ class RealChainClient implements IChainClient {
         marketAmount: 0n,
         maxGoldIn: 0n,
       }));
+
+    if (contractOrders.length === 0) {
+      throw new Error('submitOrders: no valid mission orders to submit');
+    }
+
+    const pk = readEnv('DEPLOYER_PRIVATE_KEY');
+    if (!pk) throw new Error('DEPLOYER_PRIVATE_KEY not set');
+
+    const account = privateKeyToAccount(pk as `0x${string}`);
+    const walletClient = createWalletClient({
+      account,
+      chain: worldChainSepolia,
+      transport: this.transport,
+    });
 
     const hash = await walletClient.writeContract({
       address: this.contractAddress,
