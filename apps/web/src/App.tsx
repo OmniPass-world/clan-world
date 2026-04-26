@@ -101,20 +101,7 @@ export function App() {
         overflow: 'hidden',
       }}
     >
-      <h1
-        style={{
-          color: 'white',
-          fontFamily: '"Cinzel", "Times New Roman", serif',
-          fontSize: 18,
-          letterSpacing: '0.1em',
-          margin: 0,
-          padding: '10px 12px 8px',
-          lineHeight: 1.1,
-          flex: '0 0 auto',
-        }}
-      >
-        ClanWorld<span style={{ opacity: 0.75, fontWeight: 400, fontStyle: 'italic', marginLeft: 6 }}>: Ælder Whispers</span>
-      </h1>
+      {/* Page title removed — host chrome (Telegram / World App) shows the app name. */}
       {!verified && (
         <button
           onClick={openIDKit}

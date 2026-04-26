@@ -21,6 +21,32 @@ if (worldAppId) {
   console.warn('VITE_WORLD_APP_ID not set — MiniKit not installed');
 }
 
+// Telegram Mini App fullscreen: hide the platform top chrome (the bar that
+// shows the app title + V down-arrow). Available in Telegram Mini App API
+// v8.0+. Falls back to expand() on older clients. Wrapped in try/catch so a
+// missing API or unsupported platform never blocks render.
+type TgWebApp = {
+  ready?: () => void;
+  expand?: () => void;
+  requestFullscreen?: () => void;
+  isVersionAtLeast?: (v: string) => boolean;
+};
+const tg: TgWebApp | undefined = (window as unknown as { Telegram?: { WebApp?: TgWebApp } }).Telegram?.WebApp;
+if (tg) {
+  try {
+    tg.ready?.();
+    tg.expand?.();
+    if (tg.isVersionAtLeast?.('8.0') && tg.requestFullscreen) {
+      tg.requestFullscreen();
+    } else if (tg.requestFullscreen) {
+      // Some builds don't expose isVersionAtLeast — try anyway, swallow errors.
+      try { tg.requestFullscreen(); } catch { /* unsupported */ }
+    }
+  } catch (err) {
+    console.warn('Telegram WebApp fullscreen init failed:', err);
+  }
+}
+
 const convexUrl = import.meta.env.VITE_CONVEX_URL as string | undefined;
 
 // Cast required: convex's React.FC type conflicts with @types/react@18.3 ReactNode (bigint addition)
