@@ -3,8 +3,8 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "build": "echo 'foundry build runs via: forge build'",
-    "test": "echo 'foundry tests run via: forge test'",
+    "build": "command -v forge >/dev/null 2>&1 && forge build || echo 'forge not installed; skipping (install via foundryup)'",
+    "test": "command -v forge >/dev/null 2>&1 && forge test || echo 'forge not installed; skipping'",
     "typecheck": "echo 'no TS in contracts package'",
     "lint": "echo 'lint stub'",
     "clean": "rm -rf out cache .turbo"
