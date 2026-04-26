@@ -1,0 +1,24 @@
+{
+  "name": "@clan-world/agents",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "bin": {
+    "elder": "./dist/cli.js"
+  },
+  "scripts": {
+    "dev": "tsx watch src/cli.ts",
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'lint stub'",
+    "clean": "rm -rf dist .turbo"
+  },
+  "dependencies": {
+    "@clan-world/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "25.6.0",
+    "tsx": "4.19.2",
+    "typescript": "5.9.3"
+  }
+}

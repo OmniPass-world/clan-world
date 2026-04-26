@@ -1,0 +1,12 @@
+{
+  "name": "@clan-world/contracts",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "build": "echo 'foundry build runs via: forge build'",
+    "test": "echo 'foundry tests run via: forge test'",
+    "typecheck": "echo 'no TS in contracts package'",
+    "lint": "echo 'lint stub'",
+    "clean": "rm -rf out cache .turbo"
+  }
+}

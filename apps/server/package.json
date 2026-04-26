@@ -1,0 +1,20 @@
+{
+  "name": "@clan-world/server",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "echo 'run: pnpm convex dev'",
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'lint stub'",
+    "clean": "rm -rf dist .turbo"
+  },
+  "dependencies": {
+    "@clan-world/shared": "workspace:*",
+    "convex": "1.17.4"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}
