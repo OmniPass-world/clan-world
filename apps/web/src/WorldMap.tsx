@@ -285,6 +285,13 @@ export function WorldMap() {
         app.canvas.style.display = 'block';
         app.canvas.style.width = '100%';
         app.canvas.style.height = '100%';
+        // Allow native pinch-zoom on iOS/Telegram WebView. Pixi v8's EventSystem
+        // sets touchAction='none' on the canvas during init (see pixijs.com/8.x
+        // events guide + GH#2483), which blocks the browser's native pinch
+        // gesture regardless of <meta viewport user-scalable=yes>. Overriding
+        // back to 'pinch-zoom' restores two-finger zoom on the canvas while
+        // single-touch events still reach Pixi for hit testing.
+        app.canvas.style.touchAction = 'pinch-zoom';
 
         // 1. Background terrain map (PR #40) — fantasy strategy art generated to match REGIONS layout.
         // Loaded async; sprite is added to app.stage BEFORE buildScene so region circles render on top.
