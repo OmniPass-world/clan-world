@@ -42,7 +42,10 @@ const DEMO_BYPASS_WORLD_GUARD =
   import.meta.env.VITE_DEMO_BYPASS_WORLD_GUARD === 'true';
 
 export function App() {
-  const [verified, setVerified] = useState(false);
+  // When the demo bypass env is set, start verified=true so the WorldMap canvas
+  // renders immediately without an IDKit verify round-trip (which can't complete
+  // outside World App). Production default (env unset) keeps the full gate.
+  const [verified, setVerified] = useState(DEMO_BYPASS_WORLD_GUARD);
   const isInWorldApp = MiniKit.isInstalled() || DEMO_BYPASS_WORLD_GUARD;
 
   const { open: openIDKit, result, isSuccess } = useIDKitRequest(IDKIT_CONFIG);
