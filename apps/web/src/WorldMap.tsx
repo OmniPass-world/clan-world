@@ -2,8 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery } from 'convex/react';
 import { type FunctionReference, anyApi } from 'convex/server';
 import { Application, Assets, Container, Graphics, Sprite, Text } from 'pixi.js';
+import { Viewport } from 'pixi-viewport';
 import { useAgentLogs, type AgentLog } from './useAgentLogs';
 import worldMapBg from './assets/world-map.png';
+
+// World dimensions used by pixi-viewport for pan/clamp/center math.
+// Matches REF_W/REF_H so all existing layout coords (offsetX + nx*REF_W*scaleX)
+// continue to work unchanged inside the viewport.
+const WORLD_WIDTH = 800;
+const WORLD_HEIGHT = 600;
 
 interface RegionDef {
   id: string;
@@ -211,6 +218,10 @@ export function WorldMap() {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasWrapRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<Application | null>(null);
+  // pixi-viewport instance — wraps all map layers so multi-touch pinch / drag /
+  // wheel are handled at the application layer (works in iOS WebKit + World App
+  // WebView where browser-level pinch is unreliable).
+  const viewportRef = useRef<Viewport | null>(null);
   const layoutRef = useRef<{ scale: number; scaleX: number; scaleY: number; offsetX: number; offsetY: number }>({
     scale: 1,
     scaleX: 1,
@@ -300,16 +311,39 @@ export function WorldMap() {
         app.canvas.style.display = 'block';
         app.canvas.style.width = '100%';
         app.canvas.style.height = '100%';
-        // Allow native pinch-zoom on iOS/Telegram WebView. Pixi v8's EventSystem
-        // sets touchAction='none' on the canvas during init (see pixijs.com/8.x
-        // events guide + GH#2483), which blocks the browser's native pinch
-        // gesture regardless of <meta viewport user-scalable=yes>. Overriding
-        // back to 'pinch-zoom' restores two-finger zoom on the canvas while
-        // single-touch events still reach Pixi for hit testing.
-        app.canvas.style.touchAction = 'pinch-zoom';
+        // Round-6 pinch fix: pixi-viewport handles multi-touch internally, so
+        // canvas touch-action is 'none' (we own all gestures inside the canvas).
+        // Browser-level pinch is locked via index.html viewport meta.
+        app.canvas.style.touchAction = 'none';
+        // Defensive — block iOS WebKit's 300ms double-tap delay + ensure no
+        // stray multi-touch escapes to the page-level zoom.
+        app.canvas.addEventListener('touchstart', (e) => {
+          if (e.touches.length > 1) e.preventDefault();
+        }, { passive: false });
+
+        // pixi-viewport: wraps all map layers (bg, regions, sigils, bases,
+        // bubbles, travel dots) so .pinch() / .drag() / .wheel() handle
+        // multi-touch math at the application layer. Round 5's
+        // canvas.style.touchAction='pinch-zoom' approach failed in World App
+        // WebView; this is the canonical fix per Pixi docs.
+        const viewport = new Viewport({
+          screenWidth: initialW,
+          screenHeight: initialH,
+          worldWidth: WORLD_WIDTH,
+          worldHeight: WORLD_HEIGHT,
+          events: app.renderer.events,
+        });
+        app.stage.addChild(viewport); // viewport is the only direct child of stage
+        viewport
+          .drag()
+          .pinch()
+          .wheel()
+          .decelerate()
+          .clampZoom({ minScale: 0.5, maxScale: 4 });
+        viewportRef.current = viewport;
 
         // 1. Background terrain map (PR #40) — fantasy strategy art generated to match REGIONS layout.
-        // Loaded async; sprite is added to app.stage BEFORE buildScene so region circles render on top.
+        // Loaded async; sprite is added to viewport BEFORE buildScene so region circles render on top.
         try {
           const tex = await Assets.load(worldMapBg);
           if (!mounted) return;
@@ -318,7 +352,7 @@ export function WorldMap() {
           bg.height = initialH;
           bg.x = 0;
           bg.y = 0;
-          app.stage.addChild(bg);
+          viewport.addChild(bg);
           drawnRef.current.bgSprite = bg;
         } catch (err) {
           // Non-fatal — fall through to flat background color set in app.init
@@ -326,11 +360,12 @@ export function WorldMap() {
         }
 
         // 2. Build scene (regions, sigil sprites, bandit indicator) — PR #41 + PR #42 logic
-        buildScene(app);
+        // Layers are added to `viewport` (not app.stage) so pinch/drag affect them.
+        buildScene(app, viewport);
 
         // 3. Speech bubble layer + ticker (PR #43) — added last so bubbles render above everything.
         const bubbleLayer = new Container();
-        app.stage.addChild(bubbleLayer);
+        viewport.addChild(bubbleLayer);
         bubbleLayerRef.current = bubbleLayer;
 
         const cb = (ticker: { deltaMS: number }) => {
@@ -383,7 +418,7 @@ export function WorldMap() {
         // Added after bubble layer so dots can render under bubbles (less visual noise).
         const travelLayer = new Container();
         // Insert below bubble layer so bubbles always appear on top of moving dots.
-        app.stage.addChildAt(travelLayer, app.stage.getChildIndex(bubbleLayer));
+        viewport.addChildAt(travelLayer, viewport.getChildIndex(bubbleLayer));
         travelLayerRef.current = travelLayer;
 
         const travelCb = (_ticker: { deltaMS: number }) => {
@@ -499,6 +534,7 @@ export function WorldMap() {
         banditCountdown: null,
         bgSprite: null,
       };
+      viewportRef.current = null;
       appRef.current = null;
       a?.destroy(true);
     };
@@ -517,6 +553,10 @@ export function WorldMap() {
       const h = wrap.clientHeight;
       if (w <= 0 || h <= 0) return;
       app.renderer.resize(w, h);
+      // Update pixi-viewport's screen dimensions so pinch/drag math tracks
+      // the new canvas size. World dims stay fixed at WORLD_WIDTH/HEIGHT.
+      const vp = viewportRef.current;
+      if (vp) vp.resize(w, h, WORLD_WIDTH, WORLD_HEIGHT);
       relayout(w, h);
       setSize({ w, h });
     };
@@ -531,20 +571,22 @@ export function WorldMap() {
   }, [pixiReady]);
 
   // ---- One-time: create Pixi display objects (refs hold them for relayout) -
-  function buildScene(app: Application) {
+  // All layers attach to `viewport` (not app.stage) so pixi-viewport's pinch /
+  // drag transforms apply to the whole map atomically.
+  function buildScene(app: Application, viewport: Viewport) {
     const drawn = drawnRef.current;
 
     // Clan zones (big translucent breathing halos) — drawn FIRST so everything else
     // sits on top. Visual sense of "this clan controls this zone."
     for (const clan of MOCK_CLANS) {
       const zoneGfx = new Graphics();
-      app.stage.addChild(zoneGfx);
+      viewport.addChild(zoneGfx);
       drawn.clanZones.push({ gfx: zoneGfx, clan });
     }
 
     for (const region of REGIONS) {
       const g = new Graphics();
-      app.stage.addChild(g);
+      viewport.addChild(g);
       drawn.regions.push(g);
 
       const label = new Text({
@@ -552,33 +594,33 @@ export function WorldMap() {
         style: { fill: 0xdddddd, fontSize: 11, fontFamily: 'monospace' },
       });
       label.anchor.set(0.5, 0);
-      app.stage.addChild(label);
+      viewport.addChild(label);
       drawn.regionLabels.push(label);
     }
 
     // Wall rings — drawn first so they sit above region circles but under sigils.
     for (const clan of MOCK_CLANS) {
       const wallGfx = new Graphics();
-      app.stage.addChild(wallGfx);
+      viewport.addChild(wallGfx);
       drawn.walls.push({ gfx: wallGfx, clan });
     }
 
     // Monument towers — drawn before flags so sigil layers cleanly on top.
     for (const clan of MOCK_CLANS) {
       const monGfx = new Graphics();
-      app.stage.addChild(monGfx);
+      viewport.addChild(monGfx);
       drawn.monuments.push({ gfx: monGfx, clan });
     }
 
     for (const clan of MOCK_CLANS) {
       const flag = new Graphics();
-      app.stage.addChild(flag);
+      viewport.addChild(flag);
       const label = new Text({
         text: clan.name,
         style: { fill: clan.color, fontSize: 10, fontFamily: 'monospace', fontWeight: 'bold' },
       });
       label.anchor.set(0, 1);
-      app.stage.addChild(label);
+      viewport.addChild(label);
       const entry: { gfx: Graphics; sprite: Sprite | null; label: Text; clan: ClanDef } = {
         gfx: flag,
         sprite: null,
@@ -593,7 +635,7 @@ export function WorldMap() {
         .then((texture) => {
           const sprite = new Sprite(texture);
           sprite.alpha = 0; // hidden until first relayout positions it
-          app.stage.addChild(sprite);
+          viewport.addChild(sprite);
           entry.sprite = sprite;
           // Trigger a relayout so sprite gets positioned and shown.
           const wrap = canvasWrapRef.current;
@@ -611,13 +653,13 @@ export function WorldMap() {
     // visible during the load and as a safety net if the asset 404s. The countdown text
     // anchors next to whichever marker is currently rendered.
     const banditIcon = new Graphics();
-    app.stage.addChild(banditIcon);
+    viewport.addChild(banditIcon);
     const countdown = new Text({
       text: '',
       style: { fill: 0xffe9b8, fontSize: 11, fontFamily: 'monospace', fontWeight: 'bold' },
     });
     countdown.anchor.set(0, 0.5);
-    app.stage.addChild(countdown);
+    viewport.addChild(countdown);
     drawn.banditIcon = banditIcon;
     drawn.banditCountdown = countdown;
 
@@ -628,7 +670,7 @@ export function WorldMap() {
         const sprite = new Sprite(texture);
         sprite.anchor.set(0.5, 0.5);
         sprite.alpha = 0; // hidden until first redrawBandit positions it
-        app.stage.addChild(sprite);
+        viewport.addChild(sprite);
         drawn.banditSprite = sprite;
         redrawBandit();
       })
@@ -640,7 +682,7 @@ export function WorldMap() {
     // Visible on top of region circles + sigil flags. Falls back to a simple colored rect.
     for (const clan of MOCK_CLANS) {
       const fallback = new Graphics();
-      app.stage.addChild(fallback);
+      viewport.addChild(fallback);
       const entry: { sprite: Sprite | null; fallback: Graphics; clan: ClanDef } = {
         sprite: null,
         fallback,
@@ -653,7 +695,7 @@ export function WorldMap() {
           const sprite = new Sprite(texture);
           sprite.anchor.set(0.5, 1); // anchored at bottom-center so it "stands" on the region
           sprite.alpha = 0;
-          app.stage.addChild(sprite);
+          viewport.addChild(sprite);
           entry.sprite = sprite;
           const wrap = canvasWrapRef.current;
           if (wrap && appRef.current) {
@@ -668,7 +710,7 @@ export function WorldMap() {
     // Floating "Lv N" badges — drawn last so they overlay everything.
     for (const clan of MOCK_CLANS) {
       const bg = new Graphics();
-      app.stage.addChild(bg);
+      viewport.addChild(bg);
       const label = new Text({
         text: 'Lv 1',
         style: {
@@ -679,7 +721,7 @@ export function WorldMap() {
         },
       });
       label.anchor.set(0.5, 0.5);
-      app.stage.addChild(label);
+      viewport.addChild(label);
       drawn.levelBadges.push({ bg, label, clan });
     }
   }

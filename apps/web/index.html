@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,15 +14,20 @@
         margin: 0;
         padding: 0;
         overflow: hidden;
-        /* Defense-in-depth for pinch-zoom: ensure no ancestor of the Pixi
-           canvas ships touch-action:none. The Pixi canvas itself overrides
-           this to 'pinch-zoom' in WorldMap.tsx after app.init(). */
-        touch-action: pinch-zoom;
+        /* Round-6 pinch fix: pixi-viewport handles all gestures inside the
+           canvas. Browser-level zoom is locked via viewport meta above. */
+        touch-action: none;
       }
       body {
         background: #0a0a0a;
         overscroll-behavior: none;
         font-family: 'Inter', system-ui, sans-serif;
+      }
+      canvas {
+        touch-action: none;
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
       }
     </style>
   </head>
