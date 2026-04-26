@@ -1,5 +1,4 @@
-import { createPublicClient, http } from 'viem';
-import { defineChain } from 'viem';
+import { createPublicClient, http, fallback, defineChain } from 'viem';
 import type { ClanFullView, ClanOrder, Tick } from '../types';
 import { readEnv } from './_env';
 
@@ -221,20 +220,24 @@ class StubChainClient implements IChainClient {
 }
 
 class RealChainClient implements IChainClient {
-  private readonly client;
+  private readonly client: ReturnType<typeof createPublicClient>;
   private readonly contractAddress: `0x${string}`;
 
   constructor() {
     const primaryRpc = readEnv('RPC_URL_PRIMARY');
     const fallbackRpc = readEnv('RPC_URL_FALLBACK');
-    const rpcUrl = primaryRpc ?? fallbackRpc;
+
+    const transport =
+      primaryRpc && fallbackRpc
+        ? fallback([http(primaryRpc), http(fallbackRpc)])
+        : http(primaryRpc ?? fallbackRpc);
 
     this.contractAddress = (readEnv('CLAN_WORLD_CONTRACT_ADDRESS') ??
       DEFAULT_CONTRACT_ADDRESS) as `0x${string}`;
 
     this.client = createPublicClient({
       chain: worldChainSepolia,
-      transport: http(rpcUrl),
+      transport,
     });
   }
 
@@ -244,7 +247,7 @@ class RealChainClient implements IChainClient {
       abi: CLAN_WORLD_ABI,
       functionName: 'getWorldSnapshot',
     });
-    return Number(snapshot.currentTick);
+    return Number(snapshot.currentTick); // safe: tick values are small enough to fit Number precisely in Wave 0
   }
 
   async submitOrders(_clanId: string, _orders: ClanOrder[]): Promise<{ txHash: string }> {
@@ -269,7 +272,7 @@ class RealChainClient implements IChainClient {
         treasury: String(inner.goldBalance),
       },
       // controlledRegions, pendingOrders, whispers not available in Wave 0 contract read
-      controlledRegions: [],
+      controlledRegions: [], // Wave 0: omit base region from controlledRegions; populated in Wave 1 from on-chain data
       pendingOrders: [],
       whispers: [],
     };
