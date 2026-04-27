@@ -4,6 +4,7 @@ import { createConvexClient } from '@clan-world/shared/adapters';
 import { FileMemoryStore } from './fileMemoryStore';
 import { FilePeerInbox } from './filePeerInbox';
 import { configFromEnv, RunnerCastHeartbeat } from './runnerCastHeartbeat';
+import { startHeartbeatScheduler } from './heartbeatScheduler';
 import { tickLoop, type PerElderDeps } from './tickLoop';
 import { TmuxRunnerInbox } from './tmuxRunnerInbox';
 import { ELDER_IDS, type ElderId, type RunnerConfig } from './types';
@@ -42,6 +43,7 @@ function loadConfig(env: NodeJS.ProcessEnv = process.env): RunnerConfig {
   const settleWindowSec = parseIntEnv(env, 'RUNNER_SETTLE_WINDOW_SEC', 90);
   const deliveryTimeoutMs = parseIntEnv(env, 'RUNNER_DELIVERY_TIMEOUT_MS', 10_000);
   const ackTimeoutMs = parseIntEnv(env, 'RUNNER_ACK_TIMEOUT_MS', 30_000);
+  const heartbeatCheckIntervalMs = parseIntEnv(env, 'RUNNER_HEARTBEAT_CHECK_INTERVAL_MS', 30_000);
   const tmuxSessionPrefix = env['RUNNER_TMUX_SESSION_PREFIX'] ?? 'elder';
   const elderToClanId: Record<ElderId, string> = {
     1: env['ELDER_1_CLAN_ID'] ?? '1',
@@ -54,6 +56,7 @@ function loadConfig(env: NodeJS.ProcessEnv = process.env): RunnerConfig {
     settleWindowSec,
     deliveryTimeoutMs,
     ackTimeoutMs,
+    heartbeatCheckIntervalMs,
     stateDir,
     tmuxSessionPrefix,
     elderToClanId,
@@ -111,10 +114,15 @@ async function main(): Promise<void> {
   process.on('SIGTERM', () => onSignal('SIGTERM'));
   process.on('SIGINT', () => onSignal('SIGINT'));
 
+  startHeartbeatScheduler({
+    heartbeatCaller,
+    signal: abort.signal,
+    checkIntervalMs: config.heartbeatCheckIntervalMs,
+  });
+
   try {
     await tickLoop({
       convex,
-      heartbeatCaller,
       perElder,
       config,
       signal: abort.signal,

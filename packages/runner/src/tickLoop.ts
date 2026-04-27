@@ -1,8 +1,6 @@
 import {
-  HeartbeatRateLimitedError,
   type IElderMemoryStore,
   type IElderPeerInbox,
-  type IHeartbeatCaller,
   type IRunnerInbox,
 } from '@clan-world/agents/seams';
 import type { IConvexClient } from '@clan-world/shared/adapters';
@@ -19,7 +17,6 @@ export interface PerElderDeps {
 
 export interface TickLoopDeps {
   convex: IConvexClient;
-  heartbeatCaller: IHeartbeatCaller;
   perElder: Record<ElderId, PerElderDeps>;
   config: RunnerConfig;
   /** AbortSignal for clean shutdown. */
@@ -41,7 +38,7 @@ const consoleLogger: Logger = {
 };
 
 /**
- * Per-tick orchestration:
+ * Per-tick Elder delivery loop (Cycle B):
  *
  *   while !shuttingDown:
  *     chainTick = pollChainTick(convex)
@@ -50,31 +47,16 @@ const consoleLogger: Logger = {
  *         block  = composeSituationBlock(...)
  *         status = inbox.deliverSituationBlock(chainTick, block)
  *       wait settleWindow
- *       try heartbeat() (inline rate-limit retry)
- *       on success: lastProcessedTick = chainTick
+ *       lastProcessedTick = chainTick
  *     sleep pollIntervalMs
  *
+ * Does NOT call heartbeat — that is Cycle A (`heartbeatScheduler`).
  * Returns when `signal` is aborted.
  *
  * Design notes:
  *
- * - `lastProcessedTick` is process-local. On runner restart we lose it and
- *   may re-attempt a heartbeat for a tick that was already advanced. The
- *   on-chain `nextHeartbeatAtTs` rate limit is the safety: a redundant
- *   heartbeat reverts and surfaces as `HeartbeatRateLimitedError`, which we
- *   back off on. Persisting `lastProcessedTick` to disk is a Phase-2 follow-up.
- *
- * - We heartbeat unconditionally after the settle window, even if all 4
- *   Elder deliveries failed. This is intentional: the runner's job is to
- *   advance the chain. Per the IRunnerInbox contract, an Elder that misses
- *   delivery "loses the turn's reasoning" — the chain still advances.
- *
- * - On non-rate-limit heartbeat failure we break out of the inner retry and
- *   fall through to the outer `pollIntervalMs` sleep. The next outer
- *   iteration will see `chainTick > lastProcessedTick` again and retry
- *   delivery + heartbeat. The `TmuxRunnerInbox` idempotency check makes the
- *   re-deliver a no-op (returns 'duplicate-tick'); the cost is one extra
- *   settle-window of latency before retry. Acceptable for prototype.
+ * - `lastProcessedTick` is process-local, updated after settle window.
+ *   On restart, TmuxRunnerInbox idempotency (last-tick.txt) prevents double-delivery.
  */
 export async function tickLoop(deps: TickLoopDeps): Promise<void> {
   const log = deps.log ?? consoleLogger;
@@ -94,8 +76,7 @@ export async function tickLoop(deps: TickLoopDeps): Promise<void> {
       log.info(`tick ${chainTick} observed (last processed: ${lastProcessedTick})`);
 
       // Compose + deliver to all 4 Elders in parallel. Per-Elder errors are
-      // contained — one Elder being down must not block the others or the
-      // heartbeat that follows.
+      // contained — one Elder being down must not block the others.
       await Promise.all(
         ELDER_IDS.map(async elder => {
           const per = deps.perElder[elder];
@@ -124,33 +105,7 @@ export async function tickLoop(deps: TickLoopDeps): Promise<void> {
         log.info('settle window aborted by shutdown signal');
         break;
       }
-
-      // Heartbeat the chain. Retry inline on rate-limit so we don't re-run
-      // the (90s) settle window or re-paste situation blocks just to hit the
-      // same rate-limit window again.
-      let heartbeatDone = false;
-      while (!heartbeatDone && !deps.signal.aborted) {
-        try {
-          const { txHash } = await deps.heartbeatCaller.callHeartbeat();
-          log.info(`heartbeat tx confirmed: ${txHash}`);
-          lastProcessedTick = chainTick;
-          heartbeatDone = true;
-        } catch (err) {
-          if (err instanceof HeartbeatRateLimitedError) {
-            const waitMs = Math.max(0, err.nextAllowedAt * 1000 - Date.now());
-            log.warn(
-              `heartbeat rate-limited; backing off ${Math.ceil(waitMs / 1000)}s until ${new Date(
-                err.nextAllowedAt * 1000,
-              ).toISOString()}`,
-            );
-            await sleepWithSignal(waitMs, deps.signal);
-            continue; // retry callHeartbeat
-          }
-          log.error('heartbeat failed (non-rate-limit):', err);
-          // Bail out of this tick; the next poll loop will pick it up again.
-          break;
-        }
-      }
+      lastProcessedTick = chainTick;
     }
 
     await sleepWithSignal(deps.config.pollIntervalMs, deps.signal);
