@@ -936,7 +936,8 @@ contract ClanWorld is IClanWorld {
             }
         }
 
-        // Enqueue scheduled market action if applicable (actionStartTick == arrivalTick)
+        // v4.2 §8 L758: "executes at heartbeat closing tick T" where T = arrivalTick.
+        // executeAtTick = arrivalTick (not arrivalTick+1).
         if (order.action == ActionType.MarketBuy || order.action == ActionType.MarketSell) {
             _enqueueScheduledMarketAction(clanId, order, cs.clansmanId, ctx.arrivalTick);
         }
@@ -1047,9 +1048,11 @@ contract ClanWorld is IClanWorld {
                 continue;
             }
 
-            // Validate mission is still active and matches the queued action type
+            // Guard: clansman was re-tasked if mission action no longer matches the queued type.
+            // Note: _completeMission sets m.active=false during settlement (by design), so we
+            // cannot use m.active as a validity signal here — check action type only.
             Mission storage m = _missions[sma.clansmanId];
-            if (!m.active || m.action != sma.action) {
+            if (m.action != sma.action) {
                 emit MarketActionFailed(sma.clanId, sma.clansmanId, sma.action, StatusCode.ERR_INVALID_ACTION);
                 continue;
             }
