@@ -105,6 +105,13 @@ export const defaultTmuxRunner: TmuxRunner = {
       if (opts.literal) args.push('-l');
       args.push(...keys);
       const child = spawn('tmux', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      // TOCTOU guard: check again after spawning in case signal fired between
+      // the caller's pre-check and addEventListener registration below.
+      if (signal?.aborted) {
+        child.kill('SIGTERM');
+        reject(new Error('aborted: tmux send'));
+        return;
+      }
       let stderr = '';
       child.stderr.on('data', chunk => {
         stderr += String(chunk);
@@ -126,6 +133,7 @@ export const defaultTmuxRunner: TmuxRunner = {
 async function sendBlock(runner: TmuxRunner, target: string, block: string, signal?: AbortSignal): Promise<void> {
   // Two-step paste: literal block, then Enter to submit.
   await runner.send(target, [block], { literal: true }, signal);
+  if (signal?.aborted) return; // don't send Enter if aborted mid-paste
   await runner.send(target, ['Enter'], { literal: false }, signal);
 }
 

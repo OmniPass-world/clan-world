@@ -110,8 +110,10 @@ export async function tickLoop(deps: TickLoopDeps): Promise<void> {
               deps.signal,
               `composeSituationBlock(elder=${elder})`,
             );
-            // MED-1: per-delivery AbortController so a timeout actually cancels the tmux child.
+            // MED-1: per-delivery AbortController so a timeout OR shutdown cancels the tmux child.
             const deliveryAbort = new AbortController();
+            const linkAbort = (): void => deliveryAbort.abort();
+            deps.signal.addEventListener('abort', linkAbort, { once: true });
             let status: DeliveryStatus;
             try {
               status = await withTimeout(
@@ -120,7 +122,8 @@ export async function tickLoop(deps: TickLoopDeps): Promise<void> {
                 `deliverSituationBlock(elder=${elder}, tick=${chainTick})`,
               );
             } finally {
-              deliveryAbort.abort(); // cancels tmux child whether delivery succeeded or timed out
+              deliveryAbort.abort(); // cancels tmux child whether delivery succeeded, timed out, or shutdown
+              deps.signal.removeEventListener('abort', linkAbort);
             }
             if (!status.ok) {
               log.warn(`elder ${elder}: delivery returned not-ok: ${status.reason}`);
