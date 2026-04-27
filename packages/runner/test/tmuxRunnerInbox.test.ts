@@ -14,7 +14,7 @@ class RecordingTmux implements TmuxRunner {
   calls: RecordedCall[] = [];
   shouldFail: false | { message: string } = false;
 
-  async send(target: string, keys: string[], opts: { literal: boolean }): Promise<void> {
+  async send(target: string, keys: string[], opts: { literal: boolean }, _signal?: AbortSignal): Promise<void> {
     this.calls.push({ target, keys, literal: opts.literal });
     if (this.shouldFail) {
       throw new Error(this.shouldFail.message);
@@ -140,11 +140,12 @@ describe('TmuxRunnerInbox.waitForAckAndClear', () => {
     });
     const result = await inbox.waitForAckAndClear(500);
     expect(result).toBe('timeout');
-    // /clear (non-literal) + bootstrap (literal) + Enter (non-literal) = 3 calls.
-    expect(tmux.calls).toHaveLength(3);
+    // /clear (non-literal) + Enter (non-literal) + bootstrap (literal) + Enter (non-literal) = 4 calls.
+    expect(tmux.calls).toHaveLength(4);
     expect(tmux.calls[0]).toEqual({ target: 'elder-1', keys: ['/clear'], literal: false });
-    expect(tmux.calls[1]).toEqual({ target: 'elder-1', keys: ['BOOT'], literal: true });
-    expect(tmux.calls[2]).toEqual({ target: 'elder-1', keys: ['Enter'], literal: false });
+    expect(tmux.calls[1]).toEqual({ target: 'elder-1', keys: ['Enter'], literal: false });
+    expect(tmux.calls[2]).toEqual({ target: 'elder-1', keys: ['BOOT'], literal: true });
+    expect(tmux.calls[3]).toEqual({ target: 'elder-1', keys: ['Enter'], literal: false });
   });
 
   it('returns ack and consumes the flag file when it exists', async () => {
@@ -161,5 +162,28 @@ describe('TmuxRunnerInbox.waitForAckAndClear', () => {
     const result = await inbox.waitForAckAndClear(500);
     expect(result).toBe('ack');
     expect(fs.existsSync(flagFile)).toBe(false);
+  });
+});
+
+describe('TmuxRunnerInbox.deliverSituationBlock — abort behavior', () => {
+  it('does not write last-tick marker when delivery is aborted mid-send', async () => {
+    const abort = new AbortController();
+    const tmux = new RecordingTmux();
+    // Abort before any send
+    abort.abort();
+    const inbox = new TmuxRunnerInbox({
+      elder: 1,
+      sessionPrefix: 'elder',
+      stateDir: tmpDir,
+      bootstrapBlock: 'b',
+      runner: tmux,
+    });
+    const status = await inbox.deliverSituationBlock(5, 'block', abort.signal);
+    expect(status).toEqual({ ok: false, reason: 'timeout' });
+    // No marker written because signal was aborted
+    const marker = path.join(tmpDir, 'elder-1-last-tick.txt');
+    expect(fs.existsSync(marker)).toBe(false);
+    // No tmux calls made (aborted before send)
+    expect(tmux.calls).toHaveLength(0);
   });
 });
