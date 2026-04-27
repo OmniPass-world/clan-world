@@ -1173,9 +1173,9 @@ contract ClanWorld is IClanWorld {
             return;
         }
 
-        // Execute — reserves update happens here
-        StubPool(poolAddr).buyResource(amountOut);
-        clan.goldBalance -= goldIn;
+        // Execute — use return value to guard against any future pool divergence
+        uint256 actualGoldIn = StubPool(poolAddr).buyResource(amountOut);
+        clan.goldBalance -= actualGoldIn;
         _addToVault(clan, token, amountOut);
 
         emit ScheduledMarketActionExecuted(
