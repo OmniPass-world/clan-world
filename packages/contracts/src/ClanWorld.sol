@@ -1047,14 +1047,56 @@ contract ClanWorld is IClanWorld {
                 continue;
             }
 
+            // Validate mission is still active and matches the queued action type
+            Mission storage m = _missions[sma.clansmanId];
+            if (!m.active || m.action != sma.action) {
+                emit MarketActionFailed(sma.clanId, sma.clansmanId, sma.action, StatusCode.ERR_INVALID_ACTION);
+                continue;
+            }
+
             if (sma.action == ActionType.MarketSell) {
-                _executeMarketSell(tick, sma.clanId, sma.clansmanId, sma.marketToken, sma.marketAmount, sma.commitSequence);
+                try this._executeMarketSellExternal(tick, sma.clanId, sma.clansmanId, sma.marketToken, sma.marketAmount, sma.commitSequence) {
+                    // success
+                } catch {
+                    emit MarketActionFailed(sma.clanId, sma.clansmanId, sma.action, StatusCode.ERR_INVALID_ACTION);
+                }
             } else if (sma.action == ActionType.MarketBuy) {
-                _executeMarketBuy(tick, sma.clanId, sma.clansmanId, sma.marketToken, sma.marketAmount, sma.maxGoldIn, sma.commitSequence);
+                try this._executeMarketBuyExternal(tick, sma.clanId, sma.clansmanId, sma.marketToken, sma.marketAmount, sma.maxGoldIn, sma.commitSequence) {
+                    // success
+                } catch {
+                    emit MarketActionFailed(sma.clanId, sma.clansmanId, sma.action, StatusCode.ERR_INVALID_ACTION);
+                }
             }
         }
 
         delete _scheduledMarketActions[tick];
+    }
+
+    /// @dev External wrapper for _executeMarketSell — enables try/catch from heartbeat loop.
+    function _executeMarketSellExternal(
+        uint64 closedTick,
+        uint32 clanId,
+        uint32 clansmanId,
+        address token,
+        uint256 amount,
+        uint64 commitSequence
+    ) external {
+        require(msg.sender == address(this), "ClanWorld: internal only");
+        _executeMarketSell(closedTick, clanId, clansmanId, token, amount, commitSequence);
+    }
+
+    /// @dev External wrapper for _executeMarketBuy — enables try/catch from heartbeat loop.
+    function _executeMarketBuyExternal(
+        uint64 closedTick,
+        uint32 clanId,
+        uint32 clansmanId,
+        address token,
+        uint256 amountOut,
+        uint256 maxGoldIn,
+        uint64 commitSequence
+    ) external {
+        require(msg.sender == address(this), "ClanWorld: internal only");
+        _executeMarketBuy(closedTick, clanId, clansmanId, token, amountOut, maxGoldIn, commitSequence);
     }
 
     /// @dev Map a resource token address to its pool address.
@@ -1185,7 +1227,7 @@ contract ClanWorld is IClanWorld {
             clansmanId,
             _treasury.goldToken,
             token,
-            goldIn,
+            actualGoldIn,
             amountOut
         );
     }
@@ -1267,11 +1309,11 @@ contract ClanWorld is IClanWorld {
                     return StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN;
                 }
             }
-            // Immediate market: worker already in Unicorn Town and WAITING
+            // Market orders are always enqueued for the arrivalTick FIFO queue.
+            // _resolveAction records mission completion but does not execute any swap.
             if (cs.currentRegion == ClanWorldConstants.REGION_UNICORN_TOWN &&
                 cs.state == ClansmanState.WAITING) {
-                // Phase 2: execute immediately in this tx (handled in _resolveAction)
-                // fall through — scheduled execution via FIFO queue handles this at heartbeat
+                // Already at Unicorn Town — arrivalTick == currentTick, queued for next heartbeat.
             }
         }
 

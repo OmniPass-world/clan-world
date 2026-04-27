@@ -767,10 +767,10 @@ contract ClanWorldTest is Test {
     }
 
     // -------------------------------------------------------------------------
-    // Test 17: immediateMarket_requiresUnicornTown — non-UT market order rejected
+    // Test 17: marketOrder_rejectsInvalidRegion — non-UT market order rejected
     // -------------------------------------------------------------------------
 
-    function test_immediateMarket_requiresUnicornTown() public {
+    function test_marketOrder_rejectsInvalidRegion() public {
         address woodAddr = _setupMarket();
         uint32 clanId = _mintClan();
         uint32 csId   = _firstCs(clanId);

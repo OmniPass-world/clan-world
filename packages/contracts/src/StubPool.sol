@@ -50,11 +50,12 @@ contract StubPool {
     }
 
     /// @notice Quote a buy without updating reserves (view).
-    ///         goldIn = reserveB * amountOut / (reserveA - amountOut), ceiling.
+    ///         goldIn = ceil(reserveB * amountOut / (reserveA - amountOut)).
     function quoteBuy(uint256 amountOut) external view returns (uint256 goldIn) {
         require(amountOut > 0, "StubPool: zero amount");
         require(amountOut < reserveA, "StubPool: insufficient resource reserve");
-        goldIn = (reserveB * amountOut) / (reserveA - amountOut) + 1; // ceiling
+        uint256 denom = reserveA - amountOut;
+        goldIn = (reserveB * amountOut + denom - 1) / denom;
     }
 
     /// @notice Exact-output buy: clan buys amountOut of resource, pays goldIn.
@@ -64,7 +65,8 @@ contract StubPool {
         require(amountOut > 0, "StubPool: zero amount");
         require(amountOut < reserveA, "StubPool: insufficient resource reserve");
         require(reserveB > 0, "StubPool: not seeded");
-        goldIn = (reserveB * amountOut) / (reserveA - amountOut) + 1; // ceiling
+        uint256 denom = reserveA - amountOut;
+        goldIn = (reserveB * amountOut + denom - 1) / denom;
         reserveA -= amountOut;
         reserveB += goldIn;
     }
