@@ -27,20 +27,20 @@ contract Deploy is Script {
         console.log("gold:     ", address(gold));
         console.log("blueprint:", address(blueprint));
 
-        // 2. Deploy 4 stub LP pools
-        StubPool woodGold  = new StubPool(address(wood),  address(gold));
-        StubPool wheatGold = new StubPool(address(wheat), address(gold));
-        StubPool fishGold  = new StubPool(address(fish),  address(gold));
-        StubPool ironGold  = new StubPool(address(iron),  address(gold));
+        // 3. Deploy ClanWorld first (needed as engine arg for pools)
+        ClanWorld game = new ClanWorld();
+        console.log("CLAN_WORLD_CONTRACT_ADDRESS:", address(game));
+
+        // 2. Deploy 4 AMM pools (Phase 2: real constant-product pools)
+        StubPool woodGold  = new StubPool(address(wood),  address(gold), address(game));
+        StubPool wheatGold = new StubPool(address(wheat), address(gold), address(game));
+        StubPool fishGold  = new StubPool(address(fish),  address(gold), address(game));
+        StubPool ironGold  = new StubPool(address(iron),  address(gold), address(game));
 
         console.log("woodGoldPool: ", address(woodGold));
         console.log("wheatGoldPool:", address(wheatGold));
         console.log("fishGoldPool: ", address(fishGold));
         console.log("ironGoldPool: ", address(ironGold));
-
-        // 3. Deploy ClanWorld (Phase 1 real engine — no constructor args)
-        ClanWorld game = new ClanWorld();
-        console.log("CLAN_WORLD_CONTRACT_ADDRESS:", address(game));
 
         vm.stopBroadcast();
     }

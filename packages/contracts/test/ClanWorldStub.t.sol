@@ -15,10 +15,10 @@ contract ClanWorldStubTest is Test {
         for (uint256 i = 0; i < 6; i++) {
             tokens[i] = address(new MinimalERC20("T", "T"));
         }
-        // Deploy mock pools
+        // Deploy mock pools (Phase 2: engine arg is address(0) for stub tests)
         address[4] memory pools;
         for (uint256 i = 0; i < 4; i++) {
-            pools[i] = address(new StubPool(tokens[i], tokens[4]));
+            pools[i] = address(new StubPool(tokens[i], tokens[4], address(0)));
         }
         stub = new ClanWorldStub(tokens, pools);
     }
