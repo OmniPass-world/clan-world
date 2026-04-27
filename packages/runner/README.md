@@ -19,7 +19,7 @@ loop:
 ```
 
 The runner is the **only** writer of situation blocks into Elder sessions. It
-satisfies four seam interfaces from `@clan-world/agents/src/seams`:
+satisfies four seam interfaces from `@clan-world/agents/seams`:
 
 | Seam                  | Impl                       | Notes                                              |
 | --------------------- | -------------------------- | -------------------------------------------------- |

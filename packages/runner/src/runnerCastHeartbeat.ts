@@ -141,7 +141,12 @@ export class RunnerCastHeartbeat implements IHeartbeatCaller {
       }
       return { txHash: hash };
     } catch (err) {
-      // Try to upgrade a generic revert to HeartbeatRateLimitedError.
+      // Already a rate-limit error — rethrow immediately; no second RPC read.
+      if (err instanceof HeartbeatRateLimitedError) throw err;
+      // Attempt to upgrade a simulation-level revert to HeartbeatRateLimitedError.
+      // TODO(phase-2): narrow this to ContractFunctionRevertedError only so
+      // pre-flight errors (insufficient funds, bad nonce, RPC failures) are not
+      // silently classified as rate-limit back-offs.
       const next = await this.readNextHeartbeatAt().catch(() => undefined);
       if (next !== undefined && next > Math.floor(Date.now() / 1000)) {
         throw new HeartbeatRateLimitedError(next);

@@ -82,13 +82,6 @@ async function main(): Promise<void> {
     elderToClanId: config.elderToClanId,
   });
 
-  if (!process.env['CONVEX_URL']) {
-    console.warn(
-      '[runner] CONVEX_URL is not set — using stub Convex client; tick poll will return 0 and the loop will idle. ' +
-        'Set CONVEX_URL once Convex is deployed to advance.',
-    );
-  }
-
   const convex = createConvexClient();
   const heartbeatCaller = new RunnerCastHeartbeat(configFromEnv());
 

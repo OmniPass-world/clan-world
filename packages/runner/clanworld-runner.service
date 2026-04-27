@@ -10,11 +10,12 @@ WorkingDirectory=%h/code/clan-world
 ExecStart=/usr/bin/env pnpm --filter @clan-world/runner start
 Restart=on-failure
 RestartSec=10s
-# Read env vars from this file (chmod 600). Required:
+# Read env vars from this file (chmod 600).
+# Required:
 #   RUNNER_PRIVATE_KEY
 #   CLAN_WORLD_CONTRACT_ADDRESS
-#   CONVEX_URL
 # Optional:
+#   CONVEX_URL (omit to run in stub/idle mode)
 #   CHAIN_RPC_URL, RUNNER_POLL_INTERVAL_MS, RUNNER_SETTLE_WINDOW_SEC,
 #   RUNNER_TMUX_SESSION_PREFIX, ELDER_<N>_CLAN_ID
 EnvironmentFile=%h/.config/clanworld-runner/runner.env
