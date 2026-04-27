@@ -3,6 +3,7 @@ import { MiniKit } from '@worldcoin/minikit-js';
 import { useIDKitRequest } from '@worldcoin/idkit';
 import type { IDKitRequestHookConfig } from '@worldcoin/idkit';
 import { WorldMap } from './WorldMap';
+import { Cockpit } from './pages/Cockpit';
 
 // Convex HTTP actions are served at <deployment>.convex.site (not .convex.cloud)
 const CONVEX_SITE_URL =
@@ -41,7 +42,32 @@ const IDKIT_CONFIG: IDKitRequestHookConfig = {
 const DEMO_BYPASS_WORLD_GUARD =
   import.meta.env.VITE_DEMO_BYPASS_WORLD_GUARD === 'true';
 
+/**
+ * Top-level route decision. Lightweight path-based routing avoids a router
+ * dep for a single side route. Reading window.location once at render is
+ * fine here — the cockpit is a standalone judge view, not a SPA tab inside
+ * the main app, so we never need to navigate between them client-side.
+ */
+function isCockpitRoute(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    window.location.pathname.startsWith('/cockpit')
+  );
+}
+
 export function App() {
+  // /cockpit route — standalone judge view, bypasses World App / verify gate.
+  // Pure read-only frontend for now (Phase B will wire live data).
+  // Routed BEFORE any hooks so the cockpit branch never instantiates the
+  // World-App / IDKit hooks (which would warn about missing config in a
+  // plain browser).
+  if (isCockpitRoute()) {
+    return <Cockpit />;
+  }
+  return <MainApp />;
+}
+
+function MainApp() {
   // When the demo bypass env is set, start verified=true so the WorldMap canvas
   // renders immediately without an IDKit verify round-trip (which can't complete
   // outside World App). Production default (env unset) keeps the full gate.
