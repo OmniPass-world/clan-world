@@ -163,7 +163,12 @@ export async function tickLoop(deps: TickLoopDeps): Promise<void> {
             await sleepWithSignal(waitMs, deps.signal);
             if (deps.signal.aborted) break;
             // Re-poll: if tick advanced during the wait, heartbeat already fired.
-            const freshTick = await pollChainTick(deps.convex).catch(() => chainTick);
+            // Wrapped in raceAbort so a hung Convex query doesn't block past SIGTERM.
+            const freshTick = await raceAbort(
+              pollChainTick(deps.convex),
+              deps.signal,
+              'pollChainTick(re-poll)',
+            ).catch(() => chainTick);
             if (freshTick > chainTick) {
               log.info(`chainTick advanced to ${freshTick} during rate-limit wait — stale tick ${chainTick} dropped`);
               break;
