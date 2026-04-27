@@ -9,16 +9,17 @@ import { CommsTab } from './tabs/CommsTab';
 
 interface Props {
   elder: ElderDef;
-  /** Stub tick counter — Phase B will source this from the engine. */
-  tick?: number;
-  tickMax?: number;
 }
 
 /**
  * One corner panel — tab bar on top, content below. Default tab is Terminal
  * per Liam's spec ("First tab is terminal").
+ *
+ * Phase A.5b: tick counter moved out of this component and into the global
+ * CockpitHeader (rendered once at the top of the page). MiniCockpit no
+ * longer takes a `tick` prop.
  */
-export function MiniCockpit({ elder, tick = 4, tickMax = 10 }: Props) {
+export function MiniCockpit({ elder }: Props) {
   const [active, setActive] = useState<TabId>('terminal');
   const testIdPrefix = `mini-cockpit-${elder.clanId}`;
 
@@ -43,8 +44,6 @@ export function MiniCockpit({ elder, tick = 4, tickMax = 10 }: Props) {
       <CockpitTabBar
         active={active}
         onSelect={setActive}
-        tick={tick}
-        tickMax={tickMax}
         clanName={elder.name}
         clanAccent={elder.accent}
         clanGlyph={elder.glyph}

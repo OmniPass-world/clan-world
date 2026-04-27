@@ -21,9 +21,6 @@ export const TABS: ReadonlyArray<TabDef> = [
 interface Props {
   active: TabId;
   onSelect: (id: TabId) => void;
-  /** Current engine tick for this Elder. Rendered as `T/10` on the right side. */
-  tick: number;
-  tickMax: number;
   /** Clan name / accent — colors the active-tab underline. */
   clanName: string;
   clanAccent: string;
@@ -33,17 +30,18 @@ interface Props {
 }
 
 /**
- * Compact tab bar — icon-stacked-on-text on the left, clan badge in the center,
- * X/10 tick counter on the right. Matches Liam's spec verbatim.
+ * Compact tab bar — icon-stacked-on-text on the left, clan badge on the right.
  *
- * Layout chosen so the bar is dense at small panel widths (corner cells in a
- * 3-col grid get ~340px on a 1440 desktop). Each tab is fixed ~44px wide.
+ * Phase A.5b: tick counter removed from per-tab bar; it now lives on the
+ * single app-level CockpitHeader so we render it once per page instead of
+ * four times.
+ *
+ * Layout chosen so the bar stays dense at small panel widths. Each tab is
+ * fixed ~44px wide.
  */
 export function CockpitTabBar({
   active,
   onSelect,
-  tick,
-  tickMax,
   clanName,
   clanAccent,
   clanGlyph,
@@ -115,7 +113,7 @@ export function CockpitTabBar({
         })}
       </div>
 
-      {/* Center: clan badge — pushes spacer between tabs and tick counter */}
+      {/* Right: clan badge */}
       <div
         style={{
           flex: 1,
@@ -144,31 +142,6 @@ export function CockpitTabBar({
         >
           {clanName}
         </span>
-      </div>
-
-      {/* Right: tick counter */}
-      <div
-        data-testid={`${testIdPrefix}-tick`}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px',
-          padding: `0 ${tokens.space.md}`,
-          borderLeft: `1px solid ${tokens.border.iron}`,
-          fontFamily: tokens.font.mono,
-          fontSize: '11px',
-          color: tokens.text.accent,
-          fontWeight: 600,
-          letterSpacing: '0.08em',
-          minWidth: '52px',
-          justifyContent: 'flex-end',
-        }}
-        title="Engine tick"
-      >
-        <span style={{ opacity: 0.6 }}>T</span>
-        <span>{tick}</span>
-        <span style={{ opacity: 0.4 }}>/</span>
-        <span style={{ opacity: 0.6 }}>{tickMax}</span>
       </div>
     </div>
   );

@@ -4,6 +4,8 @@ import { defineConfig, devices } from '@playwright/test';
 // `port-for --init <worktree>` slot for clan-world is registered. Until then
 // PLAYWRIGHT_BASE_URL env override is the canonical way to point tests at the
 // real dev server.
+// Migrate to port-for clan-world-frontend-test (58770) after PR #102
+// (port-for-init) merges.
 const DEFAULT_PORT = 58840;
 const baseURL =
   process.env.PLAYWRIGHT_BASE_URL ?? `http://localhost:${DEFAULT_PORT}`;

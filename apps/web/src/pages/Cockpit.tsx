@@ -1,5 +1,6 @@
 import { tokens, ELDERS } from '../styles/cockpit-tokens';
 import { MiniCockpit } from '../components/cockpit/MiniCockpit';
+import { CockpitHeader } from '../components/cockpit/CockpitHeader';
 import { WorldMap } from '../WorldMap';
 import { WorldMapBoundary } from '../components/cockpit/shared/WorldMapBoundary';
 
@@ -13,10 +14,13 @@ import { WorldMapBoundary } from '../components/cockpit/shared/WorldMapBoundary'
  * Panels 1-4 are mini-cockpits (one per Elder, hardcoded clans 1-4).
  * Panel 5 is the existing WorldMap pixi canvas, spanning both rows.
  *
+ * Phase A.5b: terminal tabs render a live ttyd iframe; tick counter +
+ * connection indicator hoisted to a single app-level CockpitHeader.
+ *
  * Desktop-first; corners stack vertically below md (≤960px) so phones still
  * see the world map + each agent panel.
  *
- * Phase B (separate PR) wires real Convex data + tmux mirror + tick counter.
+ * Phase B (separate PR) wires real Convex data + tick subscription.
  */
 export function Cockpit() {
   // Elder slot mapping — physical grid position → clanId.
@@ -48,7 +52,7 @@ export function Cockpit() {
         flexDirection: 'column',
       }}
     >
-      <CockpitChrome />
+      <CockpitHeader />
 
       {/* Responsive grid:
           - desktop (≥960px): 3 cols × 2 rows, center spans both rows
@@ -122,49 +126,5 @@ export function Cockpit() {
         </div>
       </div>
     </main>
-  );
-}
-
-/**
- * Cockpit chrome — thin top bar with title + global tick / status placeholder.
- * Kept slim so the panels dominate vertical space.
- */
-function CockpitChrome() {
-  return (
-    <header
-      data-testid="cockpit-chrome"
-      style={{
-        height: '32px',
-        background: tokens.bg.ironDeep,
-        borderBottom: `1px solid ${tokens.border.iron}`,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: `0 ${tokens.space.md}`,
-        flexShrink: 0,
-      }}
-    >
-      <div
-        style={{
-          fontFamily: tokens.font.display,
-          fontSize: '11px',
-          letterSpacing: '0.24em',
-          color: tokens.text.onIron,
-          textTransform: 'uppercase',
-        }}
-      >
-        ClanWorld · Elder Cockpit
-      </div>
-      <div
-        style={{
-          fontFamily: tokens.font.mono,
-          fontSize: '10px',
-          color: tokens.text.onIronDim,
-          letterSpacing: '0.08em',
-        }}
-      >
-        Phase A · layout shell
-      </div>
-    </header>
   );
 }
