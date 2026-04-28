@@ -6,6 +6,7 @@ import { FilePeerInbox } from './filePeerInbox';
 import { configFromEnv, RunnerCastHeartbeat } from './runnerCastHeartbeat';
 import { startHeartbeatScheduler } from './heartbeatScheduler';
 import { tickLoop, type PerElderDeps } from './tickLoop';
+import { makeSettleLatch } from './settleLatch';
 import { TmuxRunnerInbox } from './tmuxRunnerInbox';
 import { ELDER_IDS, type ElderId, type RunnerConfig } from './types';
 
@@ -114,10 +115,14 @@ async function main(): Promise<void> {
   process.on('SIGTERM', () => onSignal('SIGTERM'));
   process.on('SIGINT', () => onSignal('SIGINT'));
 
+  const settleLatch = makeSettleLatch();
+
   startHeartbeatScheduler({
     heartbeatCaller,
     signal: abort.signal,
     checkIntervalMs: config.heartbeatCheckIntervalMs,
+    settleLatch,
+    convex,
   });
 
   try {
@@ -126,6 +131,7 @@ async function main(): Promise<void> {
       perElder,
       config,
       signal: abort.signal,
+      settleLatch,
     });
   } finally {
     console.log('[runner] tick loop exited');

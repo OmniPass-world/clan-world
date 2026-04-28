@@ -1,4 +1,7 @@
 import { HeartbeatRateLimitedError, type IHeartbeatCaller } from '@clan-world/agents/seams';
+import type { IConvexClient } from '@clan-world/shared/adapters';
+import { pollChainTick } from './pollChainTick';
+import type { SettleLatch } from './settleLatch';
 
 export interface HeartbeatSchedulerDeps {
   heartbeatCaller: IHeartbeatCaller;
@@ -12,6 +15,10 @@ export interface HeartbeatSchedulerDeps {
     warn: (...args: unknown[]) => void;
     error: (...args: unknown[]) => void;
   };
+  /** Convex client for reading current tick. Required when settleLatch is provided. */
+  convex?: IConvexClient;
+  /** Shared latch — Cycle A only fires heartbeat after Cycle B settles the tick. */
+  settleLatch?: SettleLatch;
 }
 
 /**
@@ -28,13 +35,25 @@ export function startHeartbeatScheduler(deps: HeartbeatSchedulerDeps): void {
     error: (...a: unknown[]) => console.error('[heartbeat]', ...a),
   };
   const checkMs = deps.checkIntervalMs ?? 30_000;
+  let inFlight = false;
 
   const timer = setInterval(() => {
     void (async () => {
       if (deps.signal.aborted) return;
+      if (inFlight) return;
+      inFlight = true;
       try {
         const due = await deps.heartbeatCaller.isHeartbeatDue();
         if (!due) return;
+        if (deps.signal.aborted) return;
+        // HIGH: only fire after Cycle B has settled this tick.
+        if (deps.settleLatch && deps.convex) {
+          const currentTick = await pollChainTick(deps.convex).catch(() => -1);
+          if (currentTick > 0 && deps.settleLatch.lastSettledTick() < currentTick) {
+            log.info(`waiting for Cycle B to settle tick ${currentTick} before heartbeat`);
+            return;
+          }
+        }
         const { txHash } = await deps.heartbeatCaller.callHeartbeat();
         log.info(`heartbeat tx confirmed: ${txHash}`);
       } catch (err) {
@@ -45,6 +64,8 @@ export function startHeartbeatScheduler(deps: HeartbeatSchedulerDeps): void {
           return;
         }
         log.error('heartbeat failed:', err);
+      } finally {
+        inFlight = false;
       }
     })();
   }, checkMs);

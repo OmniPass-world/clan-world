@@ -1,6 +1,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { startHeartbeatScheduler } from '../src/heartbeatScheduler';
 import { HeartbeatRateLimitedError, type IHeartbeatCaller } from '@clan-world/agents/seams';
+import { makeSettleLatch } from '../src/settleLatch';
+import type { IConvexClient } from '@clan-world/shared/adapters';
+
+function makeConvex(tick: number): IConvexClient {
+  return {
+    async getSnapshot() {
+      return { tick, tickEpoch: { startedAt: 0, durationMs: 20_000 }, regions: [], clans: [] };
+    },
+    async getClanFullView(clanId: string) {
+      return { clan: { id: clanId, name: `Stub ${clanId}`, treasury: '0' }, controlledRegions: [], pendingOrders: [], whispers: [] };
+    },
+    async postLog() {},
+    subscribeWhispers() { return () => {}; },
+  } as IConvexClient;
+}
 
 function makeHeartbeatCaller(overrides: Partial<IHeartbeatCaller> = {}): IHeartbeatCaller {
   return {
@@ -93,5 +108,55 @@ describe('heartbeatScheduler', () => {
 
     await vi.advanceTimersByTimeAsync(350);
     expect(callHeartbeat).not.toHaveBeenCalled();
+  });
+
+  it('does not allow overlapping callHeartbeat — second interval fires while first in flight', async () => {
+    let inFlightCount = 0;
+    let maxConcurrent = 0;
+    const callHeartbeat = vi.fn(async () => {
+      inFlightCount++;
+      maxConcurrent = Math.max(maxConcurrent, inFlightCount);
+      await new Promise(resolve => setTimeout(resolve, 250)); // slow
+      inFlightCount--;
+      return { txHash: '0xslow' };
+    });
+    const caller = makeHeartbeatCaller({
+      async isHeartbeatDue() { return true; },
+      callHeartbeat,
+    });
+    const abort = new AbortController();
+    const settleLatch = makeSettleLatch();
+    settleLatch.markSettled(1);
+    const convex = makeConvex(1);
+
+    startHeartbeatScheduler({ heartbeatCaller: caller, signal: abort.signal, checkIntervalMs: 100, settleLatch, convex });
+
+    // Fire 3 intervals (0ms, 100ms, 200ms) while first call takes 250ms
+    await vi.advanceTimersByTimeAsync(310);
+    expect(maxConcurrent).toBe(1); // never more than 1 in-flight
+    abort.abort();
+  });
+
+  it('skips heartbeat when Cycle B has not settled the current tick', async () => {
+    const callHeartbeat = vi.fn().mockResolvedValue({ txHash: '0x1' });
+    const caller = makeHeartbeatCaller({
+      async isHeartbeatDue() { return true; },
+      callHeartbeat,
+    });
+    const abort = new AbortController();
+    const settleLatch = makeSettleLatch(); // lastSettledTick = -1, currentTick = 5
+    const convex = makeConvex(5);
+
+    startHeartbeatScheduler({ heartbeatCaller: caller, signal: abort.signal, checkIntervalMs: 100, settleLatch, convex });
+
+    await vi.advanceTimersByTimeAsync(350); // 3 intervals, none should fire
+    expect(callHeartbeat).not.toHaveBeenCalled();
+
+    // Now Cycle B settles tick 5
+    settleLatch.markSettled(5);
+    await vi.advanceTimersByTimeAsync(110);
+    expect(callHeartbeat).toHaveBeenCalledTimes(1);
+
+    abort.abort();
   });
 });
