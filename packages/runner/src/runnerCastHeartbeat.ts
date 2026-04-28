@@ -1,4 +1,5 @@
 import {
+  ContractFunctionRevertedError,
   createPublicClient,
   createWalletClient,
   defineChain,
@@ -143,10 +144,9 @@ export class RunnerCastHeartbeat implements IHeartbeatCaller {
     } catch (err) {
       // Already a rate-limit error — rethrow immediately; no second RPC read.
       if (err instanceof HeartbeatRateLimitedError) throw err;
-      // Attempt to upgrade a simulation-level revert to HeartbeatRateLimitedError.
-      // TODO(phase-2): narrow this to ContractFunctionRevertedError only so
-      // pre-flight errors (insufficient funds, bad nonce, RPC failures) are not
-      // silently classified as rate-limit back-offs.
+      // Attempt to upgrade only simulation-level contract reverts to
+      // HeartbeatRateLimitedError; pre-flight/RPC errors must surface unchanged.
+      if (!(err instanceof ContractFunctionRevertedError)) throw err;
       const next = await this.readNextHeartbeatAt().catch(() => undefined);
       if (next !== undefined && next > Math.floor(Date.now() / 1000)) {
         throw new HeartbeatRateLimitedError(next);

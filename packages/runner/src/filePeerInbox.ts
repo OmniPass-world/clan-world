@@ -1,12 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { IElderPeerInbox, PeerMessage } from '@clan-world/agents/seams';
-import type { ElderId } from './types';
+import { ELDER_IDS, type ElderId } from './types';
 
 /**
  * S2 stub of `IElderPeerInbox` backed by per-recipient JSONL files.
  *
- * File layout: `${stateDir}/peer-inbox/elder-{recipientClanId}.jsonl`
+ * File layout: `${stateDir}/peer-inbox/elder-{recipient}.jsonl`
  *
  * Each line is a JSON-encoded `PeerMessage`. Append-only; consumption is the
  * Elder's responsibility (it tracks last-read offset in its own memory store).
@@ -23,26 +23,24 @@ import type { ElderId } from './types';
  * This S2 stub does NOT dedup — `send()` always appends. Callers that need
  * exactly-once must dedup at the consumer side, or wrap this in a dedup layer.
  *
- * Routing note: writes go to `peer-inbox/elder-${recipientClanId}.jsonl`,
- * keyed by clan id. This matches the Elder CLI's `peer whisper` writer
- * (`recipientInboxFile(clanId)`). The CLI's `peer inbox` READER, however,
- * keys by ELDER_N (1..4) via `inboxFile(n)` — so for the on-disk layout to
- * round-trip cleanly, clanId must equal `String(elderId)` for each Elder.
- * The default `ELDER_N_CLAN_ID` env mapping satisfies this; custom mappings
- * will desync the runner writer from the CLI reader. See PR #90 follow-up.
+ * Routing note: reads use `ELDER_N`, matching the CLI's `peer inbox` reader
+ * (`inboxFile(n)`). Writes resolve recipient clan ids through `ELDER_{N}_CLAN_ID`
+ * env mappings when present, so non-default mappings still land on the same
+ * elder-N inbox key.
  */
 export class FilePeerInbox implements IElderPeerInbox {
   private readonly inboxDir: string;
   private readonly ownClanId: string;
+  private readonly elderN: string;
 
   constructor(elder: ElderId, ownClanId: string, stateDir: string) {
-    void elder;
     this.inboxDir = path.join(stateDir, 'peer-inbox');
     this.ownClanId = ownClanId;
+    this.elderN = process.env['ELDER_N'] ?? String(elder);
   }
 
   async send(toClanId: string, message: string, tick: number): Promise<void> {
-    const file = path.join(this.inboxDir, `elder-${toClanId}.jsonl`);
+    const file = path.join(this.inboxDir, `elder-${inboxKeyForClanId(toClanId)}.jsonl`);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     // CLI uses `from: <Elder N>` (number); the seam uses `fromClanId: string`.
     // We write BOTH so either reader can parse — see `read()` below.
@@ -63,7 +61,7 @@ export class FilePeerInbox implements IElderPeerInbox {
   }
 
   async inbox(): Promise<PeerMessage[]> {
-    const file = path.join(this.inboxDir, `elder-${this.ownClanId}.jsonl`);
+    const file = path.join(this.inboxDir, `elder-${this.elderN}.jsonl`);
     if (!fs.existsSync(file)) return [];
     const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);
     const out: PeerMessage[] = [];
@@ -73,6 +71,14 @@ export class FilePeerInbox implements IElderPeerInbox {
     }
     return out;
   }
+}
+
+function inboxKeyForClanId(clanId: string, env: NodeJS.ProcessEnv = process.env): string {
+  for (const elder of ELDER_IDS) {
+    const mappedClanId = env[`ELDER_${elder}_CLAN_ID`] ?? String(elder);
+    if (mappedClanId === clanId) return String(elder);
+  }
+  return clanId;
 }
 
 interface CliShape {
