@@ -141,6 +141,14 @@ function assertSafeClanId(clanId: string): void {
 function isJournalEntry(val: unknown): val is JournalEntry {
   if (typeof val !== 'object' || val === null) return false;
   const obj = val as Record<string, unknown>;
+  // sentAt is required in PeerMessage (string); when present must be string or number.
+  if (
+    obj['sentAt'] !== undefined &&
+    typeof obj['sentAt'] !== 'string' &&
+    typeof obj['sentAt'] !== 'number'
+  ) {
+    return false;
+  }
   return (
     typeof obj['fromClanId'] === 'string' &&
     typeof obj['toClanId'] === 'string' &&
