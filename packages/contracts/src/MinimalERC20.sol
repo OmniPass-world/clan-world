@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.34;
 
 /// @notice Minimal ERC20 with owner-only mint. No external deps.
 contract MinimalERC20 {
