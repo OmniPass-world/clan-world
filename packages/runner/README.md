@@ -26,21 +26,24 @@ Required env vars:
 |---|---|
 | `OG_STORAGE_API_KEY` | 0G API key — enables 0G backend |
 | `OG_STREAM_ID` | KV stream ID scoped to this clan (UUID or hex address) |
-| `OG_KV_RPC` | 0G KV RPC endpoint (default: `https://rpc-storage-testnet.0g.ai`) |
-| `ELDER_N` | Elder index 1–4 |
+| `EVM_RPC` | 0G EVM RPC endpoint (default: `https://evmrpc.0g.ai`) |
+| `INDEXER_RPC` | 0G Indexer RPC endpoint (default: `https://indexer-storage-turbo.0g.ai`) |
+| `FLOW_CONTRACT` | 0G Flow contract address |
+| `ELDER_MNEMONIC` | BIP39 mnemonic (12 or 24 words) |
+| `ELDER_INDEX` | Elder index 1–4 |
 
 Copy `.env.example` to `.env` and fill in the values.
 
-**Note:** Write transactions require a funded wallet and deployed Flow contract. The current implementation includes a write stub (see `zeroGMemoryStore.ts` TODO comments) — reads via `KvClient` work fully. Production writes need `OG_WALLET_PRIVATE_KEY` + `OG_FLOW_CONTRACT`.
+**Note:** Write transactions require a funded wallet and deployed Flow contract. Wallet is derived from `ELDER_MNEMONIC` at BIP-44 path `m/44'/60'/0'/0/{ELDER_INDEX-1}`.
 
 ## Running
 
 ```bash
 # Local fallback
-ELDER_N=1 npx tsx src/main.ts
+ELDER_INDEX=1 npx tsx src/main.ts
 
 # With 0G storage
-OG_STORAGE_API_KEY=<key> OG_STREAM_ID=<id> ELDER_N=1 npx tsx src/main.ts
+OG_STORAGE_API_KEY=<key> OG_STREAM_ID=<id> ELDER_MNEMONIC="word1 ... word12" ELDER_INDEX=1 npx tsx src/main.ts
 ```
 
 ## Tests

@@ -84,14 +84,32 @@ function writeCacheToDisk(filePath: string, data: Record<string, string>): void 
 }
 
 // ---------------------------------------------------------------------------
+// Named error classes
+// ---------------------------------------------------------------------------
+
+export class ZeroGValidationError extends Error {
+  constructor(message: string, public readonly code: string) {
+    super(message);
+    this.name = 'ZeroGValidationError';
+  }
+}
+
+export class ZeroGTimeoutError extends Error {
+  constructor(public readonly operation: string, public readonly timeoutMs: number) {
+    super(`${operation} timed out after ${timeoutMs}ms`);
+    this.name = 'ZeroGTimeoutError';
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Timeout helper
 // ---------------------------------------------------------------------------
 
-/** Wrap a promise with a timeout. Rejects with a descriptive error if ms elapses. */
+/** Wrap a promise with a timeout. Rejects with ZeroGTimeoutError if ms elapses. */
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timerId = setTimeout(
-      () => reject(new Error(`${label} timed out after ${ms}ms`)),
+      () => reject(new ZeroGTimeoutError(label, ms)),
       ms,
     );
     promise.then(
@@ -135,10 +153,16 @@ function buildRealBatcherFactory(env: Record<string, string | undefined>): Batch
     const ethers = await import('ethers');
 
     const mnemonic = env['ELDER_MNEMONIC'];
-    if (!mnemonic) throw new Error('[ZeroGMemoryStore] ELDER_MNEMONIC not set');
+    if (!mnemonic) throw new ZeroGValidationError('ELDER_MNEMONIC is required', 'ELDER_MNEMONIC');
 
-    const index = parseInt(env['ELDER_INDEX'] ?? '0', 10);
-    if (!index) throw new Error('[ZeroGMemoryStore] ELDER_INDEX not set or zero');
+    const rawIdx = env['ELDER_INDEX'] ?? '';
+    if (!/^[1-4]$/.test(rawIdx.trim())) {
+      throw new ZeroGValidationError(
+        `ELDER_INDEX must be exactly 1, 2, 3, or 4 — got: "${rawIdx}"`,
+        'ELDER_INDEX',
+      );
+    }
+    const index = parseInt(rawIdx, 10);
 
     const evmRpc = env['EVM_RPC'] ?? 'https://evmrpc.0g.ai';
     const indexerRpc = env['INDEXER_RPC'] ?? 'https://indexer-storage-turbo.0g.ai';
@@ -269,22 +293,62 @@ export async function createMemoryStore(
   const env = opts.env ?? process.env;
 
   // Fail-fast validation — catch bad env early before any async work.
-  const rawIndex = opts.elderIndex ?? parseInt(env['ELDER_INDEX'] ?? '0', 10);
-  if (isNaN(rawIndex) || rawIndex < 1 || rawIndex > 4) {
-    throw new Error(`ELDER_INDEX must be 1–4, got: ${env['ELDER_INDEX'] ?? opts.elderIndex}`);
-  }
-  const words = (env['ELDER_MNEMONIC'] ?? '').trim().split(/\s+/);
-  if (env['ELDER_MNEMONIC'] !== undefined && words.length !== 12 && words.length !== 24) {
-    throw new Error(`ELDER_MNEMONIC must be 12 or 24 words, got: ${words.length}`);
+  // MED 3: strict regex — reject non-integers like "1.5" or "1abc".
+  if (opts.elderIndex === undefined) {
+    const rawIndex = env['ELDER_INDEX'] ?? '';
+    if (!/^[1-4]$/.test(rawIndex.trim())) {
+      throw new ZeroGValidationError(
+        `ELDER_INDEX must be exactly 1, 2, 3, or 4 — got: "${rawIndex}"`,
+        'ELDER_INDEX',
+      );
+    }
+  } else {
+    const idx = opts.elderIndex;
+    if (!Number.isInteger(idx) || idx < 1 || idx > 4) {
+      throw new ZeroGValidationError(
+        `ELDER_INDEX must be exactly 1, 2, 3, or 4 — got: "${idx}"`,
+        'ELDER_INDEX',
+      );
+    }
   }
 
   const apiKey = env['OG_STORAGE_API_KEY'];
+
+  // MED 5: require ELDER_MNEMONIC presence when OG_STORAGE_API_KEY is set.
+  if (apiKey) {
+    const mnemonic = env['ELDER_MNEMONIC'] ?? '';
+    if (!mnemonic.trim()) {
+      throw new ZeroGValidationError(
+        'ELDER_MNEMONIC is required when OG_STORAGE_API_KEY is set',
+        'ELDER_MNEMONIC',
+      );
+    }
+    const words = mnemonic.trim().split(/\s+/);
+    if (words.length !== 12 && words.length !== 24) {
+      throw new ZeroGValidationError(
+        `ELDER_MNEMONIC must be 12 or 24 words, got ${words.length}`,
+        'ELDER_MNEMONIC_LENGTH',
+      );
+    }
+  } else {
+    // Still validate word count if provided (even in fallback path).
+    const mnemonic = env['ELDER_MNEMONIC'];
+    if (mnemonic !== undefined) {
+      const words = mnemonic.trim().split(/\s+/);
+      if (words.length !== 12 && words.length !== 24) {
+        throw new ZeroGValidationError(
+          `ELDER_MNEMONIC must be 12 or 24 words, got ${words.length}`,
+          'ELDER_MNEMONIC_LENGTH',
+        );
+      }
+    }
+  }
 
   if (!apiKey) {
     console.warn(
       '[ZeroGMemoryStore] OG_STORAGE_API_KEY not set — falling back to local JSON file store.',
     );
-    const n = opts.elderIndex ?? parseInt(env['ELDER_INDEX'] ?? env['ELDER_N'] ?? '1', 10);
+    const n = opts.elderIndex ?? parseInt(env['ELDER_INDEX'] ?? '1', 10);
     return new FileMemoryStore(n, opts.stateDir ?? defaultStateDir());
   }
 
@@ -296,7 +360,7 @@ export async function createMemoryStore(
         return ethers.id('clanworld-elder-memory');
       })();
 
-  const elderIndex = opts.elderIndex ?? parseInt(env['ELDER_INDEX'] ?? env['ELDER_N'] ?? '1', 10);
+  const elderIndex = opts.elderIndex ?? parseInt(env['ELDER_INDEX'] ?? '1', 10);
   const stateDirPath = opts.stateDir ?? defaultStateDir();
   const cachePath = cacheFilePath(stateDirPath, elderIndex);
 

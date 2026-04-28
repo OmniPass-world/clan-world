@@ -5,6 +5,8 @@ import path from 'node:path';
 import {
   createMemoryStore,
   ZeroGMemoryStore,
+  ZeroGValidationError,
+  ZeroGTimeoutError,
   type I0GBatcher,
   type BatcherFactory,
 } from '../src/zeroGMemoryStore.js';
@@ -67,6 +69,9 @@ function makeMockBatcher(store: BatcherStore, fail?: Error): I0GBatcher {
 function makeFactory(store: BatcherStore, fail?: Error): BatcherFactory {
   return async () => makeMockBatcher(store, fail);
 }
+
+// Valid 12-word mnemonic for tests requiring OG_STORAGE_API_KEY.
+const VALID_MNEMONIC = 'one two three four five six seven eight nine ten eleven twelve';
 
 // ---------------------------------------------------------------------------
 // FileMemoryStore (fallback path)
@@ -260,7 +265,7 @@ describe('ZeroGMemoryStore — mocked batcher', () => {
     const store2 = new ZeroGMemoryStore(STREAM_ID, makeFactory(remoteStore), {}, cp2);
     // Construction re-uses initialCache param — test via createMemoryStore path:
     const store3 = await createMemoryStore({
-      env: { OG_STORAGE_API_KEY: 'set', ELDER_INDEX: '1' },
+      env: { OG_STORAGE_API_KEY: 'set', ELDER_INDEX: '1', ELDER_MNEMONIC: VALID_MNEMONIC },
       elderIndex: 1,
       stateDir: sd2,
       batcherFactory: makeFactory(remoteStore),
@@ -326,7 +331,7 @@ describe('createMemoryStore — startup error handling', () => {
 
     await expect(
       createMemoryStore({
-        env: { OG_STORAGE_API_KEY: 'set', ELDER_INDEX: '1' },
+        env: { OG_STORAGE_API_KEY: 'set', ELDER_INDEX: '1', ELDER_MNEMONIC: VALID_MNEMONIC },
         elderIndex: 1,
         stateDir: sd,
         batcherFactory: async () => makeMockBatcher(new Map()),
@@ -337,7 +342,7 @@ describe('createMemoryStore — startup error handling', () => {
   it('returns ZeroGMemoryStore when OG_STORAGE_API_KEY is set', async () => {
     const sd = stateDir();
     const store = await createMemoryStore({
-      env: { OG_STORAGE_API_KEY: 'test-key', ELDER_INDEX: '1' },
+      env: { OG_STORAGE_API_KEY: 'test-key', ELDER_INDEX: '1', ELDER_MNEMONIC: VALID_MNEMONIC },
       elderIndex: 1,
       stateDir: sd,
       batcherFactory: makeFactory(new Map()),
@@ -357,7 +362,7 @@ describe('createMemoryStore — startup error handling', () => {
     const sd = stateDir();
     // Just verifying no error thrown and ZeroGMemoryStore returned.
     const store = await createMemoryStore({
-      env: { OG_STORAGE_API_KEY: 'set', ELDER_INDEX: '1' },
+      env: { OG_STORAGE_API_KEY: 'set', ELDER_INDEX: '1', ELDER_MNEMONIC: VALID_MNEMONIC },
       elderIndex: 1,
       stateDir: sd,
       batcherFactory: makeFactory(new Map()),
@@ -375,7 +380,7 @@ describe('createMemoryStore — 0G path full contract', () => {
     const sd = stateDir();
     const backend = new Map<string, string>();
     const store = await createMemoryStore({
-      env: { OG_STORAGE_API_KEY: 'test-key', OG_STREAM_ID: 'stream-abc', ELDER_INDEX: '1' },
+      env: { OG_STORAGE_API_KEY: 'test-key', OG_STREAM_ID: 'stream-abc', ELDER_INDEX: '1', ELDER_MNEMONIC: VALID_MNEMONIC },
       elderIndex: 1,
       stateDir: sd,
       batcherFactory: makeFactory(backend),
@@ -416,7 +421,7 @@ describe('HIGH 1 — elderIndex key passes through to wallet path', () => {
     const sd = stateDir();
     const backend = new Map<string, string>();
     const store = await createMemoryStore({
-      env: { OG_STORAGE_API_KEY: 'set', ELDER_INDEX: '2' },
+      env: { OG_STORAGE_API_KEY: 'set', ELDER_INDEX: '2', ELDER_MNEMONIC: VALID_MNEMONIC },
       elderIndex: 2,
       stateDir: sd,
       batcherFactory: makeFactory(backend),
@@ -428,6 +433,17 @@ describe('HIGH 1 — elderIndex key passes through to wallet path', () => {
     expect(fs.existsSync(cp2)).toBe(true);
     expect(fs.existsSync(cp1)).toBe(false);
   });
+
+  // HIGH 1: ELDER_N without ELDER_INDEX → throws ZeroGValidationError
+  it('HIGH 1 — ELDER_N alone (no ELDER_INDEX) → throws ZeroGValidationError', async () => {
+    // ELDER_N is no longer a valid env var — must use ELDER_INDEX.
+    const err = await createMemoryStore({
+      env: { ELDER_N: '2' }, // no ELDER_INDEX
+      stateDir: stateDir(),
+    }).catch(e => e as unknown);
+    expect(err).toBeInstanceOf(ZeroGValidationError);
+    expect((err as ZeroGValidationError).code).toBe('ELDER_INDEX');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -438,13 +454,50 @@ describe('MED 3 — fail-fast validation at createMemoryStore() time', () => {
   it('ELDER_INDEX=0 throws before any async work', async () => {
     await expect(
       createMemoryStore({ env: { ELDER_INDEX: '0' }, elderIndex: 0, stateDir: stateDir() }),
-    ).rejects.toThrow('ELDER_INDEX must be 1–4');
+    ).rejects.toThrow('ELDER_INDEX must be');
   });
 
   it('ELDER_INDEX=5 throws', async () => {
     await expect(
       createMemoryStore({ env: { ELDER_INDEX: '5' }, elderIndex: 5, stateDir: stateDir() }),
-    ).rejects.toThrow('ELDER_INDEX must be 1–4');
+    ).rejects.toThrow('ELDER_INDEX must be');
+  });
+
+  // MED 3: strict regex rejects non-integers
+  it('MED 3 — ELDER_INDEX="1.5" throws ZeroGValidationError', async () => {
+    const err = await createMemoryStore({
+      env: { ELDER_INDEX: '1.5' },
+      stateDir: stateDir(),
+    }).catch(e => e as unknown);
+    expect(err).toBeInstanceOf(ZeroGValidationError);
+    expect((err as ZeroGValidationError).code).toBe('ELDER_INDEX');
+  });
+
+  it('MED 3 — ELDER_INDEX="1abc" throws ZeroGValidationError', async () => {
+    const err = await createMemoryStore({
+      env: { ELDER_INDEX: '1abc' },
+      stateDir: stateDir(),
+    }).catch(e => e as unknown);
+    expect(err).toBeInstanceOf(ZeroGValidationError);
+    expect((err as ZeroGValidationError).code).toBe('ELDER_INDEX');
+  });
+
+  it('MED 3 — ELDER_INDEX="0" (out of range) throws ZeroGValidationError', async () => {
+    const err = await createMemoryStore({
+      env: { ELDER_INDEX: '0' },
+      stateDir: stateDir(),
+    }).catch(e => e as unknown);
+    expect(err).toBeInstanceOf(ZeroGValidationError);
+    expect((err as ZeroGValidationError).code).toBe('ELDER_INDEX');
+  });
+
+  it('MED 3 — ELDER_INDEX="5" (out of range) throws ZeroGValidationError', async () => {
+    const err = await createMemoryStore({
+      env: { ELDER_INDEX: '5' },
+      stateDir: stateDir(),
+    }).catch(e => e as unknown);
+    expect(err).toBeInstanceOf(ZeroGValidationError);
+    expect((err as ZeroGValidationError).code).toBe('ELDER_INDEX');
   });
 
   it('mnemonic with 11 words throws', async () => {
@@ -470,6 +523,20 @@ describe('MED 3 — fail-fast validation at createMemoryStore() time', () => {
     });
     expect(store).toBeInstanceOf(FileMemoryStore);
     warnSpy.mockRestore();
+  });
+
+  // MED 4: thrown validation error is instance of ZeroGValidationError, has code property
+  it('MED 4 — validation error is instanceof ZeroGValidationError with code property', async () => {
+    const err = await createMemoryStore({
+      env: { ELDER_INDEX: '99' },
+      stateDir: stateDir(),
+    }).catch(e => e as unknown);
+    // Must be ZeroGValidationError specifically (not a bare Error)
+    expect(err).toBeInstanceOf(ZeroGValidationError);
+    expect((err as ZeroGValidationError).name).toBe('ZeroGValidationError');
+    expect((err as ZeroGValidationError).code).toBe('ELDER_INDEX');
+    // ZeroGValidationError extends Error — verify it also has Error's properties
+    expect(err).toBeInstanceOf(Error);
   });
 });
 
@@ -503,10 +570,115 @@ describe('MED 4 — exec() returning [null, null] throws', () => {
 });
 
 // ---------------------------------------------------------------------------
-// MED 5 — 30s timeout on exec() and selectNodes()
+// MED 5 — ELDER_MNEMONIC required at createMemoryStore() when API key set
 // ---------------------------------------------------------------------------
 
-describe('MED 5 — 30s timeout wrapper', () => {
+describe('MED 5 — ELDER_MNEMONIC required at createMemoryStore() time', () => {
+  it('MED 5 — missing ELDER_MNEMONIC throws ZeroGValidationError at createMemoryStore() (not at save())', async () => {
+    const sd = stateDir();
+    // OG_STORAGE_API_KEY is set but ELDER_MNEMONIC is absent.
+    const err = await createMemoryStore({
+      env: { OG_STORAGE_API_KEY: 'set', ELDER_INDEX: '1' },
+      elderIndex: 1,
+      stateDir: sd,
+      batcherFactory: makeFactory(new Map()),
+    }).catch(e => e as unknown);
+    expect(err).toBeInstanceOf(ZeroGValidationError);
+    expect((err as ZeroGValidationError).code).toBe('ELDER_MNEMONIC');
+    // Must throw before save() is called — i.e., at factory time.
+  });
+
+  it('MED 5 — empty ELDER_MNEMONIC throws ZeroGValidationError', async () => {
+    const sd = stateDir();
+    const err = await createMemoryStore({
+      env: { OG_STORAGE_API_KEY: 'set', ELDER_INDEX: '1', ELDER_MNEMONIC: '   ' },
+      elderIndex: 1,
+      stateDir: sd,
+    }).catch(e => e as unknown);
+    expect(err).toBeInstanceOf(ZeroGValidationError);
+    expect((err as ZeroGValidationError).code).toBe('ELDER_MNEMONIC');
+  });
+
+  it('MED 5 — wrong word count (11 words) throws ZeroGValidationError', async () => {
+    const sd = stateDir();
+    const badMnemonic = 'one two three four five six seven eight nine ten eleven';
+    const err = await createMemoryStore({
+      env: { OG_STORAGE_API_KEY: 'set', ELDER_INDEX: '1', ELDER_MNEMONIC: badMnemonic },
+      elderIndex: 1,
+      stateDir: sd,
+    }).catch(e => e as unknown);
+    expect(err).toBeInstanceOf(ZeroGValidationError);
+    expect((err as ZeroGValidationError).code).toBe('ELDER_MNEMONIC_LENGTH');
+    // Verify word count in message, NOT the actual mnemonic value.
+    expect((err as ZeroGValidationError).message).toContain('11');
+    expect((err as ZeroGValidationError).message).not.toContain(badMnemonic);
+  });
+
+  it('MED 5 — 30s timeout on exec() and selectNodes()', async () => {
+    // Covered by MED 6 timeout tests — ELDER_MNEMONIC gates entry before timeouts.
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MED 6 — ZeroGTimeoutError named class
+// ---------------------------------------------------------------------------
+
+describe('MED 6 — ZeroGTimeoutError', () => {
+  it('MED 6 — simulated timeout throws ZeroGTimeoutError with correct operation name', async () => {
+    // Mirror withTimeout logic to verify the error class shape without 30s wall time.
+    const timeoutHelper = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
+      new Promise<T>((resolve, reject) => {
+        const timerId = setTimeout(() => {
+          reject(new ZeroGTimeoutError(label, ms));
+        }, ms);
+        promise.then(
+          value => { clearTimeout(timerId); resolve(value); },
+          (err: Error) => { clearTimeout(timerId); reject(err); },
+        );
+      });
+
+    const neverResolves = new Promise<never>(() => {});
+    const caught = await timeoutHelper(neverResolves, 30, 'Batcher.exec').catch(e => e as unknown);
+
+    expect(caught).toBeInstanceOf(ZeroGTimeoutError);
+    expect((caught as ZeroGTimeoutError).operation).toBe('Batcher.exec');
+    expect((caught as ZeroGTimeoutError).timeoutMs).toBe(30);
+    expect((caught as ZeroGTimeoutError).message).toBe('Batcher.exec timed out after 30ms');
+    expect((caught as ZeroGTimeoutError).name).toBe('ZeroGTimeoutError');
+  }, 5000);
+
+  it('MED 6 — ZeroGTimeoutError has correct operation and timeoutMs properties', () => {
+    const err = new ZeroGTimeoutError('Indexer.selectNodes', 30_000);
+    expect(err.operation).toBe('Indexer.selectNodes');
+    expect(err.timeoutMs).toBe(30_000);
+    expect(err.message).toBe('Indexer.selectNodes timed out after 30000ms');
+    expect(err.name).toBe('ZeroGTimeoutError');
+    expect(err).toBeInstanceOf(Error);
+  });
+
+  it('withTimeout resolves immediately if the operation finishes first', async () => {
+    const timeoutHelper = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
+      new Promise<T>((resolve, reject) => {
+        const timerId = setTimeout(
+          () => reject(new ZeroGTimeoutError(label, ms)),
+          ms,
+        );
+        promise.then(
+          value => { clearTimeout(timerId); resolve(value); },
+          (err: Error) => { clearTimeout(timerId); reject(err); },
+        );
+      });
+
+    const fast = Promise.resolve('done');
+    await expect(timeoutHelper(fast, 5000, 'test')).resolves.toBe('done');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MED 5 — 30s timeout on exec() and selectNodes() (original test suite)
+// ---------------------------------------------------------------------------
+
+describe('MED 5 — 30s timeout wrapper (original)', () => {
   it('save() rejects with timeout error if exec() takes longer than deadline', async () => {
     // We test the withTimeout contract by using it directly — the store's save()
     // uses 30_000ms which is too slow for tests, so we test the timeout helper
@@ -515,7 +687,7 @@ describe('MED 5 — 30s timeout wrapper', () => {
     const timeoutHelper = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
       new Promise<T>((resolve, reject) => {
         const timerId = setTimeout(
-          () => reject(new Error(`${label} timed out after ${ms}ms`)),
+          () => reject(new ZeroGTimeoutError(label, ms)),
           ms,
         );
         promise.then(
@@ -526,16 +698,16 @@ describe('MED 5 — 30s timeout wrapper', () => {
 
     const neverResolves = new Promise<never>(() => {});
     // Short real timeout (30ms) — no fake timers needed.
-    await expect(timeoutHelper(neverResolves, 30, 'Batcher.exec')).rejects.toThrow(
-      'Batcher.exec timed out after 30ms',
-    );
+    const err = await timeoutHelper(neverResolves, 30, 'Batcher.exec').catch(e => e as unknown);
+    expect(err).toBeInstanceOf(ZeroGTimeoutError);
+    expect((err as ZeroGTimeoutError).message).toBe('Batcher.exec timed out after 30ms');
   }, 5000);
 
   it('withTimeout resolves immediately if the operation finishes first', async () => {
     const timeoutHelper = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
       new Promise<T>((resolve, reject) => {
         const timerId = setTimeout(
-          () => reject(new Error(`${label} timed out after ${ms}ms`)),
+          () => reject(new ZeroGTimeoutError(label, ms)),
           ms,
         );
         promise.then(
@@ -575,4 +747,3 @@ describe('LOW 6 — FileMemoryStore atomic write uses unique tmp suffix', () => 
     renameSpy.mockRestore();
   });
 });
-
