@@ -1,12 +1,28 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { execSync } from 'node:child_process';
 
-// Port allocation per ~/claudes-world ADR 0003 (project-sharded). Use port-for at dev time;
-// for now read from env to avoid hard-coding before the slot is registered.
+// Canonical port resolved from port-for registry (clan-world slot 587, env=dev).
+// Falls back to FALLBACK_PORT (canonical value from .world/ports.yml) when port-for is
+// unavailable (CI, non-do-box hosts). PORT env override takes precedence.
+const FALLBACK_PORT = 58741;
+const DEFAULT_PORT = (() => {
+  if (process.env.PORT) {
+    const p = parseInt(process.env.PORT, 10);
+    return Number.isNaN(p) ? FALLBACK_PORT : p;
+  }
+  try {
+    const port = parseInt(execSync('port-for clan-world-landing-dev', { encoding: 'utf8' }).trim(), 10);
+    return Number.isNaN(port) ? FALLBACK_PORT : port;
+  } catch {
+    return FALLBACK_PORT;
+  }
+})();
+
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: Number(process.env.PORT ?? 5174),
+    port: DEFAULT_PORT,
     host: '127.0.0.1',
   },
 });

@@ -37,9 +37,10 @@ import {
     ActiveBanditView,
     RegionOccupant
 } from "./IClanWorld.sol";
+import {StubPool} from "./StubPool.sol";
 
 /// @title ClanWorld
-/// @notice Phase 1 real engine implementation of IClanWorld v4.
+/// @notice Phase 1+2 real engine implementation of IClanWorld v4.
 ///         Implements: world clock, clan lifecycle, lazy settlement, resource gathering,
 ///         deposit, wheat harvest, travel, NOOP bypass, order validation.
 ///         Phase 2 (market execution) and Phase 3 (bandits, winter damage) are stubbed.
@@ -361,8 +362,9 @@ contract ClanWorld is IClanWorld {
             // Phase 1 stub: check homebase, check resources; if ok, stub success
             _doBuilding(clan, cs, m, clanId, tick, action);
         } else if (action == ActionType.MarketBuy || action == ActionType.MarketSell) {
-            // Phase 2 stub: immediate market not eligible; scheduled would also land here
-            emit MarketActionFailed(clanId, cs.clansmanId, action, StatusCode.ERR_IMMEDIATE_MARKET_NOT_ELIGIBLE);
+            // Scheduled market actions: already enqueued at submitClanOrders time.
+            // Settlement resolves this action slot — just complete the mission.
+            // (Actual execution happened or will happen at heartbeat.)
             _completeMission(cs, m);
         }
     }
@@ -732,7 +734,8 @@ contract ClanWorld is IClanWorld {
 
         _world.nextHeartbeatAtTs = uint64(block.timestamp) + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS;
 
-        // TODO Phase 2: execute scheduled market actions for closedTick
+        // Phase 2: execute scheduled market actions for closedTick
+        _executeScheduledMarketActions(closedTick);
         // TODO Phase 3: bandit state transitions and attacks
 
         emit TickAdvanced(closedTick, _world.currentTick, _world.currentTickSeed);
@@ -967,6 +970,12 @@ contract ClanWorld is IClanWorld {
             }
         }
 
+        // v4.2 §8 L758: "executes at heartbeat closing tick T" where T = arrivalTick.
+        // executeAtTick = arrivalTick (not arrivalTick+1).
+        if (order.action == ActionType.MarketBuy || order.action == ActionType.MarketSell) {
+            _enqueueScheduledMarketAction(clanId, order, cs.clansmanId, ctx.arrivalTick);
+        }
+
         // DefendBase zero-travel: register synchronously so getActiveDefenders() has no drop window.
         // When travelTicks == 0 the clansman is already at the target base — no travel window to wait out.
         // The _resolveAction guard (clanDefendingBase != targetClanId) will be false next tick, preventing double-register.
@@ -1021,6 +1030,35 @@ contract ClanWorld is IClanWorld {
         m.maxGoldIn = order.maxGoldIn;
     }
 
+    function _enqueueScheduledMarketAction(
+        uint32 clanId,
+        ClanOrder calldata order,
+        uint32 clansmanId,
+        uint64 executeAtTick
+    ) internal {
+        ScheduledMarketAction memory sma = ScheduledMarketAction({
+            executeAtTick: executeAtTick,
+            commitSequence: _world.nextCommitSequence++,
+            clanId: clanId,
+            clansmanId: clansmanId,
+            action: order.action,
+            marketToken: order.marketToken,
+            marketAmount: order.marketAmount,
+            maxGoldIn: order.maxGoldIn
+        });
+        _scheduledMarketActions[executeAtTick].push(sma);
+        emit ScheduledMarketActionCommitted(
+            executeAtTick,
+            sma.commitSequence,
+            clanId,
+            clansmanId,
+            order.action,
+            order.marketToken,
+            order.marketAmount,
+            order.maxGoldIn
+        );
+    }
+
     function _removeDefender(uint32 targetClanId, uint32 clansmanId) internal {
         uint32[] storage defenders = _incomingDefenders[targetClanId];
         for (uint256 i = 0; i < defenders.length; i++) {
@@ -1030,6 +1068,213 @@ contract ClanWorld is IClanWorld {
                 break;
             }
         }
+    }
+
+    // =========================================================================
+    // MARKET EXECUTION (Phase 2)
+    // =========================================================================
+
+    /// @dev Execute all scheduled market actions for the given tick. Called from heartbeat.
+    function _executeScheduledMarketActions(uint64 tick) internal {
+        ScheduledMarketAction[] storage actions = _scheduledMarketActions[tick];
+        uint256 len = actions.length;
+        if (len == 0) return;
+
+        for (uint256 i = 0; i < len; i++) {
+            ScheduledMarketAction storage sma = actions[i];
+
+            // Validate clansman still belongs to the clan
+            Clansman storage cs = _clansmen[sma.clansmanId];
+            if (cs.clanId != sma.clanId || cs.state == ClansmanState.DEAD) {
+                emit MarketActionFailed(sma.clanId, sma.clansmanId, sma.action, StatusCode.ERR_INVALID_CLANSMAN);
+                continue;
+            }
+
+            // Guard: clansman was re-tasked if mission action no longer matches the queued type.
+            // Note: _completeMission sets m.active=false during settlement (by design), so we
+            // cannot use m.active as a validity signal here — check action type only.
+            Mission storage m = _missions[sma.clansmanId];
+            if (m.action != sma.action) {
+                emit MarketActionFailed(sma.clanId, sma.clansmanId, sma.action, StatusCode.ERR_INVALID_ACTION);
+                continue;
+            }
+
+            if (sma.action == ActionType.MarketSell) {
+                try this._executeMarketSellExternal(tick, sma.clanId, sma.clansmanId, sma.marketToken, sma.marketAmount, sma.commitSequence) {
+                    // success
+                } catch {
+                    emit MarketActionFailed(sma.clanId, sma.clansmanId, sma.action, StatusCode.ERR_INVALID_ACTION);
+                }
+            } else if (sma.action == ActionType.MarketBuy) {
+                try this._executeMarketBuyExternal(tick, sma.clanId, sma.clansmanId, sma.marketToken, sma.marketAmount, sma.maxGoldIn, sma.commitSequence) {
+                    // success
+                } catch {
+                    emit MarketActionFailed(sma.clanId, sma.clansmanId, sma.action, StatusCode.ERR_INVALID_ACTION);
+                }
+            }
+        }
+
+        delete _scheduledMarketActions[tick];
+    }
+
+    /// @dev External wrapper for _executeMarketSell — enables try/catch from heartbeat loop.
+    function _executeMarketSellExternal(
+        uint64 closedTick,
+        uint32 clanId,
+        uint32 clansmanId,
+        address token,
+        uint256 amount,
+        uint64 commitSequence
+    ) external {
+        require(msg.sender == address(this), "ClanWorld: internal only");
+        _executeMarketSell(closedTick, clanId, clansmanId, token, amount, commitSequence);
+    }
+
+    /// @dev External wrapper for _executeMarketBuy — enables try/catch from heartbeat loop.
+    function _executeMarketBuyExternal(
+        uint64 closedTick,
+        uint32 clanId,
+        uint32 clansmanId,
+        address token,
+        uint256 amountOut,
+        uint256 maxGoldIn,
+        uint64 commitSequence
+    ) external {
+        require(msg.sender == address(this), "ClanWorld: internal only");
+        _executeMarketBuy(closedTick, clanId, clansmanId, token, amountOut, maxGoldIn, commitSequence);
+    }
+
+    /// @dev Map a resource token address to its pool address.
+    function _poolFor(address token) internal view returns (address pool) {
+        if (token == _treasury.woodToken)  return _treasury.woodGoldPool;
+        if (token == _treasury.ironToken)  return _treasury.ironGoldPool;
+        if (token == _treasury.wheatToken) return _treasury.wheatGoldPool;
+        if (token == _treasury.fishToken)  return _treasury.fishGoldPool;
+        return address(0);
+    }
+
+    /// @dev Add an amount of a resource token to the clan vault.
+    function _addToVault(Clan storage clan, address token, uint256 amount) internal {
+        if (token == _treasury.woodToken)  { clan.vaultWood  += amount; return; }
+        if (token == _treasury.ironToken)  { clan.vaultIron  += amount; return; }
+        if (token == _treasury.wheatToken) { clan.vaultWheat += amount; return; }
+        if (token == _treasury.fishToken)  { clan.vaultFish  += amount; return; }
+    }
+
+    /// @dev Deduct an amount of a resource token from the clan vault. Returns false if insufficient.
+    function _deductFromVault(Clan storage clan, address token, uint256 amount) internal returns (bool) {
+        if (token == _treasury.woodToken) {
+            if (clan.vaultWood < amount) return false;
+            clan.vaultWood -= amount;
+            return true;
+        }
+        if (token == _treasury.ironToken) {
+            if (clan.vaultIron < amount) return false;
+            clan.vaultIron -= amount;
+            return true;
+        }
+        if (token == _treasury.wheatToken) {
+            if (clan.vaultWheat < amount) return false;
+            clan.vaultWheat -= amount;
+            return true;
+        }
+        if (token == _treasury.fishToken) {
+            if (clan.vaultFish < amount) return false;
+            clan.vaultFish -= amount;
+            return true;
+        }
+        return false;
+    }
+
+    /// @dev Execute a scheduled market sell: deduct resource from vault, credit gold.
+    function _executeMarketSell(
+        uint64 closedTick,
+        uint32 clanId,
+        uint32 clansmanId,
+        address token,
+        uint256 amount,
+        uint64 commitSequence
+    ) internal {
+        if (!_treasury.poolsSeeded) {
+            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketSell, StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN);
+            return;
+        }
+        address poolAddr = _poolFor(token);
+        if (poolAddr == address(0)) {
+            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketSell, StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN);
+            return;
+        }
+
+        Clan storage clan = _clans[clanId];
+        if (!_deductFromVault(clan, token, amount)) {
+            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketSell, StatusCode.ERR_MISSING_RESOURCES);
+            return;
+        }
+
+        uint256 goldOut = StubPool(poolAddr).sellResource(amount);
+        clan.goldBalance += goldOut;
+
+        emit ScheduledMarketActionExecuted(
+            closedTick,
+            commitSequence,
+            clanId,
+            clansmanId,
+            token,
+            _treasury.goldToken,
+            amount,
+            goldOut
+        );
+    }
+
+    /// @dev Execute a scheduled market buy: deduct gold from purse, credit resource to vault.
+    function _executeMarketBuy(
+        uint64 closedTick,
+        uint32 clanId,
+        uint32 clansmanId,
+        address token,
+        uint256 amountOut,
+        uint256 maxGoldIn,
+        uint64 commitSequence
+    ) internal {
+        if (!_treasury.poolsSeeded) {
+            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketBuy, StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN);
+            return;
+        }
+        address poolAddr = _poolFor(token);
+        if (poolAddr == address(0)) {
+            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketBuy, StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN);
+            return;
+        }
+
+        // Quote gold cost without updating reserves
+        uint256 goldIn = StubPool(poolAddr).quoteBuy(amountOut);
+
+        Clan storage clan = _clans[clanId];
+
+        if (goldIn > maxGoldIn) {
+            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketBuy, StatusCode.ERR_MARKET_BUY_MAX_GOLD_EXCEEDED);
+            return;
+        }
+        if (clan.goldBalance < goldIn) {
+            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketBuy, StatusCode.ERR_NOT_ENOUGH_GOLD);
+            return;
+        }
+
+        // Execute — use return value to guard against any future pool divergence
+        uint256 actualGoldIn = StubPool(poolAddr).buyResource(amountOut);
+        clan.goldBalance -= actualGoldIn;
+        _addToVault(clan, token, amountOut);
+
+        emit ScheduledMarketActionExecuted(
+            closedTick,
+            commitSequence,
+            clanId,
+            clansmanId,
+            _treasury.goldToken,
+            token,
+            actualGoldIn,
+            amountOut
+        );
     }
 
     function _validateAction(
@@ -1090,16 +1335,31 @@ contract ClanWorld is IClanWorld {
             }
         }
 
-        // MarketBuy/MarketSell: Phase 2 — immediate market only eligible if already in town
+        // MarketBuy/MarketSell: must target Unicorn Town
         if (action == ActionType.MarketBuy || action == ActionType.MarketSell) {
             if (gotoRegion != ClanWorldConstants.REGION_UNICORN_TOWN) {
                 return StatusCode.ERR_INVALID_REGION;
             }
             if (order.marketAmount == 0) return StatusCode.ERR_MARKET_ZERO_AMOUNT;
-            // Immediate path: if already in UnicornTown and WAITING — Phase 2 execution
-            // For Phase 1, return ERR_IMMEDIATE_MARKET_NOT_ELIGIBLE for immediate
-            // Scheduled: allow order submission, stub execution in heartbeat
-            // For now, allow scheduling (don't reject at order time)
+            // Validate token is a supported resource token (not gold itself)
+            if (_treasury.woodToken != address(0)) {
+                address tok = order.marketToken;
+                if (tok == address(0) || tok == _treasury.goldToken) {
+                    return StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN;
+                }
+                if (tok != _treasury.woodToken &&
+                    tok != _treasury.ironToken &&
+                    tok != _treasury.wheatToken &&
+                    tok != _treasury.fishToken) {
+                    return StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN;
+                }
+            }
+            // Market orders are always enqueued for the arrivalTick FIFO queue.
+            // _resolveAction records mission completion but does not execute any swap.
+            if (cs.currentRegion == ClanWorldConstants.REGION_UNICORN_TOWN &&
+                cs.state == ClansmanState.WAITING) {
+                // Already at Unicorn Town — arrivalTick == currentTick, queued for next heartbeat.
+            }
         }
 
         cs; // suppress unused warning
@@ -1110,8 +1370,47 @@ contract ClanWorld is IClanWorld {
     // TREASURY / POOL SEEDING
     // =========================================================================
 
-    function seedPools(PoolSeedConfig calldata) external override {
-        // Phase 1 stub — no token pools
+    /// @notice One-time treasury initialization: register token and pool addresses.
+    ///         Must be called before seedPools. Callable only once.
+    function initTreasury(address[6] calldata tokens, address[4] calldata pools) external {
+        require(
+            !_treasury.poolsSeeded && _treasury.woodToken == address(0),
+            "ClanWorld: treasury already init"
+        );
+        require(msg.sender == _treasury.treasuryOwner, "ClanWorld: not owner");
+
+        _treasury.woodToken      = tokens[0];
+        _treasury.ironToken      = tokens[1];
+        _treasury.wheatToken     = tokens[2];
+        _treasury.fishToken      = tokens[3];
+        _treasury.goldToken      = tokens[4];
+        _treasury.blueprintToken = tokens[5];
+
+        _treasury.woodGoldPool  = pools[0];
+        _treasury.ironGoldPool  = pools[1];
+        _treasury.wheatGoldPool = pools[2];
+        _treasury.fishGoldPool  = pools[3];
+    }
+
+    /// @notice Owner-only. Seeds the four Unicorn Town AMM pools.
+    function seedPools(PoolSeedConfig calldata cfg) external override {
+        require(msg.sender == _treasury.treasuryOwner, "ClanWorld: not owner");
+        require(!_treasury.poolsSeeded, "ClanWorld: pools already seeded");
+        require(_treasury.woodToken != address(0), "ClanWorld: treasury not init");
+
+        StubPool(_treasury.woodGoldPool).seed(cfg.woodSeed,  cfg.goldSeedForWood);
+        StubPool(_treasury.ironGoldPool).seed(cfg.ironSeed,  cfg.goldSeedForIron);
+        StubPool(_treasury.wheatGoldPool).seed(cfg.wheatSeed, cfg.goldSeedForWheat);
+        StubPool(_treasury.fishGoldPool).seed(cfg.fishSeed,  cfg.goldSeedForFish);
+
+        _treasury.poolsSeeded = true;
+
+        emit PoolsSeeded(
+            _treasury.woodGoldPool,
+            _treasury.ironGoldPool,
+            _treasury.wheatGoldPool,
+            _treasury.fishGoldPool
+        );
     }
 
     // =========================================================================
@@ -1386,14 +1685,25 @@ contract ClanWorld is IClanWorld {
 
     function getMarketState() external view override returns (MarketState memory) {
         return MarketState({
-            wood:  PoolReserves({ resourceToken: _treasury.woodToken,  resourceReserve: 0, goldReserve: 0, spotPriceGoldPerResource: 0 }),
-            wheat: PoolReserves({ resourceToken: _treasury.wheatToken, resourceReserve: 0, goldReserve: 0, spotPriceGoldPerResource: 0 }),
-            fish:  PoolReserves({ resourceToken: _treasury.fishToken,  resourceReserve: 0, goldReserve: 0, spotPriceGoldPerResource: 0 }),
-            iron:  PoolReserves({ resourceToken: _treasury.ironToken,  resourceReserve: 0, goldReserve: 0, spotPriceGoldPerResource: 0 }),
+            wood:  _poolReserves(_treasury.woodToken,  _treasury.woodGoldPool),
+            wheat: _poolReserves(_treasury.wheatToken, _treasury.wheatGoldPool),
+            fish:  _poolReserves(_treasury.fishToken,  _treasury.fishGoldPool),
+            iron:  _poolReserves(_treasury.ironToken,  _treasury.ironGoldPool),
             currentTick: _world.currentTick,
             currentTickQueue: _scheduledMarketActions[_world.currentTick],
             nextTickQueue: _scheduledMarketActions[_world.currentTick + 1]
         });
+    }
+
+    function _poolReserves(address resourceToken, address poolAddr) internal view returns (PoolReserves memory pr) {
+        pr.resourceToken = resourceToken;
+        if (poolAddr == address(0) || resourceToken == address(0)) {
+            return pr;
+        }
+        (uint256 rA, uint256 rB) = StubPool(poolAddr).getReserves();
+        pr.resourceReserve = rA;
+        pr.goldReserve = rB;
+        pr.spotPriceGoldPerResource = rA > 0 ? (rB * 1e18) / rA : 0;
     }
 
     function getActiveBanditView() external pure override returns (ActiveBanditView memory) {
