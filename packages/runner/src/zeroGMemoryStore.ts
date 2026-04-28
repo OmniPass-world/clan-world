@@ -131,9 +131,15 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 
 /**
  * Build a BatcherFactory using the real @0glabs/0g-ts-sdk.
- * Requires ELDER_MNEMONIC, ELDER_INDEX, EVM_RPC, INDEXER_RPC, FLOW_CONTRACT.
+ * Requires ELDER_MNEMONIC, EVM_RPC, INDEXER_RPC, FLOW_CONTRACT.
+ *
+ * @param env  - env vars (for non-index config like EVM_RPC, ELDER_MNEMONIC)
+ * @param elderIndex - already-validated index from createMemoryStore opts — no re-read from env
  */
-function buildRealBatcherFactory(env: Record<string, string | undefined>): BatcherFactory {
+function buildRealBatcherFactory(
+  env: Record<string, string | undefined>,
+  elderIndex: number,
+): BatcherFactory {
   return async (): Promise<I0GBatcher> => {
     const sdk = await import('@0glabs/0g-ts-sdk') as {
       Batcher: new (
@@ -155,14 +161,8 @@ function buildRealBatcherFactory(env: Record<string, string | undefined>): Batch
     const mnemonic = env['ELDER_MNEMONIC'];
     if (!mnemonic) throw new ZeroGValidationError('ELDER_MNEMONIC is required', 'ELDER_MNEMONIC');
 
-    const rawIdx = env['ELDER_INDEX'] ?? '';
-    if (!/^[1-4]$/.test(rawIdx.trim())) {
-      throw new ZeroGValidationError(
-        `ELDER_INDEX must be exactly 1, 2, 3, or 4 — got: "${rawIdx}"`,
-        'ELDER_INDEX',
-      );
-    }
-    const index = parseInt(rawIdx, 10);
+    // Use the already-validated elderIndex passed in — never re-read process.env here.
+    const index = elderIndex;
 
     const evmRpc = env['EVM_RPC'] ?? 'https://evmrpc.0g.ai';
     const indexerRpc = env['INDEXER_RPC'] ?? 'https://indexer-storage-turbo.0g.ai';
@@ -314,7 +314,7 @@ export async function createMemoryStore(
 
   const apiKey = env['OG_STORAGE_API_KEY'];
 
-  // MED 5: require ELDER_MNEMONIC presence when OG_STORAGE_API_KEY is set.
+  // ELDER_MNEMONIC validation gated on OG_STORAGE_API_KEY — local/file mode skips entirely.
   if (apiKey) {
     const mnemonic = env['ELDER_MNEMONIC'] ?? '';
     if (!mnemonic.trim()) {
@@ -329,18 +329,6 @@ export async function createMemoryStore(
         `ELDER_MNEMONIC must be 12 or 24 words, got ${words.length}`,
         'ELDER_MNEMONIC_LENGTH',
       );
-    }
-  } else {
-    // Still validate word count if provided (even in fallback path).
-    const mnemonic = env['ELDER_MNEMONIC'];
-    if (mnemonic !== undefined) {
-      const words = mnemonic.trim().split(/\s+/);
-      if (words.length !== 12 && words.length !== 24) {
-        throw new ZeroGValidationError(
-          `ELDER_MNEMONIC must be 12 or 24 words, got ${words.length}`,
-          'ELDER_MNEMONIC_LENGTH',
-        );
-      }
     }
   }
 
@@ -378,7 +366,7 @@ export async function createMemoryStore(
     initialCache = {};
   }
 
-  const batcherFactory = opts.batcherFactory ?? buildRealBatcherFactory(env);
+  const batcherFactory = opts.batcherFactory ?? buildRealBatcherFactory(env, elderIndex);
 
   return new ZeroGMemoryStore(resolvedStreamId, batcherFactory, initialCache, cachePath);
 }

@@ -10,9 +10,14 @@
 import { createMemoryStore } from './zeroGMemoryStore.js';
 
 async function main(): Promise<void> {
-  const elderIndex = parseInt(process.env['ELDER_INDEX'] ?? '1', 10);
+  // Do NOT parseInt here — pass raw env string to createMemoryStore so the strict
+  // /^[1-4]$/ regex validator is the sole parse+validation point. Laundering via
+  // parseInt would let "1.5" or "1abc" silently become 1 before validation runs.
+  const memory = await createMemoryStore();
 
-  const memory = await createMemoryStore({ elderIndex });
+  // Read back the resolved index for logging only (after validation has passed).
+  const rawIndex = process.env['ELDER_INDEX'] ?? '';
+  const elderIndex = parseInt(rawIndex, 10);
 
   console.error(
     `[runner] elder=${elderIndex} memory=${
