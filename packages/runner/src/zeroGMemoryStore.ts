@@ -40,18 +40,25 @@ export interface I0GKvIterator {
  * Minimal subset of @0glabs/0g-ts-sdk KvClient we actually use.
  * Typed separately so tests can inject a mock without importing the full SDK.
  *
- * NOTE: The real SDK passes the key as a hex string ("0x…") over JSON-RPC.
- * Uint8Array would JSON-serialize as {"0":…,"1":…} which the 0G RPC server
- * does not understand — use `encodeKey()` to produce "0x" + hex before
- * calling getValue.
+ * NOTE: The real SDK passes the key as a Base64 string over JSON-RPC.
+ * The JSON-RPC transport (open-jsonrpc-provider) serializes the key param
+ * directly via JSON.stringify. A raw Uint8Array would serialize as
+ * {"0":103,…} which the 0G RPC server does not understand. A hex string
+ * would also be wrong. The correct form is Base64, matching the README
+ * example: `kvClient.getValue(streamId, ethers.encodeBase64(key))`.
+ *
+ * // Key type confirmed from @0glabs/0g-ts-sdk@0.3.3 README:
+ * // getValue() key is ethers.encodeBase64(keyBytes) — a base64 string.
+ * // TypeScript signature says Bytes (ArrayLike<number>) but the runtime
+ * // transport requires a base64 string to survive JSON.stringify correctly.
  *
  * The real SDK's Value.data is a Base64 string (not Uint8Array).
  * We use `string | Uint8Array` here to support both the real SDK and test mocks.
  *
  * KEY ENCODING (symmetric with save path):
  *   save:   Uint8Array key written via writer.set(encodeKeyBytes(k), ...)
- *           → internally stored as hex in StreamDataBuilder.set()
- *   recall: encodeKey(k) → "0x<hex>" passed to KvClient.getValue()
+ *           → internally stored as bytes in StreamDataBuilder.set()
+ *   recall: encodeKey(k) → base64 string passed to KvClient.getValue()
  */
 export interface I0GKvClient {
   getValue(streamId: string, key: string, version?: number): Promise<{ startIndex: bigint; data: string | Uint8Array } | null>;
@@ -78,16 +85,19 @@ export type KvWriterFactory = (streamId: string) => I0GKvWriter;
 // ---------------------------------------------------------------------------
 
 /**
- * Encode a UTF-8 key string as a 0x-prefixed hex string for the 0G KV RPC.
+ * Encode a UTF-8 key string as a Base64 string for the 0G KV RPC.
  *
- * The 0G JSON-RPC server expects keys as hex strings (e.g. "0x676f616c").
- * Passing a raw Uint8Array would JSON-serialize as {"0":103,…} which the
- * server does not understand. This encoding is symmetric with the write path:
- * StreamDataBuilder.set() internally does Buffer.from(key).toString('hex')
- * before encoding the key into the transaction.
+ * The 0G JSON-RPC server expects keys as Base64 strings over HTTP JSON-RPC.
+ * The transport (open-jsonrpc-provider) passes params directly to
+ * JSON.stringify, so Uint8Array → {"0":103,…} (wrong) and hex "0x…" (wrong).
+ * The SDK README example uses ethers.encodeBase64(keyBytes) which produces
+ * standard Base64, e.g. "Z29hbA==" for the UTF-8 bytes of "goal".
+ *
+ * // Key type confirmed from @0glabs/0g-ts-sdk@0.3.3 README:
+ * // getValue() key = ethers.encodeBase64(keyBytes) — base64 string.
  */
 function encodeKey(key: string): string {
-  return '0x' + Buffer.from(key, 'utf8').toString('hex');
+  return Buffer.from(key, 'utf8').toString('base64');
 }
 
 /** Encode a UTF-8 key string as Uint8Array for I0GKvWriter.set() (write path). */
@@ -157,9 +167,12 @@ function buildRealWriterFactory(_streamId: string, _apiKey: string): KvWriterFac
           );
         }
         console.warn(
-          '[ZeroGMemoryStore] write stub — OG_WALLET_PRIVATE_KEY not configured; ' +
-          `${pending.size} key(s) held in session cache only (not persisted to 0G). ` +
-          'Set OG_STUB_WRITE_THROWS=1 to enforce strict durability.',
+          '[ZeroGMemoryStore] WARN: save() is in-process cache only — ' +
+          '0G durable write not implemented (S2 limitation). ' +
+          'Data will not survive restart. Use FileMemoryStore for durability. ' +
+          `(${pending.size} key(s) buffered in session cache only.) ` +
+          'To wire full durability: set OG_WALLET_PRIVATE_KEY + OG_FLOW_CONTRACT. ' +
+          'Set OG_STUB_WRITE_THROWS=1 to enforce strict durability in CI.',
         );
       },
     };
@@ -205,15 +218,36 @@ export class ZeroGMemoryStore implements IElderMemoryStore {
     return value;
   }
 
+  /**
+   * Save a key/value pair.
+   *
+   * S2 stub: cache-only. The in-process write-through cache is updated so
+   * `recall()` returns the value for the rest of this session. The backing
+   * 0G Batcher write is a documented stub that logs a prominent warning
+   * instead of persisting to the 0G network.
+   *
+   * Full durability via 0G Batcher requires wallet + contract config:
+   *   - OG_WALLET_PRIVATE_KEY  (funded ETH wallet)
+   *   - OG_FLOW_CONTRACT       (deployed FixedPriceFlow contract address)
+   *   - StorageNode[] selected via Indexer.selectNodes()
+   * This is a Phase 3 / S3 TODO — not wired for the May 5 hackathon.
+   *
+   * Fallback: if OG_STORAGE_API_KEY is unset, `createMemoryStore()` returns
+   * a FileMemoryStore which IS durable across restarts.
+   *
+   * @throws if the underlying writer.exec() throws (e.g. OG_STUB_WRITE_THROWS=1
+   *         or a genuine storage contract error in a future wired implementation).
+   */
   async save(key: string, value: string): Promise<void> {
+    // Update write-through cache first so recall() is consistent even if exec() stubs.
+    this.#cache.set(key, value);
     const writer = this.#writerFactory(this.#streamId);
     // I0GKvWriter.set takes Uint8Array (raw bytes fed into StreamDataBuilder).
     // encodeKeyBytes() is the same UTF-8 bytes as encodeKey() but as Uint8Array.
     writer.set(encodeKeyBytes(key), new TextEncoder().encode(value));
-    // exec() throws on genuine storage failure (contract invocation error, etc.)
+    // exec() is a stub that warns prominently (S2 limitation — see JSDoc above).
+    // In a future wired implementation, exec() would invoke Batcher.exec().
     await writer.exec();
-    // Update write-through cache after successful (or stub) write.
-    this.#cache.set(key, value);
   }
 
   async snapshot(): Promise<Record<string, string>> {

@@ -152,9 +152,11 @@ function makePopulatedIterator(kvStore: Map<string, Uint8Array>): I0GKvIterator 
 
 function makeMockClient(kvStore: Map<string, Uint8Array>): I0GKvClient {
   return {
-    // Fix 1: key is now a "0x<hex>" string — decode back to UTF-8 for kvStore lookup.
+    // Key type confirmed from @0glabs/0g-ts-sdk@0.3.3 README:
+    // getValue() key = ethers.encodeBase64(keyBytes) — base64 string.
+    // Decode base64 → utf8 to look up the string key in our test kvStore.
     getValue: vi.fn(async (_streamId: string, key: string) => {
-      const k = Buffer.from(key.replace(/^0x/, ''), 'hex').toString('utf8');
+      const k = Buffer.from(key, 'base64').toString('utf8');
       const data = kvStore.get(k);
       if (data === undefined) return null;
       return { startIndex: BigInt(0), data };
@@ -198,18 +200,25 @@ describe('ZeroGMemoryStore — mocked 0G client', () => {
 
   it('recall returns undefined for missing key', async () => {
     expect(await store.recall('unknown')).toBeUndefined();
-    // Fix 1: verify getValue receives 0x-hex-encoded key (not raw Uint8Array).
+    // HIGH 1: verify getValue receives base64-encoded key (not raw Uint8Array or hex).
+    // Key type confirmed from @0glabs/0g-ts-sdk@0.3.3 README:
+    // getValue() key = ethers.encodeBase64(keyBytes) — base64 string.
     expect(mockClient.getValue).toHaveBeenCalledOnce();
     const [calledStream, calledKey] = (mockClient.getValue as ReturnType<typeof vi.fn>).mock.calls[0] as [string, string];
     expect(calledStream).toBe(STREAM_ID);
-    expect(calledKey).toBe('0x' + Buffer.from('unknown', 'utf8').toString('hex'));
+    expect(calledKey).toBe(Buffer.from('unknown', 'utf8').toString('base64'));
   });
 
-  it('Fix 1 — recall() passes 0x-hex-encoded key to KvClient.getValue', async () => {
+  it('HIGH 1 — recall() passes base64-encoded key to KvClient.getValue', async () => {
+    // The 0G JSON-RPC transport (open-jsonrpc-provider) passes params directly
+    // through JSON.stringify. Uint8Array → {"0":103,…} (wrong). Hex → wrong.
+    // README example: `kvClient.getValue(streamId, ethers.encodeBase64(key1))`
+    // confirms base64 is the correct wire format. Key type confirmed:
+    // @0glabs/0g-ts-sdk@0.3.3 getValue() key = base64 string.
     await store.recall('goal');
     const [, calledKey] = (mockClient.getValue as ReturnType<typeof vi.fn>).mock.calls[0] as [string, string];
-    const expectedHex = '0x' + Buffer.from('goal', 'utf8').toString('hex');
-    expect(calledKey).toBe(expectedHex); // e.g. "0x676f616c"
+    const expectedBase64 = Buffer.from('goal', 'utf8').toString('base64');
+    expect(calledKey).toBe(expectedBase64); // "Z29hbA=="
   });
 
   it('save calls writer set + exec, then recall returns written value', async () => {
@@ -251,6 +260,45 @@ describe('ZeroGMemoryStore — mocked 0G client', () => {
     });
     const failStore = new ZeroGMemoryStore(STREAM_ID, mockClient, failWriter);
     await expect(failStore.save('bad', 'val')).rejects.toThrow('disk full');
+  });
+
+  // -------------------------------------------------------------------------
+  // HIGH 2: save() stub-with-warning (intentional S2 documented limitation)
+  // -------------------------------------------------------------------------
+
+  it('HIGH 2 — save() resolves without throwing (in-process cache only, S2 stub)', async () => {
+    // The stub exec() should NOT throw — degraded-but-running is intentional.
+    // S2 limitation: 0G Batcher write not wired (requires wallet+contract).
+    await expect(store.save('mission', 'gather resources')).resolves.toBeUndefined();
+  });
+
+  it('HIGH 2 — recall() returns cached value after save() (in-memory round-trip)', async () => {
+    await store.save('plan', 'hold the line');
+    // Must return from write-through cache — no KvClient call for a cached key.
+    const val = await store.recall('plan');
+    expect(val).toBe('hold the line');
+    expect(mockClient.getValue).not.toHaveBeenCalled();
+  });
+
+  it('HIGH 2 — save() logs a prominent S2 limitation warning when called in configured mode', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // Use the real (stub) writer factory to exercise the warn path.
+    const { createMemoryStore: cmf } = await import('../src/zeroGMemoryStore.js');
+    const stubStore = await cmf({
+      env: { OG_STORAGE_API_KEY: 'test-key', OG_STREAM_ID: 'stream-xyz' },
+      kvClient: mockClient,
+      // No kvWriterFactory override — exercises buildRealWriterFactory stub
+    });
+    await stubStore.save('key', 'value');
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('save() is in-process cache only'),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('S2 limitation'),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('FileMemoryStore'),
+    );
   });
 
   // -------------------------------------------------------------------------
