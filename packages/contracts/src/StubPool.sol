@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.34;
 
 /// @notice Constant-product AMM pool for one resource/gold pair.
 ///         Reserves are tracked internally; ClanWorld calls the math
@@ -7,9 +7,9 @@ pragma solidity ^0.8.24;
 ///         directly via the internal accounting model.
 ///         No real ERC20 transfers occur here — the pool is the math oracle.
 contract StubPool {
-    address public immutable tokenA;  // resource token
-    address public immutable tokenB;  // gold token
-    address public immutable engine;  // ClanWorld address
+    address public immutable TOKEN_A;  // resource token
+    address public immutable TOKEN_B;  // gold token
+    address public immutable ENGINE;   // ClanWorld address
 
     uint256 public reserveA;          // resource reserve
     uint256 public reserveB;          // gold reserve
@@ -17,14 +17,14 @@ contract StubPool {
     bool private _seeded;
 
     modifier onlyEngine() {
-        require(msg.sender == engine, "StubPool: only engine");
+        require(msg.sender == ENGINE, "StubPool: only engine");
         _;
     }
 
     constructor(address tokenA_, address tokenB_, address engine_) {
-        tokenA = tokenA_;
-        tokenB = tokenB_;
-        engine = engine_;
+        TOKEN_A = tokenA_;
+        TOKEN_B = tokenB_;
+        ENGINE = engine_;
     }
 
     /// @notice Called by ClanWorld at seedPools time to set initial reserves.

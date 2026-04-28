@@ -1,0 +1,60 @@
+# Port declarations for port-for allocation (ADR 0003 + 2026-04-11 amendment).
+#
+# Schema: Option D (project-sharded slots).
+#   ClanWorld owns the 387xx backend slot and 587xx frontend slot.
+#   Sub-bands within each slot (per ADR 0003 amendment):
+#     00-09 core   10-39 prod   40-69 dev   70-89 test   90-99 scratch
+#
+# Slot assignment rationale: 388 (CPC), 385 (Inbox), 389 (Meridian FX),
+# 386 (gh-stats partial — 38610 taken) were already claimed. 387/587 was
+# the cleanest unclaimed adjacent slot. Reserved for ClanWorld.
+#
+# Initial purposes (apps/web frontend + apps/server Convex/Hono backend +
+# Playwright e2e test). Add more as runner daemon, ttyd web view, etc. land.
+
+repo: clan-world
+purposes:
+  - name: clan-world-frontend-dev
+    type: frontend
+    env: dev
+    canonical: 58740   # Vite dev server for apps/web
+
+  - name: clan-world-backend-dev
+    type: backend
+    env: dev
+    canonical: 38740   # Hono dev server for apps/server (Convex local emulator port too)
+
+  - name: clan-world-frontend-test
+    type: frontend
+    env: test
+    canonical: 58770   # Playwright webServer (replaces hardcoded 58840 inherited from PR #88)
+
+  - name: clan-world-frontend-prod
+    type: frontend
+    env: prod
+    canonical: 58730   # Vercel-deployed bundle proxy if we ever localhost-test prod build
+
+  - name: clan-world-runner-daemon
+    type: backend
+    env: dev
+    canonical: 38745   # runner daemon HTTP port (if it ever exposes one for health/debug)
+
+  - name: clan-world-ttyd-elder-1
+    type: backend
+    env: scratch
+    canonical: 38790   # ttyd web view for elder-1 tmux session (Phase 5.E10 stretch)
+
+  - name: clan-world-ttyd-elder-2
+    type: backend
+    env: scratch
+    canonical: 38791
+
+  - name: clan-world-ttyd-elder-3
+    type: backend
+    env: scratch
+    canonical: 38792
+
+  - name: clan-world-ttyd-elder-4
+    type: backend
+    env: scratch
+    canonical: 38793

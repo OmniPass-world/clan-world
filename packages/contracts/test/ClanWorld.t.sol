@@ -1,11 +1,46 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {ClanWorld} from "../src/ClanWorld.sol";
 import {MinimalERC20} from "../src/MinimalERC20.sol";
 import {StubPool} from "../src/StubPool.sol";
-import "../src/IClanWorld.sol";
+import {
+    IClanWorld,
+    IClanWorldEvents,
+    ClanWorldConstants,
+    ClanState,
+    ClansmanState,
+    BanditState,
+    WheatPlotState,
+    ResourceType,
+    ActionType,
+    MarketExecutionMode,
+    StatusCode,
+    WorldState,
+    TreasuryState,
+    Clan,
+    WheatPlot,
+    Clansman,
+    Mission,
+    BanditTroop,
+    ScheduledMarketAction,
+    DefenseContribution,
+    PackedRoute,
+    DerivedClanState,
+    DerivedClansmanState,
+    ClanOrder,
+    OrderResult,
+    PoolSeedConfig,
+    LeaderboardEntry,
+    WorldSnapshot,
+    ClansmanFullView,
+    ClanFullView,
+    PoolReserves,
+    MarketState,
+    ActiveBanditView,
+    RegionOccupant
+} from "../src/IClanWorld.sol";
 
 contract ClanWorldTest is Test {
     ClanWorld world;
@@ -789,5 +824,49 @@ contract ClanWorldTest is Test {
         vm.prank(elder);
         OrderResult[] memory results = world.submitClanOrders(clanId, orders);
         assertEq(uint8(results[0].status), uint8(StatusCode.ERR_INVALID_REGION), "market sell to Forest should fail");
+    }
+
+    // -------------------------------------------------------------------------
+    // Issue #95: DefendBase re-tasking — zero-travel same-target retask must not drop defender
+    // -------------------------------------------------------------------------
+
+    function test_defendBase_zeroTravel_retask_noDropWindow() public {
+        uint32 clanId = _mintClan();
+        ClanFullView memory v = world.getClanFullView(clanId);
+        uint32 csId = v.clansmen[0].clansman.clansman.clansmanId;
+        uint8 baseRegion = v.clan.clan.baseRegion;
+
+        // First DefendBase: clansman defends its own clan (same region → zero travel).
+        ClanOrder[] memory orders = new ClanOrder[](1);
+        orders[0] = ClanOrder({
+            clansmanId: csId,
+            gotoRegion: baseRegion,
+            action: ActionType.DefendBase,
+            targetClanId: clanId,
+            marketToken: address(0),
+            marketAmount: 0,
+            maxGoldIn: 0
+        });
+        vm.prank(elder);
+        OrderResult[] memory r1 = world.submitClanOrders(clanId, orders);
+        assertEq(uint8(r1[0].status), uint8(StatusCode.OK), "first DefendBase OK");
+
+        // Advance past cooldown and settle so defender is registered.
+        vm.warp(block.timestamp + ClanWorldConstants.CLANSMAN_COOLDOWN_SECONDS + 1);
+        _advanceTick();
+
+        uint32[] memory defs = world.getActiveDefenders(clanId);
+        assertEq(defs.length, 1, "one defender registered");
+        assertEq(defs[0], csId, "csId is the defender");
+
+        // Second DefendBase to same target: zero-travel re-task — the regression case.
+        vm.prank(elder);
+        OrderResult[] memory r2 = world.submitClanOrders(clanId, orders);
+        assertEq(uint8(r2[0].status), uint8(StatusCode.OK), "re-task DefendBase OK");
+
+        // Defender must NOT be dropped — fix must register synchronously.
+        defs = world.getActiveDefenders(clanId);
+        assertEq(defs.length, 1, "defender count must not drop after re-task");
+        assertEq(defs[0], csId, "csId must still be defending after re-task");
     }
 }

@@ -128,6 +128,8 @@ export async function runCommand(
 
   if (ns === 'peer' && cmd === 'inbox') {
     const n = getElderN(env);
+    // Reads by ELDER_N, not clanId. Round-trips with 'peer whisper' only when
+    // clanId === String(elderN). Issue #94 tracks the fix (option A: ELDER_CLAN_ID).
     const file = inboxFile(n, homeBase);
     if (!fs.existsSync(file)) return 'inbox empty\n';
     const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);

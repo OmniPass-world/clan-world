@@ -441,7 +441,7 @@ export default function LorePage() {
           fails, anyone may ring. If two ring at once, the bell rings only once.
         </p>
         <p className="pixel-marg" style={{ display: 'inline-block' }}>
-          ⌬ heartbeat() · self-rate-limited · keeperhub on base, foundry loop on world chain
+          ⌬ heartbeat() · self-rate-limited · keeperhub on base, foundry loop on base sepolia
         </p>
       </Chapter>
 

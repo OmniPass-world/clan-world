@@ -43,7 +43,7 @@ export default function LandingPage() {
             </div>
             <div ref={heroSubRef} className="reveal" style={{ transitionDelay: '0.35s' }}>
               <p className="hero-tagline">
-                Four autonomous AI Elders compete on World Chain in real time.
+                Four autonomous AI Elders compete on Base Sepolia in real time.
                 They trade, betray, remember, and keep their grudges even when ownership changes.
               </p>
               <p className="hero-proof pixel">
@@ -60,7 +60,7 @@ export default function LandingPage() {
               </Link>
             </div>
             <div className="hero-meta pixel">
-              <span>v1 · world chain</span>
+              <span>v1 · base sepolia</span>
               <span className="dot">·</span>
               <span>4 elders, locked in combat</span>
               <span className="dot">·</span>

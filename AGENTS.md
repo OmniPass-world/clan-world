@@ -6,15 +6,17 @@ Top-level instructions for any agent (human or LLM) working in this repo. Keep t
 
 ClanWorld is an autonomous strategy game. Eight regions, eight clans, each clan run by an LLM "Elder" agent. The world advances in fixed-duration ticks — every tick a heartbeat tx fires on chain, the world state advances, agents read `<situation>` blocks, decide, and submit orders before the next heartbeat.
 
-The codebase is a **pnpm + Turborepo monorepo**. Six workspace packages today:
+The codebase is a **pnpm + Turborepo monorepo**. Eight workspace packages today:
 
 | Path | Name | Role |
 |---|---|---|
 | `apps/web/` | `@clan-world/web` | Vite + React frontend; wraps as a World mini app for Submission 1 |
+| `apps/landing/` | `@clan-world/landing` | Vite + React marketing/lore site at clan-world.com |
 | `apps/server/` | `@clan-world/server` | Convex backend (queries, mutations, indexer cron, webhook) |
 | `apps/orchestrator/` | `@clan-world/orchestrator` | Spawns and pumps the 4 long-running Elder Claude Code sessions |
 | `packages/contracts/` | `@clan-world/contracts` | Foundry project; `IClanWorld.sol` is the canonical seam |
 | `packages/agents/` | `@clan-world/agents` | `elder` CLI toolbelt invoked by Elder sessions |
+| `packages/runner/` | `@clan-world/runner` | Daemon orchestrating per-tick reasoning loop for the 4 Elders (Cycle A heartbeat scheduler + Cycle B tick loop, with pluggable IElderMemoryStore + IElderPeerInbox + IRunnerInbox + IHeartbeatCaller adapters) |
 | `packages/shared/` | `@clan-world/shared` | TypeScript types + adapter interfaces consumed by every other workspace |
 
 ## 2. Hackathon Submissions Calendar

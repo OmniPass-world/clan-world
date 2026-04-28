@@ -1,0 +1,29 @@
+{
+  "name": "@clan-world/runner",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./src/main.ts",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "build": "echo 'uses tsx at runtime; no emit build needed'",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "echo 'lint stub'",
+    "clean": "rm -rf dist .turbo"
+  },
+  "dependencies": {
+    "@0glabs/0g-ts-sdk": "0.3.3",
+    "@clan-world/agents": "workspace:*",
+    "@clan-world/shared": "workspace:*",
+    "ethers": "6.13.1",
+    "tsx": "4.19.2",
+    "viem": "^2.48.4"
+  },
+  "devDependencies": {
+    "@types/node": "25.6.0",
+    "typescript": "5.9.3",
+    "vitest": "^3.2.0"
+  }
+}
