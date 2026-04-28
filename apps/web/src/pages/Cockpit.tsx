@@ -66,8 +66,8 @@ export function Cockpit() {
           gap: 8px;
           padding: 8px;
           min-height: 0;
-          grid-template-columns: 1fr 1.6fr 1fr;
-          grid-template-rows: 1fr 1fr;
+          grid-template-columns: 1.3fr 1fr 1.3fr;
+          grid-template-rows: minmax(420px, 1fr) minmax(420px, 1fr);
           grid-template-areas:
             "p1 p5 p2"
             "p3 p5 p4";

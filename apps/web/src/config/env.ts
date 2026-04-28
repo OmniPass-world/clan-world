@@ -14,16 +14,19 @@
 /**
  * DEMO_MODE — gates all mock/fake data in WorldMap.
  *
- * - true  (VITE_CLANWORLD_DEMO_MODE=true):  render mock clans, bandits, walls,
- *   monuments, agentLogs. Used for hackathon Loom recordings + judges-without-
- *   World-App preview.
- * - false (env unset/anything else):       canvas + scoreboard ONLY render
- *   real Convex/chain state. Empty world = empty UI.
+ * - true  (env unset OR VITE_CLANWORLD_DEMO_MODE=true): render mock clans,
+ *   bandits, walls, monuments, agentLogs. Default-on for UAT visibility so the
+ *   worldmap renders without manual env setup. Also used for hackathon Loom
+ *   recordings + judges-without-World-App preview.
+ * - false (VITE_CLANWORLD_DEMO_MODE=false): canvas + scoreboard ONLY render
+ *   real Convex/chain state. Empty world = empty UI. Set explicitly in
+ *   `.env.production` (or Vercel project env at build time) when Phase B
+ *   Convex data lands.
  *
- * Set VITE_CLANWORLD_DEMO_MODE=true in .env.local (or .env.development) for
- * local dev with mock data.
+ * Default policy: missing/unset env var → DEMO_MODE on (true). Only an
+ * explicit `'false'` string disables it.
  */
-export const DEMO_MODE = import.meta.env.VITE_CLANWORLD_DEMO_MODE === 'true';
+export const DEMO_MODE = import.meta.env.VITE_CLANWORLD_DEMO_MODE !== 'false';
 
 /**
  * DEMO_BYPASS_WORLD_GUARD — bypass the "Open in World App" gate.
