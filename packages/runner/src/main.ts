@@ -10,12 +10,12 @@
 import { createMemoryStore } from './zeroGMemoryStore.js';
 
 async function main(): Promise<void> {
-  const elderN = parseInt(process.env['ELDER_N'] ?? '1', 10);
+  const elderIndex = parseInt(process.env['ELDER_INDEX'] ?? '1', 10);
 
-  const memory = await createMemoryStore({ elderN });
+  const memory = await createMemoryStore({ elderIndex });
 
   console.error(
-    `[runner] elder=${elderN} memory=${
+    `[runner] elder=${elderIndex} memory=${
       process.env['OG_STORAGE_API_KEY'] ? '0G-KV' : 'local-file'
     }`,
   );
@@ -26,7 +26,7 @@ async function main(): Promise<void> {
 
   // TODO: Wire Elder tick loop here (Phase 8+).
   // The memory store is ready — pass it into the Elder agent loop.
-  console.log(JSON.stringify({ status: 'ready', elderN, keys: Object.keys(existing) }, null, 2));
+  console.log(JSON.stringify({ status: 'ready', elderIndex, keys: Object.keys(existing) }, null, 2));
 }
 
 main().catch(err => {

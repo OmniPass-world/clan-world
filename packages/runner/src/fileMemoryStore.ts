@@ -51,8 +51,9 @@ export class FileMemoryStore implements IElderMemoryStore {
     fs.mkdirSync(dir, { recursive: true });
     // Write to a temp file then rename for an atomic update on POSIX systems.
     // Prevents JSON corruption if two processes write concurrently or the process
-    // crashes mid-write.
-    const tmpPath = this.filePath + '.tmp';
+    // crashes mid-write. Random suffix prevents concurrent-process collisions.
+    const suffix = Math.random().toString(36).slice(2);
+    const tmpPath = `${this.filePath}.${suffix}.tmp`;
     fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2) + '\n', 'utf8');
     fs.renameSync(tmpPath, this.filePath);
   }

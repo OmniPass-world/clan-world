@@ -84,6 +84,30 @@ function writeCacheToDisk(filePath: string, data: Record<string, string>): void 
 }
 
 // ---------------------------------------------------------------------------
+// Timeout helper
+// ---------------------------------------------------------------------------
+
+/** Wrap a promise with a timeout. Rejects with a descriptive error if ms elapses. */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timerId = setTimeout(
+      () => reject(new Error(`${label} timed out after ${ms}ms`)),
+      ms,
+    );
+    promise.then(
+      value => {
+        clearTimeout(timerId);
+        resolve(value);
+      },
+      err => {
+        clearTimeout(timerId);
+        reject(err as Error);
+      },
+    );
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Real Batcher factory
 // ---------------------------------------------------------------------------
 
@@ -128,7 +152,11 @@ function buildRealBatcherFactory(env: Record<string, string | undefined>): Batch
     ).connect(provider);
 
     const indexer = new sdk.Indexer(indexerRpc);
-    const [nodes, nodeErr] = await indexer.selectNodes(1);
+    const [nodes, nodeErr] = await withTimeout(
+      indexer.selectNodes(1),
+      30_000,
+      'Indexer.selectNodes',
+    );
     if (nodeErr) throw new Error(`[ZeroGMemoryStore] 0G node selection failed: ${nodeErr.message}`);
 
     const flow = sdk.FixedPriceFlow__factory.connect(flowContract, wallet);
@@ -189,8 +217,10 @@ export class ZeroGMemoryStore implements IElderMemoryStore {
       new TextEncoder().encode(value),
     );
 
-    const [, execErr] = await batcher.exec();
+    const [tx, execErr] = await withTimeout(batcher.exec(), 30_000, 'Batcher.exec');
     if (execErr) throw new Error(`[ZeroGMemoryStore] 0G write failed: ${execErr.message}`);
+    if (!tx?.txHash || !tx?.rootHash)
+      throw new Error('[ZeroGMemoryStore] 0G write returned no txHash/rootHash');
 
     // Update cache ONLY after successful write.
     this.#cache.set(key, value);
@@ -237,6 +267,17 @@ export async function createMemoryStore(
   opts: ZeroGMemoryStoreOptions = {},
 ): Promise<IElderMemoryStore> {
   const env = opts.env ?? process.env;
+
+  // Fail-fast validation — catch bad env early before any async work.
+  const rawIndex = opts.elderIndex ?? parseInt(env['ELDER_INDEX'] ?? '0', 10);
+  if (isNaN(rawIndex) || rawIndex < 1 || rawIndex > 4) {
+    throw new Error(`ELDER_INDEX must be 1–4, got: ${env['ELDER_INDEX'] ?? opts.elderIndex}`);
+  }
+  const words = (env['ELDER_MNEMONIC'] ?? '').trim().split(/\s+/);
+  if (env['ELDER_MNEMONIC'] !== undefined && words.length !== 12 && words.length !== 24) {
+    throw new Error(`ELDER_MNEMONIC must be 12 or 24 words, got: ${words.length}`);
+  }
+
   const apiKey = env['OG_STORAGE_API_KEY'];
 
   if (!apiKey) {
