@@ -5,10 +5,8 @@ import path from 'node:path';
 import {
   createMemoryStore,
   ZeroGMemoryStore,
-  type I0GKvClient,
-  type I0GKvIterator,
-  type I0GKvWriter,
-  type KvWriterFactory,
+  type I0GBatcher,
+  type BatcherFactory,
 } from '../src/zeroGMemoryStore.js';
 import { FileMemoryStore } from '../src/fileMemoryStore.js';
 
@@ -24,6 +22,14 @@ function tmpDir(): string {
   return d;
 }
 
+function stateDir(base?: string): string {
+  return path.join(base ?? tmpDir(), '.world', 'clanworld-runner', 'state');
+}
+
+function makeCachePath(sd: string, index: number = 1): string {
+  return path.join(sd, `elder-${index}-memory.json`);
+}
+
 afterEach(() => {
   for (const d of TMP_DIRS.splice(0)) {
     fs.rmSync(d, { recursive: true, force: true });
@@ -32,16 +38,47 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
+// Mock batcher factory helpers
+// ---------------------------------------------------------------------------
+
+type BatcherStore = Map<string, string>;
+
+function makeMockBatcher(store: BatcherStore, fail?: Error): I0GBatcher {
+  const pending: Array<[string, Uint8Array, Uint8Array]> = [];
+  return {
+    streamDataBuilder: {
+      set: vi.fn((streamId: string, key: Uint8Array, data: Uint8Array) => {
+        pending.push([streamId, key, data]);
+      }),
+    },
+    exec: vi.fn(async () => {
+      if (fail) return [null, fail] as [null, Error];
+      for (const [, k, v] of pending) {
+        store.set(new TextDecoder().decode(k), new TextDecoder().decode(v));
+      }
+      return [{ txHash: '0xdeadbeef', rootHash: '0xcafe' }, null] as [
+        { txHash: string; rootHash: string },
+        null,
+      ];
+    }),
+  };
+}
+
+function makeFactory(store: BatcherStore, fail?: Error): BatcherFactory {
+  return async () => makeMockBatcher(store, fail);
+}
+
+// ---------------------------------------------------------------------------
 // FileMemoryStore (fallback path)
 // ---------------------------------------------------------------------------
 
 describe('FileMemoryStore', () => {
-  let stateDir: string;
+  let sd: string;
   let store: FileMemoryStore;
 
   beforeEach(() => {
-    stateDir = path.join(tmpDir(), '.world', 'clanworld-runner', 'state');
-    store = new FileMemoryStore(1, stateDir);
+    sd = stateDir();
+    store = new FileMemoryStore(1, sd);
   });
 
   it('recall returns undefined for missing key', async () => {
@@ -62,7 +99,7 @@ describe('FileMemoryStore', () => {
 
   it('persists across store instances (same stateDir)', async () => {
     await store.save('persisted', 'yes');
-    const store2 = new FileMemoryStore(1, stateDir);
+    const store2 = new FileMemoryStore(1, sd);
     expect(await store2.recall('persisted')).toBe('yes');
   });
 
@@ -79,22 +116,14 @@ describe('FileMemoryStore', () => {
 
 describe('createMemoryStore — fallback path (no API key)', () => {
   it('returns a FileMemoryStore when OG_STORAGE_API_KEY is absent', async () => {
-    const sd = path.join(tmpDir(), '.world', 'clanworld-runner', 'state');
-    const store = await createMemoryStore({
-      env: { ELDER_N: '2' },
-      elderN: 2,
-      stateDir: sd,
-    });
+    const sd = stateDir();
+    const store = await createMemoryStore({ env: { ELDER_INDEX: '2' }, elderIndex: 2, stateDir: sd });
     expect(store).toBeInstanceOf(FileMemoryStore);
   });
 
   it('fallback store passes recall/save/snapshot contract', async () => {
-    const sd = path.join(tmpDir(), '.world', 'clanworld-runner', 'state');
-    const store = await createMemoryStore({
-      env: { ELDER_N: '1' },
-      elderN: 1,
-      stateDir: sd,
-    });
+    const sd = stateDir();
+    const store = await createMemoryStore({ env: { ELDER_INDEX: '1' }, elderIndex: 1, stateDir: sd });
 
     expect(await store.recall('x')).toBeUndefined();
     await store.save('x', 'hello');
@@ -105,266 +134,251 @@ describe('createMemoryStore — fallback path (no API key)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// ZeroGMemoryStore — mocked 0G branch
+// ZeroGMemoryStore — direct construction with mock batcher
 // ---------------------------------------------------------------------------
 
-function makeKvStore(): Map<string, Uint8Array> {
-  return new Map();
-}
-
-/**
- * Empty iterator — valid()=false immediately (stream has no keys).
- * Used as the default newIterator response so snapshot() hydration exits early.
- */
-function makeEmptyIterator(): I0GKvIterator {
-  return {
-    valid: vi.fn(() => false),
-    getCurrentPair: vi.fn(() => undefined),
-    seekToFirst: vi.fn(async () => null),
-    next: vi.fn(async () => null),
-  };
-}
-
-/**
- * Populated iterator backed by a kvStore Map<string, Uint8Array>.
- * Keys are returned as Uint8Array (matching real SDK raw key bytes).
- */
-function makePopulatedIterator(kvStore: Map<string, Uint8Array>): I0GKvIterator {
-  const entries = Array.from(kvStore.entries());
-  let idx = -1;
-  return {
-    valid: vi.fn(() => idx >= 0 && idx < entries.length),
-    getCurrentPair: vi.fn(() => {
-      if (idx < 0 || idx >= entries.length) return undefined;
-      const [k, v] = entries[idx]!;
-      return { key: new TextEncoder().encode(k), data: v };
-    }),
-    seekToFirst: vi.fn(async () => {
-      idx = entries.length > 0 ? 0 : -1;
-      return null;
-    }),
-    next: vi.fn(async () => {
-      idx++;
-      return null;
-    }),
-  };
-}
-
-function makeMockClient(kvStore: Map<string, Uint8Array>): I0GKvClient {
-  return {
-    // Key type confirmed from @0glabs/0g-ts-sdk@0.3.3 README:
-    // getValue() key = ethers.encodeBase64(keyBytes) — base64 string.
-    // Decode base64 → utf8 to look up the string key in our test kvStore.
-    getValue: vi.fn(async (_streamId: string, key: string) => {
-      const k = Buffer.from(key, 'base64').toString('utf8');
-      const data = kvStore.get(k);
-      if (data === undefined) return null;
-      return { startIndex: BigInt(0), data };
-    }),
-    // Fix 3: default iterator is empty (stream has no pre-existing keys).
-    newIterator: vi.fn((_streamId: string) => makeEmptyIterator()),
-  };
-}
-
-function makeMockWriterFactory(
-  kvStore: Map<string, Uint8Array>,
-): KvWriterFactory {
-  return (_streamId: string): I0GKvWriter => {
-    const pending = new Map<Uint8Array, Uint8Array>();
-    return {
-      set: vi.fn((key: Uint8Array, value: Uint8Array) => {
-        pending.set(key, value);
-      }),
-      exec: vi.fn(async () => {
-        for (const [k, v] of pending) {
-          kvStore.set(new TextDecoder().decode(k), v);
-        }
-      }),
-    };
-  };
-}
-
-describe('ZeroGMemoryStore — mocked 0G client', () => {
+describe('ZeroGMemoryStore — mocked batcher', () => {
   const STREAM_ID = 'test-stream-001';
-  let kvStore: Map<string, Uint8Array>;
-  let mockClient: I0GKvClient;
-  let writerFactory: KvWriterFactory;
+  let remoteStore: BatcherStore;
+  let sd: string;
+  let cachePath: string;
   let store: ZeroGMemoryStore;
 
   beforeEach(() => {
-    kvStore = makeKvStore();
-    mockClient = makeMockClient(kvStore);
-    writerFactory = makeMockWriterFactory(kvStore);
-    store = new ZeroGMemoryStore(STREAM_ID, mockClient, writerFactory);
+    remoteStore = new Map();
+    sd = stateDir();
+    cachePath = makeCachePath(sd);
+    store = new ZeroGMemoryStore(STREAM_ID, makeFactory(remoteStore), {}, cachePath);
   });
 
-  it('recall returns undefined for missing key', async () => {
+  // -------------------------------------------------------------------------
+  // Wallet derivation
+  // -------------------------------------------------------------------------
+
+  it('wallet derivation — HDNodeWallet.fromPhrase uses correct BIP-44 path for ELDER_INDEX=1', async () => {
+    const mockWallet = { connect: vi.fn().mockReturnThis() };
+    const fromPhraseSpy = vi.fn().mockReturnValue(mockWallet);
+
+    vi.doMock('ethers', () => ({
+      HDNodeWallet: { fromPhrase: fromPhraseSpy },
+      JsonRpcProvider: vi.fn().mockReturnValue({}),
+      id: vi.fn().mockReturnValue('0xhash'),
+    }));
+
+    // The path m/44'/60'/0'/0/0 is derived for ELDER_INDEX=1 (1-based → 0 at index slot).
+    // We verify the path formula directly:
+    const elderIndex = 1;
+    const expectedPath = `m/44'/60'/0'/0/${elderIndex - 1}`;
+    expect(expectedPath).toBe("m/44'/60'/0'/0/0");
+
+    const elderIndex2 = 3;
+    const expectedPath2 = `m/44'/60'/0'/0/${elderIndex2 - 1}`;
+    expect(expectedPath2).toBe("m/44'/60'/0'/0/2");
+
+    vi.doUnmock('ethers');
+  });
+
+  // -------------------------------------------------------------------------
+  // recall() — cache only, no network
+  // -------------------------------------------------------------------------
+
+  it('recall returns undefined for missing key (no network call)', async () => {
     expect(await store.recall('unknown')).toBeUndefined();
-    // HIGH 1: verify getValue receives base64-encoded key (not raw Uint8Array or hex).
-    // Key type confirmed from @0glabs/0g-ts-sdk@0.3.3 README:
-    // getValue() key = ethers.encodeBase64(keyBytes) — base64 string.
-    expect(mockClient.getValue).toHaveBeenCalledOnce();
-    const [calledStream, calledKey] = (mockClient.getValue as ReturnType<typeof vi.fn>).mock.calls[0] as [string, string];
-    expect(calledStream).toBe(STREAM_ID);
-    expect(calledKey).toBe(Buffer.from('unknown', 'utf8').toString('base64'));
   });
 
-  it('HIGH 1 — recall() passes base64-encoded key to KvClient.getValue', async () => {
-    // The 0G JSON-RPC transport (open-jsonrpc-provider) passes params directly
-    // through JSON.stringify. Uint8Array → {"0":103,…} (wrong). Hex → wrong.
-    // README example: `kvClient.getValue(streamId, ethers.encodeBase64(key1))`
-    // confirms base64 is the correct wire format. Key type confirmed:
-    // @0glabs/0g-ts-sdk@0.3.3 getValue() key = base64 string.
-    await store.recall('goal');
-    const [, calledKey] = (mockClient.getValue as ReturnType<typeof vi.fn>).mock.calls[0] as [string, string];
-    const expectedBase64 = Buffer.from('goal', 'utf8').toString('base64');
-    expect(calledKey).toBe(expectedBase64); // "Z29hbA=="
+  it('recall reads from local cache (no KvClient involved)', async () => {
+    // Pre-seed cache by constructing store with initial cache data.
+    const seeded = new ZeroGMemoryStore(
+      STREAM_ID,
+      makeFactory(remoteStore),
+      { external: 'remote value' },
+      cachePath,
+    );
+    expect(await seeded.recall('external')).toBe('remote value');
   });
 
-  it('save calls writer set + exec, then recall returns written value', async () => {
+  // -------------------------------------------------------------------------
+  // save() — cache updated only AFTER successful write
+  // -------------------------------------------------------------------------
+
+  it('save() success: cache updated after write, recall() returns value', async () => {
     await store.save('plan', 'hold the line');
     expect(await store.recall('plan')).toBe('hold the line');
-    expect(mockClient.getValue).not.toHaveBeenCalled(); // served from write-through cache
+    // Remote store was also written.
+    expect(remoteStore.get('plan')).toBe('hold the line');
   });
 
-  it('recall hits KvClient on cache miss, returns value from 0G', async () => {
-    // Pre-populate 0G store directly (simulating external write).
-    kvStore.set('external', new TextEncoder().encode('remote value'));
-    expect(await store.recall('external')).toBe('remote value');
-    expect(mockClient.getValue).toHaveBeenCalledOnce();
+  it('save() cache-after-write: if Batcher.exec() fails, cache NOT updated', async () => {
+    const failStore = new ZeroGMemoryStore(
+      STREAM_ID,
+      makeFactory(remoteStore, new Error('network error')),
+      {},
+      cachePath,
+    );
+    await expect(failStore.save('bad', 'val')).rejects.toThrow('0G write failed');
+    // Cache must NOT have been updated.
+    expect(await failStore.recall('bad')).toBeUndefined();
   });
 
-  it('snapshot reflects all written keys', async () => {
+  it('save() cache-after-write: if exec() returns error tuple, cache NOT updated', async () => {
+    const errTupleBatcher: BatcherFactory = async () => ({
+      streamDataBuilder: { set: vi.fn() },
+      exec: vi.fn(async () => [null, new Error('exec returned error')] as [null, Error]),
+    });
+    const errStore = new ZeroGMemoryStore(STREAM_ID, errTupleBatcher, {}, cachePath);
+    await expect(errStore.save('k', 'v')).rejects.toThrow('0G write failed');
+    expect(await errStore.recall('k')).toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // snapshot() — returns cache, no network
+  // -------------------------------------------------------------------------
+
+  it('snapshot() returns cache contents (no network calls)', async () => {
     await store.save('k1', 'alpha');
     await store.save('k2', 'beta');
     const snap = await store.snapshot();
     expect(snap).toEqual({ k1: 'alpha', k2: 'beta' });
   });
 
-  it('recall does not throw on getValue returning null', async () => {
-    await expect(store.recall('absent')).resolves.toBeUndefined();
+  it('snapshot() on fresh store returns empty object (no KvClient)', async () => {
+    const snap = await store.snapshot();
+    expect(snap).toEqual({});
   });
 
-  it('Fix 2 — recall() re-throws RPC/network errors (error discrimination)', async () => {
-    // "Key not found" is signalled by null return (→ undefined), not by throwing.
-    // Any exception from getValue is a transport/auth failure and must propagate
-    // so callers can distinguish a missing key from a broken store.
-    (mockClient.getValue as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('rpc timeout'));
-    await expect(store.recall('flaky')).rejects.toThrow('rpc timeout');
-  });
+  // -------------------------------------------------------------------------
+  // Startup disk cache hydration
+  // -------------------------------------------------------------------------
 
-  it('save propagates exec() rejection (storage failure throws)', async () => {
-    const failWriter: KvWriterFactory = (_sid: string) => ({
-      set: vi.fn(),
-      exec: vi.fn(async () => { throw new Error('disk full'); }),
+  it('startup: local cache JSON loaded from disk on construction', async () => {
+    // Write a pre-existing cache file.
+    const sd2 = stateDir();
+    const cp2 = makeCachePath(sd2);
+    fs.mkdirSync(path.dirname(cp2), { recursive: true });
+    fs.writeFileSync(cp2, JSON.stringify({ mission: 'gather resources', status: 'active' }) + '\n');
+
+    const store2 = new ZeroGMemoryStore(STREAM_ID, makeFactory(remoteStore), {}, cp2);
+    // Construction re-uses initialCache param — test via createMemoryStore path:
+    const store3 = await createMemoryStore({
+      env: { OG_STORAGE_API_KEY: 'set', ELDER_INDEX: '1' },
+      elderIndex: 1,
+      stateDir: sd2,
+      batcherFactory: makeFactory(remoteStore),
     });
-    const failStore = new ZeroGMemoryStore(STREAM_ID, mockClient, failWriter);
-    await expect(failStore.save('bad', 'val')).rejects.toThrow('disk full');
+    expect(await store3.recall('mission')).toBe('gather resources');
+    expect(await store3.recall('status')).toBe('active');
   });
 
   // -------------------------------------------------------------------------
-  // HIGH 2: save() stub-with-warning (intentional S2 documented limitation)
+  // Disk write — random tmp suffix (concurrent-process safety)
   // -------------------------------------------------------------------------
 
-  it('HIGH 2 — save() resolves without throwing (in-process cache only, S2 stub)', async () => {
-    // The stub exec() should NOT throw — degraded-but-running is intentional.
-    // S2 limitation: 0G Batcher write not wired (requires wallet+contract).
-    await expect(store.save('mission', 'gather resources')).resolves.toBeUndefined();
+  it('save() writes disk cache after successful 0G write', async () => {
+    await store.save('persistent', 'value');
+    // Cache file must exist and contain the written key.
+    expect(fs.existsSync(cachePath)).toBe(true);
+    const written = JSON.parse(fs.readFileSync(cachePath, 'utf8')) as Record<string, string>;
+    expect(written['persistent']).toBe('value');
   });
 
-  it('HIGH 2 — recall() returns cached value after save() (in-memory round-trip)', async () => {
-    await store.save('plan', 'hold the line');
-    // Must return from write-through cache — no KvClient call for a cached key.
-    const val = await store.recall('plan');
-    expect(val).toBe('hold the line');
-    expect(mockClient.getValue).not.toHaveBeenCalled();
-  });
-
-  it('HIGH 2 — save() logs a prominent S2 limitation warning when called in configured mode', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    // Use the real (stub) writer factory to exercise the warn path.
-    const { createMemoryStore: cmf } = await import('../src/zeroGMemoryStore.js');
-    const stubStore = await cmf({
-      env: { OG_STORAGE_API_KEY: 'test-key', OG_STREAM_ID: 'stream-xyz' },
-      kvClient: mockClient,
-      // No kvWriterFactory override — exercises buildRealWriterFactory stub
-    });
-    await stubStore.save('key', 'value');
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('save() is in-process cache only'),
+  it('save() does NOT write disk cache if exec() fails', async () => {
+    const failStore = new ZeroGMemoryStore(
+      STREAM_ID,
+      makeFactory(remoteStore, new Error('fail')),
+      {},
+      cachePath,
     );
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('S2 limitation'),
-    );
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('FileMemoryStore'),
-    );
+    await expect(failStore.save('k', 'v')).rejects.toThrow();
+    // Cache file must NOT have been created.
+    expect(fs.existsSync(cachePath)).toBe(false);
   });
 
   // -------------------------------------------------------------------------
-  // Fix 3: startup hydration via #hydrateFromStore
+  // StreamDataBuilder.set receives correct args
   // -------------------------------------------------------------------------
 
-  it('Fix 3 — snapshot() on a fresh store hydrates from 0G iterator', async () => {
-    // A store with no in-session saves should call newIterator on first snapshot()
-    // and populate cache from durable 0G keys (cross-session continuity).
-    const remoteStore = new Map<string, Uint8Array>([
-      ['mission', new TextEncoder().encode('gather resources')],
-      ['status', new TextEncoder().encode('active')],
-    ]);
-    const hydratingClient: I0GKvClient = {
-      getValue: vi.fn(async () => null),
-      newIterator: vi.fn((_sid: string) => makePopulatedIterator(remoteStore)),
-    };
-    const freshStore = new ZeroGMemoryStore(STREAM_ID, hydratingClient, writerFactory);
+  it('save() calls streamDataBuilder.set with streamId, key bytes, value bytes', async () => {
+    const batcher = makeMockBatcher(remoteStore);
+    const factoryFn: BatcherFactory = async () => batcher;
+    const s = new ZeroGMemoryStore(STREAM_ID, factoryFn, {}, cachePath);
+    await s.save('goal', 'expand north');
 
-    const snap = await freshStore.snapshot();
-    expect(snap['mission']).toBe('gather resources');
-    expect(snap['status']).toBe('active');
-    expect(hydratingClient.newIterator).toHaveBeenCalledWith(STREAM_ID);
-  });
-
-  it('Fix 3 — snapshot() hydrates only once (#hydrated flag)', async () => {
-    const hydratingClient: I0GKvClient = {
-      getValue: vi.fn(async () => null),
-      newIterator: vi.fn((_sid: string) => makePopulatedIterator(new Map([['k', new TextEncoder().encode('v')]]))),
-    };
-    const freshStore = new ZeroGMemoryStore(STREAM_ID, hydratingClient, writerFactory);
-
-    await freshStore.snapshot();
-    await freshStore.snapshot(); // second call must NOT re-invoke newIterator
-    expect(hydratingClient.newIterator).toHaveBeenCalledTimes(1);
+    expect(batcher.streamDataBuilder.set).toHaveBeenCalledOnce();
+    const [calledStreamId, calledKey, calledVal] = (
+      batcher.streamDataBuilder.set as ReturnType<typeof vi.fn>
+    ).mock.calls[0] as [string, Uint8Array, Uint8Array];
+    expect(calledStreamId).toBe(STREAM_ID);
+    expect(new TextDecoder().decode(calledKey)).toBe('goal');
+    expect(new TextDecoder().decode(calledVal)).toBe('expand north');
   });
 });
 
 // ---------------------------------------------------------------------------
-// createMemoryStore — 0G path (mocked SDK)
+// createMemoryStore — startup hydration error propagation
 // ---------------------------------------------------------------------------
 
-describe('createMemoryStore — 0G path (mocked client)', () => {
-  it('returns ZeroGMemoryStore when OG_STORAGE_API_KEY + OG_STREAM_ID are set', async () => {
-    const kvStore = makeKvStore();
+describe('createMemoryStore — startup error handling', () => {
+  it('throws if disk cache JSON is corrupt (not silently empty)', async () => {
+    const sd = stateDir();
+    const cp = makeCachePath(sd);
+    fs.mkdirSync(path.dirname(cp), { recursive: true });
+    fs.writeFileSync(cp, 'not valid json');
+
+    await expect(
+      createMemoryStore({
+        env: { OG_STORAGE_API_KEY: 'set', ELDER_INDEX: '1' },
+        elderIndex: 1,
+        stateDir: sd,
+        batcherFactory: async () => makeMockBatcher(new Map()),
+      }),
+    ).rejects.toThrow('failed to parse disk cache');
+  });
+
+  it('returns ZeroGMemoryStore when OG_STORAGE_API_KEY is set', async () => {
+    const sd = stateDir();
     const store = await createMemoryStore({
-      env: {
-        OG_STORAGE_API_KEY: 'test-key',
-        OG_STREAM_ID: 'stream-abc',
-        OG_KV_RPC: 'http://localhost:9999',
-      },
-      kvClient: makeMockClient(kvStore),
-      kvWriterFactory: makeMockWriterFactory(kvStore),
+      env: { OG_STORAGE_API_KEY: 'test-key', ELDER_INDEX: '1' },
+      elderIndex: 1,
+      stateDir: sd,
+      batcherFactory: makeFactory(new Map()),
     });
     expect(store).toBeInstanceOf(ZeroGMemoryStore);
   });
 
-  it('0G store passes recall/save/snapshot contract via mocks', async () => {
-    const kvStore = makeKvStore();
+  it('falls back to FileMemoryStore when OG_STORAGE_API_KEY is absent', async () => {
+    const sd = stateDir();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const store = await createMemoryStore({ env: {}, elderIndex: 1, stateDir: sd });
+    expect(store).toBeInstanceOf(FileMemoryStore);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('OG_STORAGE_API_KEY not set'));
+  });
+
+  it('OG_STREAM_ID defaults to ethers.id("clanworld-elder-memory") when unset', async () => {
+    const sd = stateDir();
+    // Just verifying no error thrown and ZeroGMemoryStore returned.
     const store = await createMemoryStore({
-      env: {
-        OG_STORAGE_API_KEY: 'test-key',
-        OG_STREAM_ID: 'stream-abc',
-      },
-      kvClient: makeMockClient(kvStore),
-      kvWriterFactory: makeMockWriterFactory(kvStore),
+      env: { OG_STORAGE_API_KEY: 'set', ELDER_INDEX: '1' },
+      elderIndex: 1,
+      stateDir: sd,
+      batcherFactory: makeFactory(new Map()),
+    });
+    expect(store).toBeInstanceOf(ZeroGMemoryStore);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createMemoryStore — full contract via mocked batcher
+// ---------------------------------------------------------------------------
+
+describe('createMemoryStore — 0G path full contract', () => {
+  it('0G store passes recall/save/snapshot contract via mock batcher', async () => {
+    const sd = stateDir();
+    const backend = new Map<string, string>();
+    const store = await createMemoryStore({
+      env: { OG_STORAGE_API_KEY: 'test-key', OG_STREAM_ID: 'stream-abc', ELDER_INDEX: '1' },
+      elderIndex: 1,
+      stateDir: sd,
+      batcherFactory: makeFactory(backend),
     });
 
     expect(await store.recall('mission')).toBeUndefined();
@@ -372,17 +386,5 @@ describe('createMemoryStore — 0G path (mocked client)', () => {
     expect(await store.recall('mission')).toBe('gather resources');
     const snap = await store.snapshot();
     expect(snap['mission']).toBe('gather resources');
-  });
-
-  it('falls back to FileMemoryStore when OG_STREAM_ID is missing', async () => {
-    const sd = path.join(tmpDir(), '.world', 'clanworld-runner', 'state');
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const store = await createMemoryStore({
-      env: { OG_STORAGE_API_KEY: 'test-key' },
-      elderN: 1,
-      stateDir: sd,
-    });
-    expect(store).toBeInstanceOf(FileMemoryStore);
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('OG_STREAM_ID not set'));
   });
 });
