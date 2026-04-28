@@ -47,7 +47,13 @@ export class FileMemoryStore implements IElderMemoryStore {
   }
 
   #write(data: Record<string, string>): void {
-    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    fs.writeFileSync(this.filePath, JSON.stringify(data, null, 2) + '\n', 'utf8');
+    const dir = path.dirname(this.filePath);
+    fs.mkdirSync(dir, { recursive: true });
+    // Write to a temp file then rename for an atomic update on POSIX systems.
+    // Prevents JSON corruption if two processes write concurrently or the process
+    // crashes mid-write.
+    const tmpPath = this.filePath + '.tmp';
+    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2) + '\n', 'utf8');
+    fs.renameSync(tmpPath, this.filePath);
   }
 }
