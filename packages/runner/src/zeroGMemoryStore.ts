@@ -172,17 +172,14 @@ export class ZeroGMemoryStore implements IElderMemoryStore {
     const cached = this.#cache.get(key);
     if (cached !== undefined) return cached;
 
-    try {
-      const result = await this.#client.getValue(this.#streamId, encodeKey(key));
-      if (result === null) return undefined;
-      const value = decodeValue(result.data);
-      this.#cache.set(key, value);
-      return value;
-    } catch (err) {
-      // recall must not throw on missing keys; surface unexpected errors as undefined + warning.
-      console.warn(`[ZeroGMemoryStore] recall(${key}) failed — returning undefined:`, err);
-      return undefined;
-    }
+    // The 0G SDK signals "key not found" by returning null (not by throwing).
+    // Any exception here is a genuine RPC/network/auth failure — re-throw so
+    // callers can distinguish a missing key (→ undefined) from a broken transport.
+    const result = await this.#client.getValue(this.#streamId, encodeKey(key));
+    if (result === null) return undefined;
+    const value = decodeValue(result.data);
+    this.#cache.set(key, value);
+    return value;
   }
 
   async save(key: string, value: string): Promise<void> {

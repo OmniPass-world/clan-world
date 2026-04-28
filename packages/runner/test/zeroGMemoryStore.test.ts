@@ -195,11 +195,12 @@ describe('ZeroGMemoryStore — mocked 0G client', () => {
     await expect(store.recall('absent')).resolves.toBeUndefined();
   });
 
-  it('recall does not throw on getValue error — returns undefined + warns', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('Fix 2 — recall() re-throws RPC/network errors (error discrimination)', async () => {
+    // "Key not found" is signalled by null return (→ undefined), not by throwing.
+    // Any exception from getValue is a transport/auth failure and must propagate
+    // so callers can distinguish a missing key from a broken store.
     (mockClient.getValue as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('rpc timeout'));
-    expect(await store.recall('flaky')).toBeUndefined();
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('recall(flaky) failed'), expect.any(Error));
+    await expect(store.recall('flaky')).rejects.toThrow('rpc timeout');
   });
 
   it('save propagates exec() rejection (storage failure throws)', async () => {
