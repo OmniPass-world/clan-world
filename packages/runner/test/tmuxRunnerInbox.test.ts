@@ -179,7 +179,9 @@ describe('TmuxRunnerInbox.deliverSituationBlock — abort behavior', () => {
       runner: tmux,
     });
     const status = await inbox.deliverSituationBlock(5, 'block', abort.signal);
-    expect(status).toEqual({ ok: false, reason: 'timeout' });
+    // PR #136 review #10: abort returns 'aborted' (was 'timeout' — semantic
+    // mismatch made shutdown logs/metrics mis-attribute). Now distinct.
+    expect(status).toEqual({ ok: false, reason: 'aborted' });
     // No marker written because signal was aborted
     const marker = path.join(tmpDir, 'elder-1-last-tick.txt');
     expect(fs.existsSync(marker)).toBe(false);

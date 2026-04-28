@@ -43,14 +43,14 @@ export class TmuxRunnerInbox implements IRunnerInbox {
   }
 
   async deliverSituationBlock(tick: number, block: string, signal?: AbortSignal): Promise<DeliveryStatus> {
-    if (signal?.aborted) return { ok: false, reason: 'timeout' };
+    if (signal?.aborted) return { ok: false, reason: 'aborted' };
     const last = readLastTick(this.markerFile);
     if (last !== undefined && last >= tick) {
       return { ok: false, reason: 'duplicate-tick' };
     }
     try {
       await sendBlock(this.runner, this.target, block, signal);
-      if (signal?.aborted) return { ok: false, reason: 'timeout' }; // don't write marker on abort
+      if (signal?.aborted) return { ok: false, reason: 'aborted' }; // don't write marker on abort
       writeLastTick(this.markerFile, tick);
       return { ok: true };
     } catch (err) {
@@ -60,6 +60,8 @@ export class TmuxRunnerInbox implements IRunnerInbox {
       if (/can't find session|no server running|session not found/i.test(msg)) {
         return { ok: false, reason: 'session-down' };
       }
+      // Distinguish abort from genuine timeout: signal still present in caller scope.
+      if (signal?.aborted) return { ok: false, reason: 'aborted' };
       return { ok: false, reason: 'timeout' };
     }
   }

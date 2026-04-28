@@ -36,19 +36,31 @@ export class FilePeerInbox implements IElderPeerInbox {
   constructor(elder: ElderId, ownClanId: string, stateDir: string) {
     this.inboxDir = path.join(stateDir, 'peer-inbox');
     this.ownClanId = ownClanId;
-    // Resolve own inbox key symmetric to the writer side. Priority:
-    //   1. process.env.ELDER_N — explicit override (single-elder mode / CLI).
+    // Resolve own inbox key. Priority (changed 2026-04-28 — PR #136 review #3):
+    //   1. process.env.ELDER_N — ONLY if it matches String(elder). This preserves
+    //      CLI compatibility (single process with ELDER_N=N + elder=N) while
+    //      preventing the multi-elder cross-talk bug (4 instances spawned by
+    //      main.ts each see ELDER_N=1 from .env.local but have distinct elder
+    //      args 1-4 — only instance 1 takes ELDER_N's path; 2/3/4 ignore it).
     //   2. inboxKeyForClanId(ownClanId) — uses ELDER_${slot}_CLAN_ID mappings
-    //      from process.env, falls through to ownClanId verbatim if no mapping.
-    //   3. Numeric elder slot (final fallback).
-    // The verbatim-clanId fall-through is what makes clan-id-based addressing
-    // work in tests where no ELDER_*_CLAN_ID env is configured.
-    const resolved = process.env['ELDER_N'] ?? inboxKeyForClanId(ownClanId);
-    this.elderN = resolved || String(elder);
+    //      when set (runner mode); falls through to ownClanId verbatim for
+    //      tests with raw clan ids.
+    //   3. String(elder) — final fallback if mapping returned empty.
+    const envElderN = process.env['ELDER_N'];
+    if (envElderN !== undefined && envElderN === String(elder)) {
+      this.elderN = envElderN;
+    } else {
+      this.elderN = inboxKeyForClanId(ownClanId) || String(elder);
+    }
   }
 
   async send(toClanId: string, message: string, tick: number): Promise<void> {
-    const file = path.join(this.inboxDir, `elder-${inboxKeyForClanId(toClanId)}.jsonl`);
+    const inboxKey = inboxKeyForClanId(toClanId);
+    // PR #136 review #2 — path traversal: validate inbox key is a single safe path
+    // segment before composing the filename. Rejects '..', '/', null bytes, and
+    // anything else that could escape the inboxDir. Mirrors axlPeerInbox's guard.
+    assertSafeInboxKey(inboxKey);
+    const file = path.join(this.inboxDir, `elder-${inboxKey}.jsonl`);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     // CLI uses `from: <Elder N>` (number); the seam uses `fromClanId: string`.
     // We write BOTH so either reader can parse — see `read()` below.
@@ -87,6 +99,21 @@ function inboxKeyForClanId(clanId: string, env: NodeJS.ProcessEnv = process.env)
     if (mappedClanId === clanId) return String(elder);
   }
   return clanId;
+}
+
+/**
+ * Reject inbox keys that aren't a single safe path segment. A clan id of `..`
+ * or `foo/bar` or anything containing a path separator could escape the
+ * `peer-inbox` directory when interpolated into a filename. Allow only
+ * alphanumeric + `-` + `_` (matches the canonical Elder CLI clan-id shape).
+ *
+ * Same guard as axlPeerInbox.assertSafeClanId — kept inline rather than
+ * exported because the two adapters can drift independently.
+ */
+function assertSafeInboxKey(key: string): void {
+  if (!/^[A-Za-z0-9_-]+$/.test(key)) {
+    throw new Error(`filePeerInbox: unsafe inbox key '${key}' — must be alphanumeric + '-_' only`);
+  }
 }
 
 interface CliShape {

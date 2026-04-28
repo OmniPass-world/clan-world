@@ -87,44 +87,79 @@ export async function tickLoop(deps: TickLoopDeps): Promise<void> {
     if (chainTick > lastProcessedTick && chainTick > 0) {
       log.info(`tick ${chainTick} observed (last processed: ${lastProcessedTick})`);
 
-      // Compose + deliver to all 4 Elders in parallel. Per-Elder errors are
-      // contained — one Elder being down must not block the others.
-      await Promise.all(
-        ELDER_IDS.map(async elder => {
-          const per = deps.perElder[elder];
+      // Per-Elder delivery with retries. PR #136 review #1 fix (Option C):
+      //   1. Attempt all 4 Elders in parallel via Promise.allSettled.
+      //   2. For any failures, retry just the failed Elders up to MAX_RETRIES
+      //      with backoff between attempts.
+      //   3. After retries exhausted, log a prominent warning naming each
+      //      still-failed Elder and ADVANCE THE TICK ANYWAY (preserves liveness).
+      // This makes transient failures (network blip, tmux race, Convex hiccup)
+      // self-heal mid-tick, while permanent failures don't deadlock the world.
+      const MAX_RETRIES = 2;
+      const RETRY_BACKOFF_MS = 500;
+      const failedElders: ElderId[] = [];
+
+      const attemptElder = async (elder: ElderId): Promise<boolean> => {
+        const per = deps.perElder[elder];
+        try {
+          const block = await raceAbort(
+            composeSituationBlock(
+              { elder, clanId: deps.config.elderToClanId[elder], tick: chainTick },
+              { convex: deps.convex, memory: per.memory, peerInbox: per.peerInbox },
+            ),
+            deps.signal,
+            `composeSituationBlock(elder=${elder})`,
+          );
+          // MED-1: per-delivery AbortController so a timeout OR shutdown cancels the tmux child.
+          const deliveryAbort = new AbortController();
+          const linkAbort = (): void => deliveryAbort.abort();
+          deps.signal.addEventListener('abort', linkAbort, { once: true });
+          let status: DeliveryStatus;
           try {
-            const block = await raceAbort(
-              composeSituationBlock(
-                { elder, clanId: deps.config.elderToClanId[elder], tick: chainTick },
-                { convex: deps.convex, memory: per.memory, peerInbox: per.peerInbox },
-              ),
-              deps.signal,
-              `composeSituationBlock(elder=${elder})`,
+            status = await withTimeout(
+              per.inbox.deliverSituationBlock(chainTick, block, deliveryAbort.signal),
+              deps.config.deliveryTimeoutMs,
+              `deliverSituationBlock(elder=${elder}, tick=${chainTick})`,
             );
-            // MED-1: per-delivery AbortController so a timeout OR shutdown cancels the tmux child.
-            const deliveryAbort = new AbortController();
-            const linkAbort = (): void => deliveryAbort.abort();
-            deps.signal.addEventListener('abort', linkAbort, { once: true });
-            let status: DeliveryStatus;
-            try {
-              status = await withTimeout(
-                per.inbox.deliverSituationBlock(chainTick, block, deliveryAbort.signal),
-                deps.config.deliveryTimeoutMs,
-                `deliverSituationBlock(elder=${elder}, tick=${chainTick})`,
-              );
-            } finally {
-              deliveryAbort.abort(); // cancels tmux child whether delivery succeeded, timed out, or shutdown
-              deps.signal.removeEventListener('abort', linkAbort);
-            }
-            if (!status.ok) {
-              log.warn(`elder ${elder}: delivery returned not-ok: ${status.reason}`);
-            }
-          } catch (err) {
-            if (deps.signal.aborted) return; // clean shutdown
-            log.error(`elder ${elder}: deliver/compose failed:`, err);
+          } finally {
+            deliveryAbort.abort(); // cancels tmux child whether delivery succeeded, timed out, or shutdown
+            deps.signal.removeEventListener('abort', linkAbort);
           }
-        }),
-      );
+          if (!status.ok) {
+            log.warn(`elder ${elder}: delivery returned not-ok: ${status.reason}`);
+            return status.reason === 'aborted'; // shutdown is "ok" — don't retry
+          }
+          return true;
+        } catch (err) {
+          if (deps.signal.aborted) return true; // clean shutdown — no retry
+          log.error(`elder ${elder}: deliver/compose failed:`, err);
+          return false;
+        }
+      };
+
+      // Initial attempt: all 4 Elders in parallel.
+      const initialResults = await Promise.all(ELDER_IDS.map(attemptElder));
+      ELDER_IDS.forEach((elder, idx) => {
+        if (!initialResults[idx]) failedElders.push(elder);
+      });
+
+      // Retry loop: only the still-failed Elders.
+      for (let attempt = 1; attempt <= MAX_RETRIES && failedElders.length > 0 && !deps.signal.aborted; attempt++) {
+        log.warn(`tick ${chainTick}: retry ${attempt}/${MAX_RETRIES} for ${failedElders.length} failed elder(s): [${failedElders.join(', ')}]`);
+        await sleepWithSignal(RETRY_BACKOFF_MS, deps.signal);
+        const retryTargets = [...failedElders];
+        failedElders.length = 0;
+        const retryResults = await Promise.all(retryTargets.map(attemptElder));
+        retryTargets.forEach((elder, idx) => {
+          if (!retryResults[idx]) failedElders.push(elder);
+        });
+      }
+
+      if (failedElders.length > 0 && !deps.signal.aborted) {
+        log.error(
+          `[tickLoop] WARNING: tick ${chainTick} advancing despite ${failedElders.length} elder(s) still failing after ${MAX_RETRIES} retries: [${failedElders.join(', ')}]. Game state for these clans may diverge until they recover.`,
+        );
+      }
 
       // Settle: give Elders time to read + submit orders.
       const settleResult = await settleWindow(deps.config.settleWindowSec * 1000, deps.signal);

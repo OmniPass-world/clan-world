@@ -40,4 +40,4 @@ export interface IRunnerInbox {
 
 export type DeliveryStatus =
   | { ok: true }
-  | { ok: false; reason: 'session-down' | 'timeout' | 'duplicate-tick' };
+  | { ok: false; reason: 'session-down' | 'timeout' | 'duplicate-tick' | 'aborted' };

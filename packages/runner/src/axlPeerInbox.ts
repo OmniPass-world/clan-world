@@ -406,9 +406,10 @@ export class AxlPeerInbox implements IElderPeerInbox {
         toClanId: envelope.toClanId,
         message: envelope.message,
         tick: envelope.tick,
-        // LOW 6: sentAt is optional in the envelope; default to empty string when absent
-        // so PeerMessage.sentAt (string) is always populated.
-        sentAt: envelope.sentAt !== undefined ? String(envelope.sentAt) : '',
+        // PR #136 review #11: sentAt is optional in the envelope but required by
+        // PeerMessage. Default to receive-time ISO 8601 (was empty string —
+        // contract violation that confused Elders during memory recall).
+        sentAt: envelope.sentAt !== undefined ? String(envelope.sentAt) : new Date().toISOString(),
       };
 
       // HIGH 2: persist to journal before adding to in-memory cache.
