@@ -36,7 +36,15 @@ export class FilePeerInbox implements IElderPeerInbox {
   constructor(elder: ElderId, ownClanId: string, stateDir: string) {
     this.inboxDir = path.join(stateDir, 'peer-inbox');
     this.ownClanId = ownClanId;
-    this.elderN = process.env['ELDER_N'] ?? String(elder);
+    // Resolve own inbox key symmetric to the writer side. Priority:
+    //   1. process.env.ELDER_N — explicit override (single-elder mode / CLI).
+    //   2. inboxKeyForClanId(ownClanId) — uses ELDER_${slot}_CLAN_ID mappings
+    //      from process.env, falls through to ownClanId verbatim if no mapping.
+    //   3. Numeric elder slot (final fallback).
+    // The verbatim-clanId fall-through is what makes clan-id-based addressing
+    // work in tests where no ELDER_*_CLAN_ID env is configured.
+    const resolved = process.env['ELDER_N'] ?? inboxKeyForClanId(ownClanId);
+    this.elderN = resolved || String(elder);
   }
 
   async send(toClanId: string, message: string, tick: number): Promise<void> {

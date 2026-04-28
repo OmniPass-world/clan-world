@@ -1,7 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
 import { createConvexClient } from '@clan-world/shared/adapters';
-import { FilePeerInbox } from './filePeerInbox';
 import { configFromEnv, RunnerCastHeartbeat } from './runnerCastHeartbeat';
 import { startHeartbeatScheduler } from './heartbeatScheduler';
 import { tickLoop, type PerElderDeps } from './tickLoop';
@@ -9,6 +8,7 @@ import { makeSettleLatch } from './settleLatch';
 import { TmuxRunnerInbox } from './tmuxRunnerInbox';
 import { ELDER_IDS, type ElderId, type RunnerConfig } from './types';
 import { createMemoryStore } from './zeroGMemoryStore';
+import { createPeerInbox } from './axlPeerInbox';
 
 /**
  * Default state directory. Matches the layout the Elder CLI reads/writes
@@ -79,6 +79,8 @@ async function main(): Promise<void> {
 
   const config = loadConfig();
   const memoryBackend = process.env['OG_STORAGE_API_KEY'] ? '0G-KV' : 'local-file';
+  const peerBackend =
+    process.env['AXL_API_KEY'] && process.env['AXL_NETWORK_ID'] ? 'axl' : 'file';
   console.log('[runner] config:', {
     stateDir: config.stateDir,
     pollIntervalMs: config.pollIntervalMs,
@@ -86,8 +88,9 @@ async function main(): Promise<void> {
     tmuxSessionPrefix: config.tmuxSessionPrefix,
     elderToClanId: config.elderToClanId,
     memory: memoryBackend,
+    peer: peerBackend,
   });
-  console.log(`[runner] memory=${memoryBackend}`);
+  console.log(`[runner] memory=${memoryBackend} peer=${peerBackend}`);
 
   const convex = createConvexClient();
   const heartbeatCaller = new RunnerCastHeartbeat(configFromEnv());
@@ -96,10 +99,17 @@ async function main(): Promise<void> {
   for (const elder of ELDER_IDS) {
     const clanId = config.elderToClanId[elder];
     // Memory adapter selection: ZeroGMemoryStore if OG_STORAGE_API_KEY is set,
-    // FileMemoryStore otherwise. createMemoryStore handles env-driven config +
-    // disk-cache hydration; pass elderIndex explicitly so we don't depend on
-    // ELDER_INDEX env (the runner serves all 4 Elders, not just one).
+    // FileMemoryStore otherwise. Pass elderIndex explicitly so we don't depend
+    // on ELDER_INDEX env (the runner serves all 4 Elders, not just one).
     const memory = await createMemoryStore({ elderIndex: elder, stateDir: config.stateDir });
+    // Peer transport selection: AxlPeerInbox if AXL_API_KEY + AXL_NETWORK_ID set,
+    // FilePeerInbox otherwise. Pass elder + myClanId explicitly so the factory
+    // does not depend on per-process ELDER_N env (multi-elder runner).
+    const peerInbox = await createPeerInbox({
+      elder,
+      myClanId: clanId,
+      stateDir: config.stateDir,
+    });
     perElder[elder] = {
       inbox: new TmuxRunnerInbox({
         elder,
@@ -108,7 +118,7 @@ async function main(): Promise<void> {
         bootstrapBlock: bootstrapBlock(elder, clanId),
       }),
       memory,
-      peerInbox: new FilePeerInbox(elder, clanId, config.stateDir),
+      peerInbox,
     };
   }
 
