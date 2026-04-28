@@ -3,6 +3,7 @@ import { tokens } from '../../../styles/cockpit-tokens';
 
 interface State {
   hasError: boolean;
+  errorMessage?: string;
 }
 
 /**
@@ -20,12 +21,17 @@ export class WorldMapBoundary extends Component<
 > {
   override state: State = { hasError: false };
 
-  static getDerivedStateFromError(): State {
-    return { hasError: true };
+  static getDerivedStateFromError(error: unknown): State {
+    const errorMessage =
+      error instanceof Error ? error.message : String(error ?? 'unknown');
+    return { hasError: true, errorMessage };
   }
 
-  override componentDidCatch(error: unknown) {
-    console.warn('[cockpit] WorldMap failed to mount, rendering fallback:', error);
+  override componentDidCatch(error: unknown, info: unknown) {
+    // Use console.error (not warn) so the boundary trip is loud in DevTools
+    // and surfaces in error-tracking integrations. Includes React component
+    // stack so we can see WHERE in the WorldMap tree the throw came from.
+    console.error('[cockpit] WorldMap failed to mount:', error, info);
   }
 
   override render() {
@@ -70,7 +76,9 @@ export class WorldMapBoundary extends Component<
                 letterSpacing: '0.05em',
               }}
             >
-              Standalone view — backend not reachable
+              {this.state.errorMessage
+                ? `error: ${this.state.errorMessage}`
+                : 'Standalone view — backend not reachable'}
             </div>
           </div>
         </div>

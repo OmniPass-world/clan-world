@@ -1271,8 +1271,14 @@ export function WorldMap() {
       style={{
         position: 'relative',
         width: '100%',
-        // Fill remaining flex space inside <main>. min-height:0 lets flex
-        // shrink past content size; dvh ensures iOS toolbar is honored.
+        // Fill the parent. We set BOTH `height: 100%` (so grid-cell parents
+        // like the cockpit's center cell give us their full row height) AND
+        // `flex: 1 1 auto` + min-height:0 (legacy: the standalone
+        // /worldmap-only route uses a flex column <main> wrapper). Without
+        // height:100%, grid-cell children collapse to content-height (= 0
+        // because the inner canvasWrap is absolutely positioned), pixi
+        // ResizeObserver reports 0x0, and the canvas renders empty/black.
+        height: '100%',
         flex: '1 1 auto',
         minHeight: 0,
         overflow: 'hidden',
