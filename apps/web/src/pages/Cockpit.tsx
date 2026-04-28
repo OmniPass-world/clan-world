@@ -92,6 +92,36 @@ export function Cockpit() {
         }
       `}</style>
 
+      {/* Themed scrollbars scoped to the cockpit subtree.
+          Matches the iron palette so default light-grey browser bars don't
+          clash with the dark cockpit chrome. Standard (Firefox) +
+          ::-webkit-scrollbar (Chromium/Safari) covered.
+          NOTE: does NOT affect the ttyd terminal scrollbar — that lives
+          inside an iframe document we can't style from this parent. */}
+      <style>{`
+        [data-testid="cockpit-root"] {
+          scrollbar-width: thin;
+          scrollbar-color: ${tokens.border.iron} transparent;
+        }
+        [data-testid="cockpit-root"] ::-webkit-scrollbar {
+          width: 8px;
+          height: 8px;
+        }
+        [data-testid="cockpit-root"] ::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        [data-testid="cockpit-root"] ::-webkit-scrollbar-thumb {
+          background: ${tokens.border.iron};
+          border-radius: 4px;
+        }
+        [data-testid="cockpit-root"] ::-webkit-scrollbar-thumb:hover {
+          background: ${tokens.text.onIronDim};
+        }
+        [data-testid="cockpit-root"] ::-webkit-scrollbar-corner {
+          background: transparent;
+        }
+      `}</style>
+
       <div className="cockpit-grid" data-testid="cockpit-grid">
         <div className="cockpit-cell-1">
           <MiniCockpit elder={el1} />
