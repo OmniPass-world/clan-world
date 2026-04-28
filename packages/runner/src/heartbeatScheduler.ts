@@ -41,6 +41,8 @@ export function startHeartbeatScheduler(deps: HeartbeatSchedulerDeps): void {
   // we heartbeated for — no Convex poll needed, no stale-snapshot race.
   let lastHeartbeatForTick = -1;
 
+  if (deps.signal.aborted) return; // LOW: don't create timer if already shut down
+
   const timer = setInterval(() => {
     void (async () => {
       if (deps.signal.aborted) return;
@@ -51,16 +53,17 @@ export function startHeartbeatScheduler(deps: HeartbeatSchedulerDeps): void {
         if (!due) return;
         if (deps.signal.aborted) return;
         // Only fire after Cycle B has settled a tick newer than our last heartbeat.
-        if (deps.settleLatch) {
-          const settled = deps.settleLatch.lastSettledTick();
-          if (settled <= lastHeartbeatForTick) {
-            log.info(`waiting for Cycle B to settle (last settled: ${settled}, last heartbeat for: ${lastHeartbeatForTick})`);
-            return;
-          }
+        // Snapshot settled BEFORE callHeartbeat() — a slow tx can take long enough
+        // for Cycle B to settle the next tick; reading after the call would mark
+        // the newer tick as already-heartbeated and permanently skip it.
+        const settledSnapshot = deps.settleLatch ? deps.settleLatch.lastSettledTick() : -1;
+        if (deps.settleLatch && settledSnapshot <= lastHeartbeatForTick) {
+          log.info(`waiting for Cycle B to settle (last settled: ${settledSnapshot}, last heartbeat for: ${lastHeartbeatForTick})`);
+          return;
         }
         const { txHash } = await deps.heartbeatCaller.callHeartbeat();
         log.info(`heartbeat tx confirmed: ${txHash}`);
-        if (deps.settleLatch) lastHeartbeatForTick = deps.settleLatch.lastSettledTick();
+        if (deps.settleLatch) lastHeartbeatForTick = settledSnapshot;
       } catch (err) {
         if (err instanceof HeartbeatRateLimitedError) {
           log.warn(

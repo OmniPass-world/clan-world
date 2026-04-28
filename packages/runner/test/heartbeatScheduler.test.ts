@@ -143,4 +143,44 @@ describe('heartbeatScheduler', () => {
 
     abort.abort();
   });
+
+  it('slow callHeartbeat + Cycle B advances mid-call does not permanently skip next tick', async () => {
+    // Scenario: Cycle A fires for tick 1. callHeartbeat takes 250ms. During that wait,
+    // Cycle B settles tick 2. Without snapshot-before-call, lastHeartbeatForTick would
+    // be set to 2 after the call, making Cycle A think tick 2 was already heartbeated.
+    const settleLatch = makeSettleLatch();
+    settleLatch.markSettled(1); // Cycle B settled tick 1
+
+    let resolveHeartbeat!: () => void;
+    const callHeartbeat = vi.fn((): Promise<{ txHash: string }> => {
+      return new Promise(resolve => {
+        resolveHeartbeat = () => resolve({ txHash: '0xslow' });
+      });
+    });
+    const caller = makeHeartbeatCaller({
+      async isHeartbeatDue() { return true; },
+      callHeartbeat,
+    });
+    const abort = new AbortController();
+
+    startHeartbeatScheduler({ heartbeatCaller: caller, signal: abort.signal, checkIntervalMs: 100, settleLatch });
+
+    // Trigger first interval — starts callHeartbeat for tick 1 (settledSnapshot = 1)
+    await vi.advanceTimersByTimeAsync(110);
+    expect(callHeartbeat).toHaveBeenCalledTimes(1);
+
+    // Cycle B settles tick 2 WHILE callHeartbeat is still in-flight
+    settleLatch.markSettled(2);
+
+    // Resolve the slow heartbeat
+    resolveHeartbeat();
+    await vi.advanceTimersByTimeAsync(10); // flush microtasks
+
+    // lastHeartbeatForTick should be 1 (the snapshot taken before the call), not 2
+    // So the next interval must fire heartbeat for tick 2
+    await vi.advanceTimersByTimeAsync(110);
+    expect(callHeartbeat).toHaveBeenCalledTimes(2); // fired again for tick 2
+
+    abort.abort();
+  });
 });
