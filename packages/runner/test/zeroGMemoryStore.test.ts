@@ -6,6 +6,7 @@ import {
   createMemoryStore,
   ZeroGMemoryStore,
   type I0GKvClient,
+  type I0GKvIterator,
   type I0GKvWriter,
   type KvWriterFactory,
 } from '../src/zeroGMemoryStore.js';
@@ -111,6 +112,44 @@ function makeKvStore(): Map<string, Uint8Array> {
   return new Map();
 }
 
+/**
+ * Empty iterator — valid()=false immediately (stream has no keys).
+ * Used as the default newIterator response so snapshot() hydration exits early.
+ */
+function makeEmptyIterator(): I0GKvIterator {
+  return {
+    valid: vi.fn(() => false),
+    getCurrentPair: vi.fn(() => undefined),
+    seekToFirst: vi.fn(async () => null),
+    next: vi.fn(async () => null),
+  };
+}
+
+/**
+ * Populated iterator backed by a kvStore Map<string, Uint8Array>.
+ * Keys are returned as Uint8Array (matching real SDK raw key bytes).
+ */
+function makePopulatedIterator(kvStore: Map<string, Uint8Array>): I0GKvIterator {
+  const entries = Array.from(kvStore.entries());
+  let idx = -1;
+  return {
+    valid: vi.fn(() => idx >= 0 && idx < entries.length),
+    getCurrentPair: vi.fn(() => {
+      if (idx < 0 || idx >= entries.length) return undefined;
+      const [k, v] = entries[idx]!;
+      return { key: new TextEncoder().encode(k), data: v };
+    }),
+    seekToFirst: vi.fn(async () => {
+      idx = entries.length > 0 ? 0 : -1;
+      return null;
+    }),
+    next: vi.fn(async () => {
+      idx++;
+      return null;
+    }),
+  };
+}
+
 function makeMockClient(kvStore: Map<string, Uint8Array>): I0GKvClient {
   return {
     // Fix 1: key is now a "0x<hex>" string — decode back to UTF-8 for kvStore lookup.
@@ -120,6 +159,8 @@ function makeMockClient(kvStore: Map<string, Uint8Array>): I0GKvClient {
       if (data === undefined) return null;
       return { startIndex: BigInt(0), data };
     }),
+    // Fix 3: default iterator is empty (stream has no pre-existing keys).
+    newIterator: vi.fn((_streamId: string) => makeEmptyIterator()),
   };
 }
 
@@ -210,6 +251,41 @@ describe('ZeroGMemoryStore — mocked 0G client', () => {
     });
     const failStore = new ZeroGMemoryStore(STREAM_ID, mockClient, failWriter);
     await expect(failStore.save('bad', 'val')).rejects.toThrow('disk full');
+  });
+
+  // -------------------------------------------------------------------------
+  // Fix 3: startup hydration via #hydrateFromStore
+  // -------------------------------------------------------------------------
+
+  it('Fix 3 — snapshot() on a fresh store hydrates from 0G iterator', async () => {
+    // A store with no in-session saves should call newIterator on first snapshot()
+    // and populate cache from durable 0G keys (cross-session continuity).
+    const remoteStore = new Map<string, Uint8Array>([
+      ['mission', new TextEncoder().encode('gather resources')],
+      ['status', new TextEncoder().encode('active')],
+    ]);
+    const hydratingClient: I0GKvClient = {
+      getValue: vi.fn(async () => null),
+      newIterator: vi.fn((_sid: string) => makePopulatedIterator(remoteStore)),
+    };
+    const freshStore = new ZeroGMemoryStore(STREAM_ID, hydratingClient, writerFactory);
+
+    const snap = await freshStore.snapshot();
+    expect(snap['mission']).toBe('gather resources');
+    expect(snap['status']).toBe('active');
+    expect(hydratingClient.newIterator).toHaveBeenCalledWith(STREAM_ID);
+  });
+
+  it('Fix 3 — snapshot() hydrates only once (#hydrated flag)', async () => {
+    const hydratingClient: I0GKvClient = {
+      getValue: vi.fn(async () => null),
+      newIterator: vi.fn((_sid: string) => makePopulatedIterator(new Map([['k', new TextEncoder().encode('v')]]))),
+    };
+    const freshStore = new ZeroGMemoryStore(STREAM_ID, hydratingClient, writerFactory);
+
+    await freshStore.snapshot();
+    await freshStore.snapshot(); // second call must NOT re-invoke newIterator
+    expect(hydratingClient.newIterator).toHaveBeenCalledTimes(1);
   });
 });
 

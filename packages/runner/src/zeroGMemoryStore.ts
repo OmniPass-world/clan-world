@@ -23,6 +23,20 @@ import { FileMemoryStore, defaultStateDir } from './fileMemoryStore.js';
 // ---------------------------------------------------------------------------
 
 /**
+ * Minimal iterator interface over a 0G KV stream.
+ * Matches the shape of @0glabs/0g-ts-sdk KvIterator.
+ *
+ * key is raw Uint8Array (the stored key bytes as returned by the RPC).
+ * data is Base64 string (real SDK) or Uint8Array (test mocks).
+ */
+export interface I0GKvIterator {
+  valid(): boolean;
+  getCurrentPair(): { key: Uint8Array; data: string | Uint8Array } | undefined;
+  seekToFirst(): Promise<Error | null>;
+  next(): Promise<Error | null>;
+}
+
+/**
  * Minimal subset of @0glabs/0g-ts-sdk KvClient we actually use.
  * Typed separately so tests can inject a mock without importing the full SDK.
  *
@@ -41,6 +55,8 @@ import { FileMemoryStore, defaultStateDir } from './fileMemoryStore.js';
  */
 export interface I0GKvClient {
   getValue(streamId: string, key: string, version?: number): Promise<{ startIndex: bigint; data: string | Uint8Array } | null>;
+  /** Returns an iterator for walking all keys in the stream. Used by snapshot() hydration. */
+  newIterator(streamId: string, version?: number): I0GKvIterator;
 }
 
 /**
@@ -160,6 +176,13 @@ export class ZeroGMemoryStore implements IElderMemoryStore {
   readonly #writerFactory: KvWriterFactory;
   /** In-memory write-through cache so reads after writes are consistent. */
   readonly #cache = new Map<string, string>();
+  /**
+   * Whether #hydrateFromStore() has been called.
+   * Uses a flag (not cache.size) to avoid skipping hydration when the cache
+   * already has local-only entries from in-session saves before the first
+   * snapshot() call.
+   */
+  #hydrated = false;
 
   constructor(streamId: string, client: I0GKvClient, writerFactory: KvWriterFactory) {
     this.#streamId = streamId;
@@ -194,14 +217,45 @@ export class ZeroGMemoryStore implements IElderMemoryStore {
   }
 
   async snapshot(): Promise<Record<string, string>> {
-    // Returns in-session keys only (write-through cache).
-    // TODO: For a full cross-session snapshot, enumerate the KV stream via KvIterator.
-    //   The @0glabs/0g-ts-sdk KvClient does not expose a "list all keys" API directly;
-    //   production implementation should use KvClient.newIterator(streamId) to walk the
-    //   stream and populate the cache on first access.
-    //   For the hackathon demo this is acceptable: the runner always writes before it
-    //   snapshots (within one session), so the cache is complete for the continuity block.
+    // On first snapshot() call, hydrate from durable 0G storage so keys written
+    // in a previous session are included. Subsequent calls use the populated cache
+    // (write-through cache stays consistent with in-session saves).
+    if (!this.#hydrated) {
+      await this.#hydrateFromStore();
+      this.#hydrated = true;
+    }
     return Object.fromEntries(this.#cache.entries());
+  }
+
+  /**
+   * Walk the 0G KV stream via KvIterator and populate #cache with all stored
+   * key/value pairs. Called once on the first snapshot() invocation.
+   *
+   * Iterator walk: seekToFirst() → valid()/getCurrentPair()/next() loop.
+   * Iterator key bytes are UTF-8 decoded back to the original string key.
+   * Existing local-only cache entries (from in-session saves) take priority.
+   *
+   * seekToFirst returning non-null (error/empty stream) → silently returns.
+   */
+  async #hydrateFromStore(): Promise<void> {
+    const iter = this.#client.newIterator(this.#streamId);
+    const seekErr = await iter.seekToFirst();
+    if (seekErr !== null) {
+      // Empty stream or iterator error — no durable keys to hydrate.
+      return;
+    }
+    while (iter.valid()) {
+      const pair = iter.getCurrentPair();
+      if (pair !== undefined) {
+        const key = new TextDecoder().decode(pair.key);
+        // In-session saves take priority over durable 0G values.
+        if (!this.#cache.has(key)) {
+          this.#cache.set(key, decodeValue(pair.data));
+        }
+      }
+      const nextErr = await iter.next();
+      if (nextErr !== null) break;
+    }
   }
 }
 
