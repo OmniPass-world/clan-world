@@ -6,7 +6,8 @@ import { defineConfig, devices } from '@playwright/test';
 // unavailable (CI, non-do-box hosts). PLAYWRIGHT_BASE_URL override takes precedence.
 const DEFAULT_PORT = (() => {
   try {
-    return parseInt(execSync('port-for clan-world-frontend-test', { encoding: 'utf8' }).trim(), 10);
+    const port = parseInt(execSync('port-for clan-world-frontend-test', { encoding: 'utf8' }).trim(), 10);
+    return Number.isNaN(port) ? 58770 : port;
   } catch {
     return 58770;
   }
