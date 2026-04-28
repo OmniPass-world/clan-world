@@ -1,5 +1,6 @@
 import {
   HeartbeatRateLimitedError,
+  type DeliveryStatus,
   type IElderMemoryStore,
   type IElderPeerInbox,
   type IHeartbeatCaller,
@@ -83,8 +84,9 @@ export async function tickLoop(deps: TickLoopDeps): Promise<void> {
   while (!deps.signal.aborted) {
     let chainTick: number;
     try {
-      chainTick = await pollChainTick(deps.convex);
+      chainTick = await raceAbort(pollChainTick(deps.convex), deps.signal, 'pollChainTick');
     } catch (err) {
+      if (deps.signal.aborted) break;
       log.error('pollChainTick failed:', err);
       await sleepWithSignal(deps.config.pollIntervalMs, deps.signal);
       continue;
@@ -100,19 +102,34 @@ export async function tickLoop(deps: TickLoopDeps): Promise<void> {
         ELDER_IDS.map(async elder => {
           const per = deps.perElder[elder];
           try {
-            const block = await composeSituationBlock(
-              { elder, clanId: deps.config.elderToClanId[elder], tick: chainTick },
-              { convex: deps.convex, memory: per.memory, peerInbox: per.peerInbox },
+            const block = await raceAbort(
+              composeSituationBlock(
+                { elder, clanId: deps.config.elderToClanId[elder], tick: chainTick },
+                { convex: deps.convex, memory: per.memory, peerInbox: per.peerInbox },
+              ),
+              deps.signal,
+              `composeSituationBlock(elder=${elder})`,
             );
-            const status = await withTimeout(
-              per.inbox.deliverSituationBlock(chainTick, block),
-              deps.config.deliveryTimeoutMs,
-              `deliverSituationBlock(elder=${elder}, tick=${chainTick})`,
-            );
+            // MED-1: per-delivery AbortController so a timeout OR shutdown cancels the tmux child.
+            const deliveryAbort = new AbortController();
+            const linkAbort = (): void => deliveryAbort.abort();
+            deps.signal.addEventListener('abort', linkAbort, { once: true });
+            let status: DeliveryStatus;
+            try {
+              status = await withTimeout(
+                per.inbox.deliverSituationBlock(chainTick, block, deliveryAbort.signal),
+                deps.config.deliveryTimeoutMs,
+                `deliverSituationBlock(elder=${elder}, tick=${chainTick})`,
+              );
+            } finally {
+              deliveryAbort.abort(); // cancels tmux child whether delivery succeeded, timed out, or shutdown
+              deps.signal.removeEventListener('abort', linkAbort);
+            }
             if (!status.ok) {
               log.warn(`elder ${elder}: delivery returned not-ok: ${status.reason}`);
             }
           } catch (err) {
+            if (deps.signal.aborted) return; // clean shutdown
             log.error(`elder ${elder}: deliver/compose failed:`, err);
           }
         }),
@@ -131,7 +148,7 @@ export async function tickLoop(deps: TickLoopDeps): Promise<void> {
       let heartbeatDone = false;
       while (!heartbeatDone && !deps.signal.aborted) {
         try {
-          const { txHash } = await deps.heartbeatCaller.callHeartbeat();
+          const { txHash } = await raceAbort(deps.heartbeatCaller.callHeartbeat(), deps.signal, 'callHeartbeat');
           log.info(`heartbeat tx confirmed: ${txHash}`);
           lastProcessedTick = chainTick;
           heartbeatDone = true;
@@ -144,6 +161,18 @@ export async function tickLoop(deps: TickLoopDeps): Promise<void> {
               ).toISOString()}`,
             );
             await sleepWithSignal(waitMs, deps.signal);
+            if (deps.signal.aborted) break;
+            // Re-poll: if tick advanced during the wait, heartbeat already fired.
+            // Wrapped in raceAbort so a hung Convex query doesn't block past SIGTERM.
+            const freshTick = await raceAbort(
+              pollChainTick(deps.convex),
+              deps.signal,
+              'pollChainTick(re-poll)',
+            ).catch(() => chainTick);
+            if (freshTick > chainTick) {
+              log.info(`chainTick advanced to ${freshTick} during rate-limit wait — stale tick ${chainTick} dropped`);
+              break;
+            }
             continue; // retry callHeartbeat
           }
           log.error('heartbeat failed (non-rate-limit):', err);
@@ -187,4 +216,22 @@ async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+/**
+ * Race `p` against the abort signal. Rejects with "aborted" if signal fires first.
+ * Does NOT cancel `p` — it continues running in the background (underlying ops
+ * don't support cancellation). This prevents the outer loop from waiting on them
+ * past the shutdown signal.
+ */
+function raceAbort<T>(p: Promise<T>, signal: AbortSignal, label: string): Promise<T> {
+  if (signal.aborted) return Promise.reject(new Error(`aborted: ${label}`));
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => reject(new Error(`aborted: ${label}`));
+    signal.addEventListener('abort', onAbort, { once: true });
+    p.then(
+      v => { signal.removeEventListener('abort', onAbort); resolve(v); },
+      e => { signal.removeEventListener('abort', onAbort); reject(e); },
+    );
+  });
 }

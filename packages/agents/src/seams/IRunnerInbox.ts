@@ -19,7 +19,7 @@ export interface IRunnerInbox {
    * - Idempotent: re-delivering tick N's block while the Elder is still processing tick N
    *   must be a no-op (same tick, same block = skip).
    */
-  deliverSituationBlock(tick: number, block: string): Promise<DeliveryStatus>;
+  deliverSituationBlock(tick: number, block: string, signal?: AbortSignal): Promise<DeliveryStatus>;
 
   /**
    * Wait for the Elder's ack-clear signal, then trigger a context reset.

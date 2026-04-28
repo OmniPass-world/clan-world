@@ -42,13 +42,15 @@ export class TmuxRunnerInbox implements IRunnerInbox {
     this.runner = opts.runner ?? defaultTmuxRunner;
   }
 
-  async deliverSituationBlock(tick: number, block: string): Promise<DeliveryStatus> {
+  async deliverSituationBlock(tick: number, block: string, signal?: AbortSignal): Promise<DeliveryStatus> {
+    if (signal?.aborted) return { ok: false, reason: 'timeout' };
     const last = readLastTick(this.markerFile);
     if (last !== undefined && last >= tick) {
       return { ok: false, reason: 'duplicate-tick' };
     }
     try {
-      await sendBlock(this.runner, this.target, block);
+      await sendBlock(this.runner, this.target, block, signal);
+      if (signal?.aborted) return { ok: false, reason: 'timeout' }; // don't write marker on abort
       writeLastTick(this.markerFile, tick);
       return { ok: true };
     } catch (err) {
@@ -68,9 +70,10 @@ export class TmuxRunnerInbox implements IRunnerInbox {
     // says "if timeout: runner issues /clear anyway (Elder loses the turn's
     // reasoning)", so we always do the reset.
     try {
+      // /clear must be submitted with Enter before bootstrap is sent; otherwise
+      // the two concatenate as a single prompt and the /clear slash command is ignored.
       await this.runner.send(this.target, ['/clear'], { literal: false });
-      // Send a small delay between /clear and the bootstrap by issuing them
-      // as two separate send-keys invocations — tmux processes them in order.
+      await this.runner.send(this.target, ['Enter'], { literal: false });
       await sendBlock(this.runner, this.target, this.bootstrapBlock);
     } catch {
       // /clear failures are non-fatal — the next tick will try again.
@@ -92,16 +95,23 @@ export class TmuxRunnerInbox implements IRunnerInbox {
  * Tmux process abstraction so tests can swap in a recorder.
  */
 export interface TmuxRunner {
-  send(target: string, keys: string[], opts: { literal: boolean }): Promise<void>;
+  send(target: string, keys: string[], opts: { literal: boolean }, signal?: AbortSignal): Promise<void>;
 }
 
 export const defaultTmuxRunner: TmuxRunner = {
-  send(target, keys, opts) {
+  send(target, keys, opts, signal) {
     return new Promise((resolve, reject) => {
       const args = ['send-keys', '-t', target];
       if (opts.literal) args.push('-l');
       args.push(...keys);
       const child = spawn('tmux', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      // TOCTOU guard: check again after spawning in case signal fired between
+      // the caller's pre-check and addEventListener registration below.
+      if (signal?.aborted) {
+        child.kill('SIGTERM');
+        reject(new Error('aborted: tmux send'));
+        return;
+      }
       let stderr = '';
       child.stderr.on('data', chunk => {
         stderr += String(chunk);
@@ -111,14 +121,20 @@ export const defaultTmuxRunner: TmuxRunner = {
         if (code === 0) resolve();
         else reject(new Error(`tmux ${args.join(' ')} exited ${code}: ${stderr.trim()}`));
       });
+      if (signal) {
+        const onAbort = (): void => { child.kill('SIGTERM'); };
+        signal.addEventListener('abort', onAbort, { once: true });
+        child.on('close', () => signal.removeEventListener('abort', onAbort));
+      }
     });
   },
 };
 
-async function sendBlock(runner: TmuxRunner, target: string, block: string): Promise<void> {
+async function sendBlock(runner: TmuxRunner, target: string, block: string, signal?: AbortSignal): Promise<void> {
   // Two-step paste: literal block, then Enter to submit.
-  await runner.send(target, [block], { literal: true });
-  await runner.send(target, ['Enter'], { literal: false });
+  await runner.send(target, [block], { literal: true }, signal);
+  if (signal?.aborted) return; // don't send Enter if aborted mid-paste
+  await runner.send(target, ['Enter'], { literal: false }, signal);
 }
 
 function readLastTick(file: string): number | undefined {
