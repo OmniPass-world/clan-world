@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.34;
 
 /**
  * @title IClanWorld
@@ -677,7 +677,7 @@ interface IClanWorld is IClanWorldEvents {
     // -------------------------------------------------------------------------
 
     /// @notice Mint a new clan iNFT and spawn its homebase in a valid region.
-    function mintClan(address to) external payable returns (uint32 clanId, uint256 iftTokenId);
+    function mintClan(address to) external returns (uint32 clanId, uint256 iftTokenId);
 
     /// @notice Submit one or more orders for a single clan's clansmen.
     ///         Per-order failures do not revert the tx.

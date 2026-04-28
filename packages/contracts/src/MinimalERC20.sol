@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.34;
 
 /// @notice Minimal ERC20 with owner-only mint. No external deps.
 contract MinimalERC20 {
@@ -8,7 +8,7 @@ contract MinimalERC20 {
     uint8 public constant decimals = 18;
 
     uint256 public totalSupply;
-    address public immutable owner;
+    address public immutable OWNER;
 
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
@@ -19,11 +19,17 @@ contract MinimalERC20 {
     constructor(string memory name_, string memory symbol_) {
         name = name_;
         symbol = symbol_;
-        owner = msg.sender;
+        OWNER = msg.sender;
+    }
+
+    /// @dev Wrapped per forge-lint unwrapped-modifier-logic — keeps modifier
+    /// body slim so the require isn't duplicated at every call site.
+    function _onlyOwner() internal view {
+        require(msg.sender == OWNER, "not owner");
     }
 
     modifier onlyOwner() {
-        require(msg.sender == owner, "not owner");
+        _onlyOwner();
         _;
     }
 

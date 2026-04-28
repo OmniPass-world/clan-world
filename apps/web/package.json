@@ -4,12 +4,13 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "VITE_DEMO_BYPASS_WORLD_GUARD=true vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "echo 'lint stub'",
-    "clean": "rm -rf dist .turbo node_modules/.vite"
+    "clean": "rm -rf dist .turbo node_modules/.vite",
+    "playwright": "playwright"
   },
   "dependencies": {
     "@clan-world/shared": "workspace:*",
@@ -22,6 +23,7 @@
     "react-dom": "18.3.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@types/react": "18.3.12",
     "@types/react-dom": "18.3.1",
     "@vitejs/plugin-react": "4.3.4",

@@ -51,6 +51,9 @@ export default defineConfig({
       use: { ...devices['Pixel 5'] },
     },
   ],
+  // VITE_CLANWORLD_DEMO_MODE is baked into the bundle at build time; in dev-server
+  // mode it's read at startup. Pass it through so external test runs (e.g.
+  // `VITE_CLANWORLD_DEMO_MODE=false pnpm test:e2e`) reach the spawned Vite server.
   webServer: {
     command: `PORT=${webServerPort} pnpm --filter @clan-world/web dev`,
     url: baseURL,
@@ -58,5 +61,9 @@ export default defineConfig({
     timeout: 120_000,
     stdout: 'pipe',
     stderr: 'pipe',
+    env: {
+      VITE_CLANWORLD_DEMO_MODE: process.env.VITE_CLANWORLD_DEMO_MODE ?? 'true',
+      VITE_DEMO_BYPASS_WORLD_GUARD: process.env.VITE_DEMO_BYPASS_WORLD_GUARD ?? 'true',
+    },
   },
 });

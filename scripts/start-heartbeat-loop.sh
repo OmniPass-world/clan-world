@@ -54,7 +54,7 @@ while true; do
   curl -sS --fail -X POST "$CONVEX_DEPLOY_URL/api/heartbeat-webhook" \
     -H "Authorization: Bearer $WEBHOOK_SHARED_SECRET" \
     -H "Content-Type: application/json" \
-    -d "{\"chain\":\"worldchain-sepolia\",\"engineAddress\":\"$CLAN_WORLD_CONTRACT_ADDRESS\",\"firedAtTs\":$(date +%s),\"source\":\"foundry-loop\"}" \
+    -d "{\"chain\":\"base-sepolia\",\"engineAddress\":\"$CLAN_WORLD_CONTRACT_ADDRESS\",\"firedAtTs\":$(date +%s),\"source\":\"foundry-loop\"}" \
     || echo "webhook POST failed (continuing)" >&2
 
   # 65s sleep avoids rate-limit collisions with on-chain 60s guard

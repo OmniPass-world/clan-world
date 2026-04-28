@@ -10,14 +10,14 @@ export interface IChainClient {
   getClanFullView(clanId: string): Promise<ClanFullView>;
 }
 
-const DEFAULT_CONTRACT_ADDRESS = '0xC012275376b867944cd874FB2d600d6dA3B4A56e' as const;
+const DEFAULT_CONTRACT_ADDRESS = '0x1BF5649f29CbB53E117a5aE969A18A71790f83E8' as const;
 
-const worldChainSepolia = defineChain({
-  id: 4801,
-  name: 'World Chain Sepolia',
+const baseSepolia = defineChain({
+  id: 84532,
+  name: 'Base Sepolia',
   nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
   rpcUrls: {
-    default: { http: ['https://worldchain-sepolia.g.alchemy.com/public'] },
+    default: { http: ['https://sepolia.base.org'] },
   },
 });
 
@@ -272,7 +272,7 @@ class RealChainClient implements IChainClient {
       DEFAULT_CONTRACT_ADDRESS) as `0x${string}`;
 
     this.client = createPublicClient({
-      chain: worldChainSepolia,
+      chain: baseSepolia,
       transport: this.transport,
     });
   }
@@ -345,7 +345,7 @@ class RealChainClient implements IChainClient {
     const account = privateKeyToAccount(pk as `0x${string}`);
     const walletClient = createWalletClient({
       account,
-      chain: worldChainSepolia,
+      chain: baseSepolia,
       transport: this.transport,
     });
 
