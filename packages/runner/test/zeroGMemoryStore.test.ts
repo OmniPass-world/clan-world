@@ -113,8 +113,9 @@ function makeKvStore(): Map<string, Uint8Array> {
 
 function makeMockClient(kvStore: Map<string, Uint8Array>): I0GKvClient {
   return {
-    getValue: vi.fn(async (_streamId: string, key: Uint8Array) => {
-      const k = new TextDecoder().decode(key);
+    // Fix 1: key is now a "0x<hex>" string — decode back to UTF-8 for kvStore lookup.
+    getValue: vi.fn(async (_streamId: string, key: string) => {
+      const k = Buffer.from(key.replace(/^0x/, ''), 'hex').toString('utf8');
       const data = kvStore.get(k);
       if (data === undefined) return null;
       return { startIndex: BigInt(0), data };
@@ -156,11 +157,18 @@ describe('ZeroGMemoryStore — mocked 0G client', () => {
 
   it('recall returns undefined for missing key', async () => {
     expect(await store.recall('unknown')).toBeUndefined();
-    // Verify getValue was called with the right streamId and key bytes for 'unknown'.
+    // Fix 1: verify getValue receives 0x-hex-encoded key (not raw Uint8Array).
     expect(mockClient.getValue).toHaveBeenCalledOnce();
-    const [calledStream, calledKey] = (mockClient.getValue as ReturnType<typeof vi.fn>).mock.calls[0] as [string, Uint8Array];
+    const [calledStream, calledKey] = (mockClient.getValue as ReturnType<typeof vi.fn>).mock.calls[0] as [string, string];
     expect(calledStream).toBe(STREAM_ID);
-    expect(new TextDecoder().decode(calledKey)).toBe('unknown');
+    expect(calledKey).toBe('0x' + Buffer.from('unknown', 'utf8').toString('hex'));
+  });
+
+  it('Fix 1 — recall() passes 0x-hex-encoded key to KvClient.getValue', async () => {
+    await store.recall('goal');
+    const [, calledKey] = (mockClient.getValue as ReturnType<typeof vi.fn>).mock.calls[0] as [string, string];
+    const expectedHex = '0x' + Buffer.from('goal', 'utf8').toString('hex');
+    expect(calledKey).toBe(expectedHex); // e.g. "0x676f616c"
   });
 
   it('save calls writer set + exec, then recall returns written value', async () => {

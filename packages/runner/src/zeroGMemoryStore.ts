@@ -26,11 +26,21 @@ import { FileMemoryStore, defaultStateDir } from './fileMemoryStore.js';
  * Minimal subset of @0glabs/0g-ts-sdk KvClient we actually use.
  * Typed separately so tests can inject a mock without importing the full SDK.
  *
- * NOTE: The real SDK's Value.data is a Base64 string (not Uint8Array).
+ * NOTE: The real SDK passes the key as a hex string ("0x…") over JSON-RPC.
+ * Uint8Array would JSON-serialize as {"0":…,"1":…} which the 0G RPC server
+ * does not understand — use `encodeKey()` to produce "0x" + hex before
+ * calling getValue.
+ *
+ * The real SDK's Value.data is a Base64 string (not Uint8Array).
  * We use `string | Uint8Array` here to support both the real SDK and test mocks.
+ *
+ * KEY ENCODING (symmetric with save path):
+ *   save:   Uint8Array key written via writer.set(encodeKeyBytes(k), ...)
+ *           → internally stored as hex in StreamDataBuilder.set()
+ *   recall: encodeKey(k) → "0x<hex>" passed to KvClient.getValue()
  */
 export interface I0GKvClient {
-  getValue(streamId: string, key: Uint8Array, version?: number): Promise<{ startIndex: bigint; data: string | Uint8Array } | null>;
+  getValue(streamId: string, key: string, version?: number): Promise<{ startIndex: bigint; data: string | Uint8Array } | null>;
 }
 
 /**
@@ -51,7 +61,21 @@ export type KvWriterFactory = (streamId: string) => I0GKvWriter;
 // Real 0G adapter (loaded dynamically when API key is present)
 // ---------------------------------------------------------------------------
 
-function encodeKey(key: string): Uint8Array {
+/**
+ * Encode a UTF-8 key string as a 0x-prefixed hex string for the 0G KV RPC.
+ *
+ * The 0G JSON-RPC server expects keys as hex strings (e.g. "0x676f616c").
+ * Passing a raw Uint8Array would JSON-serialize as {"0":103,…} which the
+ * server does not understand. This encoding is symmetric with the write path:
+ * StreamDataBuilder.set() internally does Buffer.from(key).toString('hex')
+ * before encoding the key into the transaction.
+ */
+function encodeKey(key: string): string {
+  return '0x' + Buffer.from(key, 'utf8').toString('hex');
+}
+
+/** Encode a UTF-8 key string as Uint8Array for I0GKvWriter.set() (write path). */
+function encodeKeyBytes(key: string): Uint8Array {
   return new TextEncoder().encode(key);
 }
 
@@ -163,7 +187,9 @@ export class ZeroGMemoryStore implements IElderMemoryStore {
 
   async save(key: string, value: string): Promise<void> {
     const writer = this.#writerFactory(this.#streamId);
-    writer.set(encodeKey(key), new TextEncoder().encode(value));
+    // I0GKvWriter.set takes Uint8Array (raw bytes fed into StreamDataBuilder).
+    // encodeKeyBytes() is the same UTF-8 bytes as encodeKey() but as Uint8Array.
+    writer.set(encodeKeyBytes(key), new TextEncoder().encode(value));
     // exec() throws on genuine storage failure (contract invocation error, etc.)
     await writer.exec();
     // Update write-through cache after successful (or stub) write.
