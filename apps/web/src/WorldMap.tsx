@@ -578,7 +578,17 @@ export function WorldMap() {
       };
       viewportRef.current = null;
       appRef.current = null;
-      a?.destroy(true);
+      // PIXI v8 + React StrictMode double-invoke guard: the second cleanup
+      // pass hits an already-destroyed Application where internal fields like
+      // _cancelResize are undefined. Wrap in try/catch — first destroy is the
+      // real one, second is benign noise.
+      try {
+        a?.destroy(true);
+      } catch (err) {
+        if (import.meta.env.DEV) {
+          console.debug('[WorldMap] destroy noop (StrictMode double-invoke):', err);
+        }
+      }
     };
   }, []);
 
