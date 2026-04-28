@@ -122,7 +122,6 @@ async function main(): Promise<void> {
     signal: abort.signal,
     checkIntervalMs: config.heartbeatCheckIntervalMs,
     settleLatch,
-    convex,
   });
 
   try {

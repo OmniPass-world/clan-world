@@ -2,20 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { startHeartbeatScheduler } from '../src/heartbeatScheduler';
 import { HeartbeatRateLimitedError, type IHeartbeatCaller } from '@clan-world/agents/seams';
 import { makeSettleLatch } from '../src/settleLatch';
-import type { IConvexClient } from '@clan-world/shared/adapters';
-
-function makeConvex(tick: number): IConvexClient {
-  return {
-    async getSnapshot() {
-      return { tick, tickEpoch: { startedAt: 0, durationMs: 20_000 }, regions: [], clans: [] };
-    },
-    async getClanFullView(clanId: string) {
-      return { clan: { id: clanId, name: `Stub ${clanId}`, treasury: '0' }, controlledRegions: [], pendingOrders: [], whispers: [] };
-    },
-    async postLog() {},
-    subscribeWhispers() { return () => {}; },
-  } as IConvexClient;
-}
 
 function makeHeartbeatCaller(overrides: Partial<IHeartbeatCaller> = {}): IHeartbeatCaller {
   return {
@@ -126,10 +112,9 @@ describe('heartbeatScheduler', () => {
     });
     const abort = new AbortController();
     const settleLatch = makeSettleLatch();
-    settleLatch.markSettled(1);
-    const convex = makeConvex(1);
+    settleLatch.markSettled(1); // Cycle B already settled tick 1
 
-    startHeartbeatScheduler({ heartbeatCaller: caller, signal: abort.signal, checkIntervalMs: 100, settleLatch, convex });
+    startHeartbeatScheduler({ heartbeatCaller: caller, signal: abort.signal, checkIntervalMs: 100, settleLatch });
 
     // Fire 3 intervals (0ms, 100ms, 200ms) while first call takes 250ms
     await vi.advanceTimersByTimeAsync(310);
@@ -144,16 +129,15 @@ describe('heartbeatScheduler', () => {
       callHeartbeat,
     });
     const abort = new AbortController();
-    const settleLatch = makeSettleLatch(); // lastSettledTick = -1, currentTick = 5
-    const convex = makeConvex(5);
+    const settleLatch = makeSettleLatch(); // lastSettledTick = -1, Cycle B hasn't settled yet
 
-    startHeartbeatScheduler({ heartbeatCaller: caller, signal: abort.signal, checkIntervalMs: 100, settleLatch, convex });
+    startHeartbeatScheduler({ heartbeatCaller: caller, signal: abort.signal, checkIntervalMs: 100, settleLatch });
 
-    await vi.advanceTimersByTimeAsync(350); // 3 intervals, none should fire
+    await vi.advanceTimersByTimeAsync(350); // 3 intervals — Cycle B unsettled, all skip
     expect(callHeartbeat).not.toHaveBeenCalled();
 
-    // Now Cycle B settles tick 5
-    settleLatch.markSettled(5);
+    // Cycle B settles a tick — Cycle A now allowed to fire
+    settleLatch.markSettled(1);
     await vi.advanceTimersByTimeAsync(110);
     expect(callHeartbeat).toHaveBeenCalledTimes(1);
 

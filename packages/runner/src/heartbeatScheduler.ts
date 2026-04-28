@@ -1,6 +1,4 @@
 import { HeartbeatRateLimitedError, type IHeartbeatCaller } from '@clan-world/agents/seams';
-import type { IConvexClient } from '@clan-world/shared/adapters';
-import { pollChainTick } from './pollChainTick';
 import type { SettleLatch } from './settleLatch';
 
 export interface HeartbeatSchedulerDeps {
@@ -15,9 +13,11 @@ export interface HeartbeatSchedulerDeps {
     warn: (...args: unknown[]) => void;
     error: (...args: unknown[]) => void;
   };
-  /** Convex client for reading current tick. Required when settleLatch is provided. */
-  convex?: IConvexClient;
-  /** Shared latch — Cycle A only fires heartbeat after Cycle B settles the tick. */
+  /**
+   * Shared latch — Cycle A only fires heartbeat after Cycle B settles a new tick.
+   * Compared against an internal `lastHeartbeatForTick` counter so no Convex
+   * poll is needed here (avoids stale-snapshot / error-path races).
+   */
   settleLatch?: SettleLatch;
 }
 
@@ -36,6 +36,10 @@ export function startHeartbeatScheduler(deps: HeartbeatSchedulerDeps): void {
   };
   const checkMs = deps.checkIntervalMs ?? 30_000;
   let inFlight = false;
+  // Tracks the lastSettledTick value at the time of the last successful heartbeat.
+  // Cycle A only fires when Cycle B has settled a tick NEWER than the last one
+  // we heartbeated for — no Convex poll needed, no stale-snapshot race.
+  let lastHeartbeatForTick = -1;
 
   const timer = setInterval(() => {
     void (async () => {
@@ -46,16 +50,17 @@ export function startHeartbeatScheduler(deps: HeartbeatSchedulerDeps): void {
         const due = await deps.heartbeatCaller.isHeartbeatDue();
         if (!due) return;
         if (deps.signal.aborted) return;
-        // HIGH: only fire after Cycle B has settled this tick.
-        if (deps.settleLatch && deps.convex) {
-          const currentTick = await pollChainTick(deps.convex).catch(() => -1);
-          if (currentTick > 0 && deps.settleLatch.lastSettledTick() < currentTick) {
-            log.info(`waiting for Cycle B to settle tick ${currentTick} before heartbeat`);
+        // Only fire after Cycle B has settled a tick newer than our last heartbeat.
+        if (deps.settleLatch) {
+          const settled = deps.settleLatch.lastSettledTick();
+          if (settled <= lastHeartbeatForTick) {
+            log.info(`waiting for Cycle B to settle (last settled: ${settled}, last heartbeat for: ${lastHeartbeatForTick})`);
             return;
           }
         }
         const { txHash } = await deps.heartbeatCaller.callHeartbeat();
         log.info(`heartbeat tx confirmed: ${txHash}`);
+        if (deps.settleLatch) lastHeartbeatForTick = deps.settleLatch.lastSettledTick();
       } catch (err) {
         if (err instanceof HeartbeatRateLimitedError) {
           log.warn(
