@@ -155,4 +155,8 @@ docs/planning/V1/
 **/playwright/.cache/
 # port-for: ports.yml is tracked, ports.lock is per-worktree state
 .world/ports.lock
-**/.vercel/project.json
+# Vercel: ignore tooling cache + auth tokens, but COMMIT per-app project link
+# so vercel CLI doesn't auto-create projects + mis-alias domains on fresh checkouts.
+# Note: .vercel/* (not .vercel/) — git can't re-include files inside an excluded directory.
+**/.vercel/*
+!**/.vercel/project.json
