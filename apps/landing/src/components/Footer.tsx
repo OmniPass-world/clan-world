@@ -14,7 +14,7 @@ export default function Footer() {
               <em> World mini app</em> challenge — among others.
             </p>
             <p style={{ marginTop: '1rem' }} className="pixel">
-              ⌬ Built on Base · 0G · World Chain
+              ⌬ Built on Base · 0G
             </p>
           </div>
 

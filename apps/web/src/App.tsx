@@ -72,6 +72,9 @@ export function App() {
   }, [isSuccess, result]);
 
   if (!isInWorldApp) {
+    const worldAppDeeplink = APP_ID
+      ? `https://world.org/mini-app?app_id=${APP_ID}`
+      : 'https://world.org/download';
     return (
       <main
         style={{
@@ -79,12 +82,44 @@ export function App() {
           width: '100vw',
           height: '100vh',
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
+          padding: '24px',
+          color: 'white',
+          fontFamily: '"Cinzel", "Times New Roman", serif',
         }}
       >
-        <p style={{ color: 'white', fontFamily: '"Cinzel", "Times New Roman", serif', letterSpacing: '0.08em' }}>
-          Open in World App to play
+        <h1 style={{ fontSize: '2rem', letterSpacing: '0.12em', marginBottom: '12px', textAlign: 'center' }}>
+          Clan World
+        </h1>
+        <p style={{ fontSize: '1rem', letterSpacing: '0.06em', maxWidth: '420px', textAlign: 'center', lineHeight: 1.5, marginBottom: '24px', opacity: 0.85 }}>
+          This experience runs inside the World App. Tap below on a phone that has World App installed.
+        </p>
+        <a
+          href={worldAppDeeplink}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            display: 'inline-block',
+            padding: '14px 28px',
+            background: '#7a8a6a',
+            color: 'white',
+            textDecoration: 'none',
+            borderRadius: '4px',
+            fontFamily: 'monospace',
+            fontSize: '0.95rem',
+            letterSpacing: '0.08em',
+            marginBottom: '12px',
+          }}
+        >
+          Open in World App →
+        </a>
+        <p style={{ fontSize: '0.8rem', opacity: 0.5, textAlign: 'center', maxWidth: '360px', marginTop: '16px' }}>
+          Don't have World App? <a href="https://world.org/download" target="_blank" rel="noopener noreferrer" style={{ color: '#9bbf6f', textDecoration: 'underline' }}>Get it here</a>.
+        </p>
+        <p style={{ fontSize: '0.7rem', opacity: 0.4, textAlign: 'center', marginTop: '24px', fontFamily: 'monospace' }}>
+          For local dev: set <code>VITE_DEMO_BYPASS_WORLD_GUARD=true</code> or run <code>pnpm dev</code> (already set).
         </p>
       </main>
     );

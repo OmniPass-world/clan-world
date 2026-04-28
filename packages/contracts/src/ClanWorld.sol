@@ -1,7 +1,42 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.34;
 
-import "./IClanWorld.sol";
+import {
+    IClanWorld,
+    IClanWorldEvents,
+    ClanWorldConstants,
+    ClanState,
+    ClansmanState,
+    BanditState,
+    WheatPlotState,
+    ResourceType,
+    ActionType,
+    MarketExecutionMode,
+    StatusCode,
+    WorldState,
+    TreasuryState,
+    Clan,
+    WheatPlot,
+    Clansman,
+    Mission,
+    BanditTroop,
+    ScheduledMarketAction,
+    DefenseContribution,
+    PackedRoute,
+    DerivedClanState,
+    DerivedClansmanState,
+    ClanOrder,
+    OrderResult,
+    PoolSeedConfig,
+    LeaderboardEntry,
+    WorldSnapshot,
+    ClansmanFullView,
+    ClanFullView,
+    PoolReserves,
+    MarketState,
+    ActiveBanditView,
+    RegionOccupant
+} from "./IClanWorld.sol";
 
 /// @title ClanWorld
 /// @notice Phase 1 real engine implementation of IClanWorld v4.
@@ -167,7 +202,7 @@ contract ClanWorld is IClanWorld {
 
         // Reverse into result
         bytes8 packed;
-        uint256 byteShift = 56;
+        uint64 byteShift = 56;
         for (uint256 i = pathLen; i > 0; i--) {
             packed = packed | bytes8(uint64(path[i - 1]) << byteShift);
             if (byteShift >= 8) byteShift -= 8;
@@ -475,7 +510,7 @@ contract ClanWorld is IClanWorld {
     }
 
     function _gatherWheat(
-        Clan storage clan,
+        Clan storage /* clan — unused but kept positional for callsite parity */,
         Clansman storage cs,
         Mission storage m,
         uint32 clanId,
@@ -718,10 +753,9 @@ contract ClanWorld is IClanWorld {
     // =========================================================================
 
     /// @notice Mint a new clan and spawn its homebase.
-    /// @dev payable per IClanWorld interface; the game has no mint fee — any ETH sent is silently held.
-    ///      A future upgrade may add a fee or revert on non-zero msg.value.
-    function mintClan(address to) external payable override returns (uint32 clanId, uint256 iftTokenId) {
+    function mintClan(address to) external override returns (uint32 clanId, uint256 iftTokenId) {
         require(to != address(0), "ClanWorld: zero address");
+        require(_allClanIds.length < 12, "ClanWorld: max clans");
         clanId = _nextClanId++;
         iftTokenId = uint256(clanId); // Phase 1 placeholder; real iNFT is Phase 7
 
@@ -933,6 +967,14 @@ contract ClanWorld is IClanWorld {
             }
         }
 
+        // DefendBase zero-travel: register synchronously so getActiveDefenders() has no drop window.
+        // When travelTicks == 0 the clansman is already at the target base — no travel window to wait out.
+        // The _resolveAction guard (clanDefendingBase != targetClanId) will be false next tick, preventing double-register.
+        if (order.action == ActionType.DefendBase && ctx.travelTicks == 0) {
+            _incomingDefenders[order.targetClanId].push(cs.clansmanId);
+            _clanDefendingBase[cs.clansmanId] = order.targetClanId;
+        }
+
         if (ctx.wasActive) {
             emit MissionInterrupted(clanId, order.clansmanId, ctx.oldNonce, ctx.newNonce);
         }
@@ -1076,20 +1118,21 @@ contract ClanWorld is IClanWorld {
     // OTC TRANSFERS — Phase 2 stubs
     // =========================================================================
 
-    function transferGold(uint32, uint32, uint256) external override {
+    function transferGold(uint32, uint32, uint256) external pure override {
         revert("ClanWorld: OTC transfers available in Phase 2");
     }
 
-    function transferVaultResource(uint32, uint32, ResourceType, uint256) external override {
+    function transferVaultResource(uint32, uint32, ResourceType, uint256) external pure override {
         revert("ClanWorld: OTC transfers available in Phase 2");
     }
 
-    function transferBlueprint(uint32, uint32, uint256) external override {
+    function transferBlueprint(uint32, uint32, uint256) external pure override {
         revert("ClanWorld: OTC transfers available in Phase 2");
     }
 
     function transferBundle(uint32, uint32, uint256, uint256, uint256, uint256, uint256, uint256)
         external
+        pure
         override
     {
         revert("ClanWorld: OTC transfers available in Phase 2");
@@ -1218,7 +1261,7 @@ contract ClanWorld is IClanWorld {
 
     function quoteTravel(uint8 srcRegion, uint8 dstRegion)
         external
-        view
+        pure
         override
         returns (uint8 travelTicks, bytes8 path)
     {
