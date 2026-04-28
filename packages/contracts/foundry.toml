@@ -5,6 +5,9 @@ libs = ["lib"]
 solc_version = "0.8.34"
 optimizer = true
 optimizer_runs = 200
+# via_ir: required because ClanWorld.sol (~1,428 lines) hits the 24KB EVM
+# bytecode size limit without IR-based codegen. Adds compile time but is
+# the only safe path until the contract is split.
 via_ir = true
 
 [rpc_endpoints]

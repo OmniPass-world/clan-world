@@ -38,7 +38,7 @@ import {
     RegionOccupant
 } from "./IClanWorld.sol";
 
-/// @notice Stub implementation of IClanWorld for World Chain Sepolia deployment.
+/// @notice Stub implementation of IClanWorld for Base Sepolia deployment.
 ///         Stores tick state and token/pool addresses. All game logic is no-op.
 contract ClanWorldStub is IClanWorld {
     WorldState private _world;
