@@ -83,7 +83,8 @@ interface AxlEnvelope {
   toClanId: string;
   message: string;
   tick: number;
-  sentAt: string;
+  /** ISO 8601 timestamp; optional for forward-compat but validated if present. */
+  sentAt?: string | number;
   msgId: string;
   networkId: string;
 }
@@ -95,13 +96,57 @@ interface AxlEnvelope {
 function isAxlEnvelope(val: unknown): val is AxlEnvelope {
   if (typeof val !== 'object' || val === null) return false;
   const obj = val as Record<string, unknown>;
+  // Required fields:
+  if (
+    typeof obj['fromClanId'] !== 'string' ||
+    typeof obj['toClanId'] !== 'string' ||
+    typeof obj['message'] !== 'string' ||
+    typeof obj['tick'] !== 'number' ||
+    typeof obj['msgId'] !== 'string' ||
+    typeof obj['networkId'] !== 'string'
+  ) {
+    return false;
+  }
+  // LOW 6: sentAt is optional but when present must be string or number.
+  if (
+    obj['sentAt'] !== undefined &&
+    typeof obj['sentAt'] !== 'string' &&
+    typeof obj['sentAt'] !== 'number'
+  ) {
+    return false;
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Clan ID validation — prevents path traversal via myClanId (HIGH 2)
+// ---------------------------------------------------------------------------
+
+/** Alphanumeric, hyphens, underscores, 1–64 chars. Same pattern as FilePeerInbox. */
+const CLAN_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+
+function assertSafeClanId(clanId: string): void {
+  if (!CLAN_ID_RE.test(clanId)) {
+    throw new Error(
+      `[AxlPeerInbox] invalid clanId: ${JSON.stringify(clanId)} — ` +
+        `must match /^[a-zA-Z0-9_-]{1,64}$/`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// JournalEntry type guard (MED 3)
+// ---------------------------------------------------------------------------
+
+function isJournalEntry(val: unknown): val is JournalEntry {
+  if (typeof val !== 'object' || val === null) return false;
+  const obj = val as Record<string, unknown>;
   return (
     typeof obj['fromClanId'] === 'string' &&
     typeof obj['toClanId'] === 'string' &&
-    typeof obj['message'] === 'string' &&
     typeof obj['tick'] === 'number' &&
     typeof obj['msgId'] === 'string' &&
-    typeof obj['networkId'] === 'string'
+    typeof obj['message'] === 'string'
   );
 }
 
@@ -198,6 +243,8 @@ export class AxlPeerInbox implements IElderPeerInbox {
     peerIdMap: Map<string, string>,
     journalPath: string | null = null,
   ) {
+    // HIGH 2: validate myClanId before using it in journal path construction.
+    assertSafeClanId(myClanId);
     this.#myClanId = myClanId;
     this.#networkId = networkId;
     this.#client = client;
@@ -210,33 +257,13 @@ export class AxlPeerInbox implements IElderPeerInbox {
   /**
    * Send a whisper to another clan's Elder.
    *
-   * A fresh msgId is generated each call. For idempotent retries where the caller
-   * needs AXL-level dedup, use sendIdempotent() with a stable caller-supplied msgId.
+   * A fresh msgId is generated each call via #generateMsgId. For idempotent retry
+   * with a stable caller-supplied msgId, IElderPeerInbox would need a sendIdempotent()
+   * extension — not included in the Phase 8 interface; tracked for a future phase.
    */
   async send(toClanId: string, message: string, tick: number): Promise<void> {
     // Generate a stable msgId for this invocation.
     const msgId = this.#generateMsgId(tick);
-    await this.#sendWithMsgId(toClanId, message, tick, msgId);
-  }
-
-  /**
-   * Send a whisper with a caller-supplied msgId for idempotent retry.
-   *
-   * If the caller retries with the same msgId, AXL receives the same ID both
-   * times — the server (or dedup layer) can detect and drop the duplicate.
-   * Use this instead of send() when exactly-once delivery matters.
-   *
-   * @param toClanId - recipient clan ID
-   * @param message  - message content
-   * @param tick     - current game tick
-   * @param msgId    - stable caller-supplied identifier; must be unique per logical message
-   */
-  async sendIdempotent(
-    toClanId: string,
-    message: string,
-    tick: number,
-    msgId: string,
-  ): Promise<void> {
     await this.#sendWithMsgId(toClanId, message, tick, msgId);
   }
 
@@ -329,24 +356,30 @@ export class AxlPeerInbox implements IElderPeerInbox {
       }
       const envelope = parsed;
 
-      // HIGH 1: peer spoofing check — validate fromPeerId against known peer map.
-      // If the transport-level peer ID doesn't map to the claimed fromClanId, reject.
-      if (peerToClan.size > 0) {
-        const expectedClanId = peerToClan.get(item.fromPeerId);
-        if (expectedClanId === undefined) {
-          console.warn(
-            `[AxlPeerInbox] recv: unknown fromPeerId=${item.fromPeerId}, rejecting message`,
-          );
-          continue;
-        }
-        if (expectedClanId !== envelope.fromClanId) {
-          console.warn(
-            `[AxlPeerInbox] recv: spoofing detected — ` +
-              `fromPeerId=${item.fromPeerId} maps to clan=${expectedClanId} ` +
-              `but envelope claims fromClanId=${envelope.fromClanId}. Rejecting.`,
-          );
-          continue;
-        }
+      // HIGH 1: peer spoofing check — fail-CLOSED.
+      // If peerIdMap is empty (AXL_PEER_ID_* env vars not set), ALL messages are rejected.
+      // Accepting with an empty map would allow any peer to spoof any clanId.
+      if (peerToClan.size === 0) {
+        console.warn(
+          '[AxlPeerInbox] WARN: peerIdMap empty — all inbound messages rejected for security. ' +
+            'Set AXL_PEER_ID_* env vars.',
+        );
+        continue;
+      }
+      const expectedClanId = peerToClan.get(item.fromPeerId);
+      if (expectedClanId === undefined) {
+        console.warn(
+          `[AxlPeerInbox] recv: unknown fromPeerId=${item.fromPeerId}, rejecting message`,
+        );
+        continue;
+      }
+      if (expectedClanId !== envelope.fromClanId) {
+        console.warn(
+          `[AxlPeerInbox] recv: spoofing detected — ` +
+            `fromPeerId=${item.fromPeerId} maps to clan=${expectedClanId} ` +
+            `but envelope claims fromClanId=${envelope.fromClanId}. Rejecting.`,
+        );
+        continue;
       }
 
       // Filter to our network and our clan inbox.
@@ -363,7 +396,9 @@ export class AxlPeerInbox implements IElderPeerInbox {
         toClanId: envelope.toClanId,
         message: envelope.message,
         tick: envelope.tick,
-        sentAt: envelope.sentAt,
+        // LOW 6: sentAt is optional in the envelope; default to empty string when absent
+        // so PeerMessage.sentAt (string) is always populated.
+        sentAt: envelope.sentAt !== undefined ? String(envelope.sentAt) : '',
       };
 
       // HIGH 2: persist to journal before adding to in-memory cache.
@@ -379,16 +414,24 @@ export class AxlPeerInbox implements IElderPeerInbox {
     if (!this.#journalPath || !fs.existsSync(this.#journalPath)) return;
     const lines = fs.readFileSync(this.#journalPath, 'utf8').split('\n').filter(Boolean);
     for (const line of lines) {
+      let parsed: unknown;
       try {
-        const entry = JSON.parse(line) as JournalEntry;
-        const dedupKey = `${entry.fromClanId}:${entry.tick}:${entry.msgId}`;
-        if (this.#seenMsgIds.has(dedupKey)) continue;
-        this.#seenMsgIds.add(dedupKey);
-        const { msgId: _msgId, ...msg } = entry;
-        this.#inbox.push(msg);
+        parsed = JSON.parse(line);
       } catch {
-        // skip malformed journal line
+        console.warn('[AxlPeerInbox] journal: malformed JSON line — skipping');
+        continue;
       }
+      // MED 3: type guard — skip corrupt/wrong-shape entries that could poison dedup state.
+      if (!isJournalEntry(parsed)) {
+        console.warn('[AxlPeerInbox] journal: entry missing required fields — skipping');
+        continue;
+      }
+      const entry = parsed;
+      const dedupKey = `${entry.fromClanId}:${entry.tick}:${entry.msgId}`;
+      if (this.#seenMsgIds.has(dedupKey)) continue;
+      this.#seenMsgIds.add(dedupKey);
+      const { msgId: _msgId, ...msg } = entry;
+      this.#inbox.push(msg);
     }
   }
 

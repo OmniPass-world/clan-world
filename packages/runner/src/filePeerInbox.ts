@@ -57,7 +57,9 @@ export class FilePeerInbox implements IElderPeerInbox {
     // MED 5: validate toClanId before using in filesystem path.
     assertSafeClanId(toClanId);
 
-    // MED 4: append a UUID suffix to prevent msgId collision at ms granularity.
+    // UUID suffix guarantees a unique msgId — no need to read the file before appending.
+    // MED 5: removed O(n) read-before-write; dedup is the inbox reader's responsibility
+    // (Elder layer), not the sender's. The UUID suffix makes collision impossible in practice.
     const randomSuffix = randomUUID().slice(0, 8);
     const entry: InboxEntry = {
       fromClanId: this.#myClanId,
@@ -69,25 +71,6 @@ export class FilePeerInbox implements IElderPeerInbox {
     };
     const file = inboxPath(toClanId, this.#stateDir);
     fs.mkdirSync(path.dirname(file), { recursive: true });
-
-    // Dedup: skip if (fromClanId, tick, msgId) already present.
-    if (fs.existsSync(file)) {
-      const existing = this.#readLines(file);
-      for (const line of existing) {
-        try {
-          const e = JSON.parse(line) as Partial<InboxEntry>;
-          if (
-            e.fromClanId === entry.fromClanId &&
-            e.tick === entry.tick &&
-            e.msgId === entry.msgId
-          ) {
-            return; // already present
-          }
-        } catch {
-          /* skip malformed line */
-        }
-      }
-    }
     fs.appendFileSync(file, JSON.stringify(entry) + '\n', 'utf8');
   }
 
