@@ -3,11 +3,14 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "exports": {
+    "./seams": "./src/seams/index.ts"
+  },
   "bin": {
     "elder": "./bin/elder"
   },
   "scripts": {
-    "dev": "tsx watch src/cli.ts",
+    "dev": "tsx watch --env-file=../../.env.local src/cli.ts",
     "build": "echo 'uses tsx at runtime; no emit build needed'",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
