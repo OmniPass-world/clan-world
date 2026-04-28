@@ -20,12 +20,20 @@
  *   - The de-dup Set is NOT persisted across runner restarts; for hard exactly-once
  *     semantics, wire IElderMemoryStore to persist seen message IDs.
  *
+ * Crash durability:
+ *   - inbox() persists drained messages to a JSONL journal file before returning them.
+ *   - On construction, the journal is replayed into the in-memory cache so messages
+ *     survive runner crashes. The Elder layer is responsible for marking messages as
+ *     consumed — the transport must not lose them.
+ *
  * TODO: Production hardening —
  *   - Retry logic on transient AXL POST /send failures.
  *   - Persist dedup Set into IElderMemoryStore so re-delivery across restarts is handled.
  *   - Subscribe via long-poll or WebSocket once AXL exposes a streaming /recv variant.
  *   - Wire AXL_PRIVATE_KEY for ed25519 message signing (current stub trusts local node).
  */
+import fs from 'node:fs';
+import path from 'node:path';
 import type { IElderPeerInbox, PeerMessage } from '@clan-world/agents/src/seams/index.js';
 import { FilePeerInbox, defaultStateDir } from './filePeerInbox.js';
 
@@ -78,6 +86,23 @@ interface AxlEnvelope {
   sentAt: string;
   msgId: string;
   networkId: string;
+}
+
+// ---------------------------------------------------------------------------
+// Type guard for AxlEnvelope — validates untrusted network input (LOW 6)
+// ---------------------------------------------------------------------------
+
+function isAxlEnvelope(val: unknown): val is AxlEnvelope {
+  if (typeof val !== 'object' || val === null) return false;
+  const obj = val as Record<string, unknown>;
+  return (
+    typeof obj['fromClanId'] === 'string' &&
+    typeof obj['toClanId'] === 'string' &&
+    typeof obj['message'] === 'string' &&
+    typeof obj['tick'] === 'number' &&
+    typeof obj['msgId'] === 'string' &&
+    typeof obj['networkId'] === 'string'
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -137,6 +162,14 @@ export class AxlHttpClient implements IAxlClient {
 }
 
 // ---------------------------------------------------------------------------
+// Journal entry — PeerMessage + msgId, persisted for crash durability
+// ---------------------------------------------------------------------------
+
+interface JournalEntry extends PeerMessage {
+  msgId: string;
+}
+
+// ---------------------------------------------------------------------------
 // AxlPeerInbox implementation
 // ---------------------------------------------------------------------------
 
@@ -148,26 +181,91 @@ export class AxlPeerInbox implements IElderPeerInbox {
   readonly #seenMsgIds = new Set<string>();
   /** Session-level inbox cache — holds drained AXL messages so inbox() is non-consuming. */
   readonly #inbox: PeerMessage[] = [];
+  /** Journal file path for crash-durability (HIGH 2). */
+  readonly #journalPath: string | null;
 
   /**
-   * @param myClanId  - the Elder's own clan ID (used for recv routing).
-   * @param networkId - AXL network identifier scoping the channel (e.g. "testnet").
-   * @param client    - IAxlClient instance (injectable for testing).
-   * @param peerIdMap - maps clanId → AXL ed25519 pubkey. Built from env at factory time.
+   * @param myClanId    - the Elder's own clan ID (used for recv routing).
+   * @param networkId   - AXL network identifier scoping the channel (e.g. "testnet").
+   * @param client      - IAxlClient instance (injectable for testing).
+   * @param peerIdMap   - maps clanId → AXL ed25519 pubkey. Built from env at factory time.
+   * @param journalPath - path to persist drained messages for crash recovery. null = memory-only.
    */
   constructor(
     myClanId: string,
     networkId: string,
     client: IAxlClient,
     peerIdMap: Map<string, string>,
+    journalPath: string | null = null,
   ) {
     this.#myClanId = myClanId;
     this.#networkId = networkId;
     this.#client = client;
     this.#peerIdMap = peerIdMap;
+    this.#journalPath = journalPath;
+    // Replay journal into in-memory cache on startup (HIGH 2).
+    this.#replayJournal();
   }
 
+  /**
+   * Send a whisper to another clan's Elder.
+   *
+   * A fresh msgId is generated each call. For idempotent retries where the caller
+   * needs AXL-level dedup, use sendIdempotent() with a stable caller-supplied msgId.
+   */
   async send(toClanId: string, message: string, tick: number): Promise<void> {
+    // Generate a stable msgId for this invocation.
+    const msgId = this.#generateMsgId(tick);
+    await this.#sendWithMsgId(toClanId, message, tick, msgId);
+  }
+
+  /**
+   * Send a whisper with a caller-supplied msgId for idempotent retry.
+   *
+   * If the caller retries with the same msgId, AXL receives the same ID both
+   * times — the server (or dedup layer) can detect and drop the duplicate.
+   * Use this instead of send() when exactly-once delivery matters.
+   *
+   * @param toClanId - recipient clan ID
+   * @param message  - message content
+   * @param tick     - current game tick
+   * @param msgId    - stable caller-supplied identifier; must be unique per logical message
+   */
+  async sendIdempotent(
+    toClanId: string,
+    message: string,
+    tick: number,
+    msgId: string,
+  ): Promise<void> {
+    await this.#sendWithMsgId(toClanId, message, tick, msgId);
+  }
+
+  async inbox(): Promise<PeerMessage[]> {
+    // Drain new messages from AXL into the session-local cache.
+    // Non-consuming contract: callers always receive the full accumulated inbox (cache + new),
+    // not just the latest batch. Consumption is the Elder's responsibility via memory store.
+    await this.#drainIntoCache();
+    // Return a snapshot — callers must not mutate the returned array.
+    return [...this.#inbox];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private helpers
+  // ---------------------------------------------------------------------------
+
+  /** Generate a collision-resistant msgId for a given tick (MED 3 — stable via sendIdempotent). */
+  #generateMsgId(tick: number): string {
+    const randomSuffix = Math.random().toString(36).slice(2, 10);
+    return `${this.#myClanId}:${tick}:${Date.now()}-${randomSuffix}`;
+  }
+
+  /** Core send implementation — shared by send() and sendIdempotent(). */
+  async #sendWithMsgId(
+    toClanId: string,
+    message: string,
+    tick: number,
+    msgId: string,
+  ): Promise<void> {
     const toPeerId = this.#peerIdMap.get(toClanId);
     if (!toPeerId) {
       throw new Error(
@@ -176,9 +274,6 @@ export class AxlPeerInbox implements IElderPeerInbox {
       );
     }
 
-    // Use crypto random bytes for collision-free msgId even within the same tick+ms.
-    const randomSuffix = Math.random().toString(36).slice(2, 10);
-    const msgId = `${this.#myClanId}:${tick}:${Date.now()}-${randomSuffix}`;
     const envelope: AxlEnvelope = {
       fromClanId: this.#myClanId,
       toClanId,
@@ -192,21 +287,24 @@ export class AxlPeerInbox implements IElderPeerInbox {
     await this.#client.send(toPeerId, JSON.stringify(envelope));
   }
 
-  async inbox(): Promise<PeerMessage[]> {
-    // Drain new messages from AXL into the session-local cache.
-    // Non-consuming contract: callers always receive the full accumulated inbox (cache + new),
-    // not just the latest batch. Consumption is the Elder's responsibility via memory store.
-    await this.#drainIntoCache();
-    // Return a snapshot — callers must not mutate the returned array.
-    return [...this.#inbox];
-  }
-
   /**
    * Pull all pending messages from the AXL recv queue and append to the session inbox cache.
    * Deduplication by (fromClanId, tick, msgId) prevents re-adding on repeated drains.
    * AXL delivers messages FIFO per sender — arrival order preserved.
+   *
+   * Security: validates envelope.fromClanId against the known peer-to-clan map (HIGH 1).
+   * If the AXL fromPeerId doesn't map to the claimed fromClanId, the message is rejected.
+   *
+   * Crash durability: each accepted message is appended to the journal before being
+   * added to the in-memory cache (HIGH 2).
    */
   async #drainIntoCache(): Promise<void> {
+    // Build reverse map: peerId → clanId for spoofing validation (HIGH 1).
+    const peerToClan = new Map<string, string>();
+    for (const [clanId, peerId] of this.#peerIdMap) {
+      peerToClan.set(peerId, clanId);
+    }
+
     for (;;) {
       let item: { fromPeerId: string; body: string } | null;
       try {
@@ -217,12 +315,38 @@ export class AxlPeerInbox implements IElderPeerInbox {
       }
       if (item === null) break; // queue drained
 
-      let envelope: AxlEnvelope;
+      // LOW 6: validate envelope structure before trusting fields.
+      let parsed: unknown;
       try {
-        envelope = JSON.parse(item.body) as AxlEnvelope;
+        parsed = JSON.parse(item.body);
       } catch {
-        console.warn('[AxlPeerInbox] recv: malformed envelope, skipping body:', item.body.slice(0, 80));
+        console.warn('[AxlPeerInbox] recv: malformed JSON, skipping body:', item.body.slice(0, 80));
         continue;
+      }
+      if (!isAxlEnvelope(parsed)) {
+        console.warn('[AxlPeerInbox] recv: envelope missing required fields, skipping');
+        continue;
+      }
+      const envelope = parsed;
+
+      // HIGH 1: peer spoofing check — validate fromPeerId against known peer map.
+      // If the transport-level peer ID doesn't map to the claimed fromClanId, reject.
+      if (peerToClan.size > 0) {
+        const expectedClanId = peerToClan.get(item.fromPeerId);
+        if (expectedClanId === undefined) {
+          console.warn(
+            `[AxlPeerInbox] recv: unknown fromPeerId=${item.fromPeerId}, rejecting message`,
+          );
+          continue;
+        }
+        if (expectedClanId !== envelope.fromClanId) {
+          console.warn(
+            `[AxlPeerInbox] recv: spoofing detected — ` +
+              `fromPeerId=${item.fromPeerId} maps to clan=${expectedClanId} ` +
+              `but envelope claims fromClanId=${envelope.fromClanId}. Rejecting.`,
+          );
+          continue;
+        }
       }
 
       // Filter to our network and our clan inbox.
@@ -234,13 +358,48 @@ export class AxlPeerInbox implements IElderPeerInbox {
       if (this.#seenMsgIds.has(dedupKey)) continue;
       this.#seenMsgIds.add(dedupKey);
 
-      this.#inbox.push({
+      const msg: PeerMessage = {
         fromClanId: envelope.fromClanId,
         toClanId: envelope.toClanId,
         message: envelope.message,
         tick: envelope.tick,
         sentAt: envelope.sentAt,
-      });
+      };
+
+      // HIGH 2: persist to journal before adding to in-memory cache.
+      // This ensures messages survive a runner crash between drain and Elder processing.
+      this.#appendToJournal({ ...msg, msgId: envelope.msgId });
+
+      this.#inbox.push(msg);
+    }
+  }
+
+  /** Replay the journal file into the in-memory cache on startup (HIGH 2). */
+  #replayJournal(): void {
+    if (!this.#journalPath || !fs.existsSync(this.#journalPath)) return;
+    const lines = fs.readFileSync(this.#journalPath, 'utf8').split('\n').filter(Boolean);
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line) as JournalEntry;
+        const dedupKey = `${entry.fromClanId}:${entry.tick}:${entry.msgId}`;
+        if (this.#seenMsgIds.has(dedupKey)) continue;
+        this.#seenMsgIds.add(dedupKey);
+        const { msgId: _msgId, ...msg } = entry;
+        this.#inbox.push(msg);
+      } catch {
+        // skip malformed journal line
+      }
+    }
+  }
+
+  /** Append a single message to the journal file (HIGH 2). */
+  #appendToJournal(entry: JournalEntry): void {
+    if (!this.#journalPath) return;
+    try {
+      fs.mkdirSync(path.dirname(this.#journalPath), { recursive: true });
+      fs.appendFileSync(this.#journalPath, JSON.stringify(entry) + '\n', 'utf8');
+    } catch (err) {
+      console.warn('[AxlPeerInbox] journal write failed — crash durability reduced:', err);
     }
   }
 }
@@ -254,7 +413,7 @@ export interface AxlPeerInboxOptions {
   env?: Record<string, string | undefined>;
   /** Override clan ID (default: derived from ELDER_N + CLAN_IDS env). */
   myClanId?: string;
-  /** Override state directory for FilePeerInbox fallback. */
+  /** Override state directory for FilePeerInbox fallback and AXL journal. */
   stateDir?: string;
   /** Override AXL client (for testing). */
   axlClient?: IAxlClient;
@@ -320,6 +479,8 @@ export async function createPeerInbox(
   }
 
   const peerIdMap = opts.peerIdMap ?? buildPeerIdMap(env);
+  const stateDir = opts.stateDir ?? defaultStateDir();
+  const journalPath = path.join(stateDir, 'peer-inbox', `axl-journal-${myClanId}.jsonl`);
 
-  return new AxlPeerInbox(myClanId, networkId, client, peerIdMap);
+  return new AxlPeerInbox(myClanId, networkId, client, peerIdMap, journalPath);
 }

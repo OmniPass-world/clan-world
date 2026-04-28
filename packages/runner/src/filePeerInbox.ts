@@ -13,7 +13,21 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { randomUUID } from 'node:crypto';
 import type { IElderPeerInbox, PeerMessage } from '@clan-world/agents/src/seams/index.js';
+
+// MED 5: strict clanId whitelist — alphanumeric, hyphens, underscores, 1-64 chars.
+// Prevents path traversal via clanId containing '/' or '..'.
+const CLAN_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+
+function assertSafeClanId(clanId: string): void {
+  if (!CLAN_ID_RE.test(clanId)) {
+    throw new Error(
+      `[FilePeerInbox] invalid clanId: ${JSON.stringify(clanId)} — ` +
+        `must match /^[a-zA-Z0-9_-]{1,64}$/`,
+    );
+  }
+}
 
 export function defaultStateDir(base: string = os.homedir()): string {
   return path.join(base, '.world', 'clanworld-runner', 'state');
@@ -33,18 +47,25 @@ export class FilePeerInbox implements IElderPeerInbox {
   readonly #stateDir: string;
 
   constructor(myClanId: string, stateDir: string = defaultStateDir()) {
+    // MED 5: validate myClanId on construction to catch bad IDs early.
+    assertSafeClanId(myClanId);
     this.#myClanId = myClanId;
     this.#stateDir = stateDir;
   }
 
   async send(toClanId: string, message: string, tick: number): Promise<void> {
+    // MED 5: validate toClanId before using in filesystem path.
+    assertSafeClanId(toClanId);
+
+    // MED 4: append a UUID suffix to prevent msgId collision at ms granularity.
+    const randomSuffix = randomUUID().slice(0, 8);
     const entry: InboxEntry = {
       fromClanId: this.#myClanId,
       toClanId,
       message,
       tick,
       sentAt: new Date().toISOString(),
-      msgId: `${this.#myClanId}:${tick}:${Date.now()}`,
+      msgId: `${this.#myClanId}:${tick}:${Date.now()}-${randomSuffix}`,
     };
     const file = inboxPath(toClanId, this.#stateDir);
     fs.mkdirSync(path.dirname(file), { recursive: true });

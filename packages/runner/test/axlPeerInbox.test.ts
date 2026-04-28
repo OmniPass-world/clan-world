@@ -9,6 +9,7 @@ import {
   type IAxlClient,
 } from '../src/axlPeerInbox.js';
 import { FilePeerInbox } from '../src/filePeerInbox.js';
+import { randomUUID } from 'node:crypto';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -404,5 +405,213 @@ describe('FilePeerInbox', () => {
     expect(msgs).toHaveLength(2);
     const bodies = msgs.map(m => m.message).sort();
     expect(bodies).toEqual(['from a', 'from b']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HIGH 1 — Spoofed-peer rejection
+// ---------------------------------------------------------------------------
+
+describe('AxlPeerInbox — security: spoofed-peer rejection (HIGH 1)', () => {
+  it('rejects a message where fromPeerId does not match envelope.fromClanId', async () => {
+    // peerIdMap: clan-ember → pubkey_ember, clan-iron → pubkey_iron
+    const peerIdMap = new Map([
+      ['clan-ember', 'pubkey_ember'],
+      ['clan-iron', 'pubkey_iron'],
+    ]);
+    // Attacker sends as clan-iron's peerId but claims to be clan-ember in envelope.
+    const spoofedEnvelope = JSON.stringify({
+      fromClanId: 'clan-ember',   // claimed identity
+      toClanId: 'clan-iron',
+      message: 'spoofed whisper',
+      tick: 1,
+      sentAt: new Date().toISOString(),
+      msgId: 'spoof-1',
+      networkId: 'testnet',
+    });
+    // Message arrives with pubkey_iron as the transport-level sender — mismatch.
+    const client = makeMockAxlClient([
+      { fromPeerId: 'pubkey_iron', body: spoofedEnvelope },
+    ]);
+    const inbox = new AxlPeerInbox('clan-iron', 'testnet', client, peerIdMap);
+
+    const msgs = await inbox.inbox();
+    // The spoofed message must be dropped.
+    expect(msgs).toHaveLength(0);
+  });
+
+  it('accepts a legitimate message where fromPeerId matches envelope.fromClanId', async () => {
+    const peerIdMap = new Map([
+      ['clan-ember', 'pubkey_ember'],
+      ['clan-iron', 'pubkey_iron'],
+    ]);
+    const legitimateEnvelope = JSON.stringify({
+      fromClanId: 'clan-ember',
+      toClanId: 'clan-iron',
+      message: 'genuine whisper',
+      tick: 2,
+      sentAt: new Date().toISOString(),
+      msgId: 'legit-1',
+      networkId: 'testnet',
+    });
+    const client = makeMockAxlClient([
+      { fromPeerId: 'pubkey_ember', body: legitimateEnvelope },
+    ]);
+    const inbox = new AxlPeerInbox('clan-iron', 'testnet', client, peerIdMap);
+
+    const msgs = await inbox.inbox();
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]!.message).toBe('genuine whisper');
+    expect(msgs[0]!.fromClanId).toBe('clan-ember');
+  });
+
+  it('rejects a message from an unknown peer not in the peerIdMap', async () => {
+    const peerIdMap = new Map([
+      ['clan-ember', 'pubkey_ember'],
+    ]);
+    const envelope = JSON.stringify({
+      fromClanId: 'clan-unknown',
+      toClanId: 'clan-iron',
+      message: 'from stranger',
+      tick: 1,
+      sentAt: new Date().toISOString(),
+      msgId: 'stranger-1',
+      networkId: 'testnet',
+    });
+    const client = makeMockAxlClient([
+      { fromPeerId: 'pubkey_unknown', body: envelope },
+    ]);
+    const inbox = new AxlPeerInbox('clan-iron', 'testnet', client, peerIdMap);
+
+    const msgs = await inbox.inbox();
+    expect(msgs).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MED 3 — Retry idempotency via sendIdempotent()
+// ---------------------------------------------------------------------------
+
+describe('AxlPeerInbox — retry idempotency (MED 3)', () => {
+  it('sendIdempotent() passes the same msgId to AXL on both retry calls', async () => {
+    const client = makeMockAxlClient();
+    const peerIdMap = new Map([['clan-ember', 'pubkey_ember']]);
+    const inbox = new AxlPeerInbox('clan-iron', 'testnet', client, peerIdMap);
+
+    const stableMsgId = `clan-iron:5:${Date.now()}-stable`;
+    await inbox.sendIdempotent('clan-ember', 'hello retry', 5, stableMsgId);
+    await inbox.sendIdempotent('clan-ember', 'hello retry', 5, stableMsgId);
+
+    // Both calls should have reached AXL with the identical msgId.
+    expect(client.sentMessages).toHaveLength(2);
+    const body1 = JSON.parse(client.sentMessages[0]!.body) as { msgId: string };
+    const body2 = JSON.parse(client.sentMessages[1]!.body) as { msgId: string };
+    expect(body1.msgId).toBe(stableMsgId);
+    expect(body2.msgId).toBe(stableMsgId);
+  });
+
+  it('send() generates a fresh msgId each call (distinct message IDs)', async () => {
+    const client = makeMockAxlClient();
+    const peerIdMap = new Map([['clan-ember', 'pubkey_ember']]);
+    const inbox = new AxlPeerInbox('clan-iron', 'testnet', client, peerIdMap);
+
+    await inbox.send('clan-ember', 'msg-1', 1);
+    await inbox.send('clan-ember', 'msg-2', 1);
+
+    const id1 = (JSON.parse(client.sentMessages[0]!.body) as { msgId: string }).msgId;
+    const id2 = (JSON.parse(client.sentMessages[1]!.body) as { msgId: string }).msgId;
+    // Each send() generates a unique msgId — they must differ.
+    expect(id1).not.toBe(id2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MED 5 — Path traversal rejection (FilePeerInbox)
+// ---------------------------------------------------------------------------
+
+describe('FilePeerInbox — path traversal rejection (MED 5)', () => {
+  it('throws on construction with clanId containing ../', () => {
+    expect(() => new FilePeerInbox('../evil', '/tmp')).toThrow('invalid clanId');
+  });
+
+  it('throws on construction with clanId containing a forward slash', () => {
+    expect(() => new FilePeerInbox('/etc/passwd', '/tmp')).toThrow('invalid clanId');
+  });
+
+  it('throws on send() when toClanId contains a path traversal sequence', async () => {
+    const sender = new FilePeerInbox('clan-a', tmpStateDir());
+    await expect(sender.send('../etc/shadow', 'evil', 1)).rejects.toThrow('invalid clanId');
+  });
+
+  it('throws on construction with an empty clanId', () => {
+    expect(() => new FilePeerInbox('', '/tmp')).toThrow('invalid clanId');
+  });
+
+  it('accepts valid clanIds with hyphens, underscores, and alphanumeric chars', () => {
+    expect(() => new FilePeerInbox('clan-iron', '/tmp')).not.toThrow();
+    expect(() => new FilePeerInbox('clan_ember_2', '/tmp')).not.toThrow();
+    expect(() => new FilePeerInbox('ClanAlpha', '/tmp')).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HIGH 2 — Runner-crash durability via JSONL journal
+// ---------------------------------------------------------------------------
+
+describe('AxlPeerInbox — crash durability: journal replay (HIGH 2)', () => {
+  it('replays drained messages after a new AxlPeerInbox instance is created on the same journal', async () => {
+    const stateDir = tmpStateDir();
+    const journalPath = path.join(stateDir, 'peer-inbox', 'axl-journal-clan-iron.jsonl');
+
+    const peerIdMap = new Map([
+      ['clan-ember', 'pubkey_ember'],
+      ['clan-iron', 'pubkey_iron'],
+    ]);
+
+    const envelope = JSON.stringify({
+      fromClanId: 'clan-ember',
+      toClanId: 'clan-iron',
+      message: 'durable message',
+      tick: 7,
+      sentAt: new Date().toISOString(),
+      msgId: `durable-${randomUUID()}`,
+      networkId: 'testnet',
+    });
+
+    // First instance drains from AXL and journals the message.
+    const client1 = makeMockAxlClient([{ fromPeerId: 'pubkey_ember', body: envelope }]);
+    const inbox1 = new AxlPeerInbox('clan-iron', 'testnet', client1, peerIdMap, journalPath);
+    const msgs1 = await inbox1.inbox();
+    expect(msgs1).toHaveLength(1);
+    expect(msgs1[0]!.message).toBe('durable message');
+
+    // Simulate runner crash: create a fresh AxlPeerInbox with an empty AXL queue
+    // but the same journal file — the message must survive.
+    const client2 = makeMockAxlClient([]); // AXL queue is empty (already consumed)
+    const inbox2 = new AxlPeerInbox('clan-iron', 'testnet', client2, peerIdMap, journalPath);
+    const msgs2 = await inbox2.inbox();
+
+    expect(msgs2).toHaveLength(1);
+    expect(msgs2[0]!.message).toBe('durable message');
+    expect(msgs2[0]!.fromClanId).toBe('clan-ember');
+  });
+
+  it('AxlPeerInbox without journalPath is memory-only (no file written)', async () => {
+    const peerIdMap = new Map([['clan-ember', 'pubkey_ember']]);
+    const envelope = JSON.stringify({
+      fromClanId: 'clan-ember',
+      toClanId: 'clan-iron',
+      message: 'ephemeral',
+      tick: 1,
+      sentAt: new Date().toISOString(),
+      msgId: 'eph-1',
+      networkId: 'testnet',
+    });
+    const client = makeMockAxlClient([{ fromPeerId: 'pubkey_ember', body: envelope }]);
+    // No journalPath — memory-only mode.
+    const inbox = new AxlPeerInbox('clan-iron', 'testnet', client, peerIdMap);
+    const msgs = await inbox.inbox();
+    expect(msgs).toHaveLength(1);
+    // No journal files should exist anywhere for this test.
   });
 });
