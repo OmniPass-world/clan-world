@@ -6,7 +6,7 @@ import { Viewport } from 'pixi-viewport';
 import { useAgentLogs, type AgentLog } from './useAgentLogs';
 import { WorldNoticePanel } from './WorldNoticePanel';
 import worldMapBg from './assets/world-map.png';
-import { DEMO_MODE } from './App';
+import { DEMO_MODE } from './config/env';
 
 // World dimensions used by pixi-viewport for pan/clamp/center math.
 // Matches the actual hand-curated bg PNG (apps/web/src/assets/world-map.png)
@@ -1209,17 +1209,22 @@ export function WorldMap() {
       spawnTravel(clan.homeRegion, dest.id, clan.color, clan.id);
     };
     // Initial burst — one worker from EACH clan, staggered so they're visible
-    // immediately when the canvas loads.
-    MOCK_CLANS.forEach((clan, i) => {
+    // immediately when the canvas loads. Track timeout IDs so we can cancel
+    // them on unmount (PR #133 review MUST FIX #2 — without this, callbacks
+    // fire after Pixi teardown and call spawnTravel on destroyed objects).
+    const staggerIds = MOCK_CLANS.map((clan, i) =>
       window.setTimeout(() => {
         const candidates = REGIONS.filter(r => r.id !== clan.homeRegion);
         const dest = candidates[Math.floor(Math.random() * candidates.length)];
         if (!dest) return;
         spawnTravel(clan.homeRegion, dest.id, clan.color, clan.id);
-      }, i * 250);
-    });
+      }, i * 250),
+    );
     const interval = window.setInterval(fireOne, CANNED_TRAVEL_INTERVAL_MS);
-    return () => window.clearInterval(interval);
+    return () => {
+      staggerIds.forEach(id => window.clearTimeout(id));
+      window.clearInterval(interval);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pixiReady]);
 

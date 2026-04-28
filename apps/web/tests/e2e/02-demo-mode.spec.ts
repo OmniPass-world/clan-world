@@ -21,8 +21,17 @@
  */
 import { test, expect } from '@playwright/test';
 
-/** VITE_ env vars are baked at build time. Read what value was used. */
-const DEMO_MODE_BUILD_VALUE = process.env.VITE_CLANWORLD_DEMO_MODE;
+/**
+ * VITE_ env vars are baked at build time. Read what value was used.
+ *
+ * Default fallback `'true'` MUST match `playwright.config.ts` webServer.env
+ * default (PR #133 review MUST FIX #1). When the env var is unset on the
+ * outer shell — typical for `pnpm test:e2e` from a fresh checkout — the
+ * spawned dev server defaults to `true`, so the skip logic must too. Without
+ * this, the OFF suite would run against an ON build and either silently
+ * false-pass or false-fail.
+ */
+const DEMO_MODE_BUILD_VALUE = process.env.VITE_CLANWORLD_DEMO_MODE ?? 'true';
 
 test.describe('DEMO_MODE flag — mock clans (demo mode ON)', () => {
   test.skip(
@@ -32,8 +41,10 @@ test.describe('DEMO_MODE flag — mock clans (demo mode ON)', () => {
 
   test('demo mode ON: mock clan names visible in scoreboard panel', async ({ page }) => {
     // The app requires World App context OR VITE_DEMO_BYPASS_WORLD_GUARD=true to render
-    // past the "Open in World App to play" gate. Set the bypass so the map renders.
-    await page.goto('/?bypass=1');
+    // past the "Open in World App to play" gate. The webServer config in
+    // playwright.config.ts sets VITE_DEMO_BYPASS_WORLD_GUARD=true at build time,
+    // so the gate is already bypassed in test builds — no querystring trick needed.
+    await page.goto('/');
 
     // Scoreboard pulse panel is rendered only in DEMO_MODE with scoreboardClans > 0.
     // "IG" is the Iron Guard initials rendered in the compact scoreboard.
@@ -52,7 +63,7 @@ test.describe('DEMO_MODE flag — empty world (demo mode OFF)', () => {
   );
 
   test('demo mode OFF: "no chain data yet" placeholder visible', async ({ page }) => {
-    await page.goto('/?bypass=1');
+    await page.goto('/');
 
     // Placeholder overlay is rendered when DEMO_MODE=false and no live snapshot clans.
     const placeholder = page.getByTestId('no-chain-data-placeholder');

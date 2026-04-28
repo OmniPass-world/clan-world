@@ -35,25 +35,11 @@ const IDKIT_CONFIG: IDKitRequestHookConfig = {
   preset: { type: 'OrbLegacy' },
 };
 
-// Demo-mode escape hatch: when set to the string 'true' at build time, the
-// "Open in World App to play" guard below is skipped so the full canvas + UI
-// renders in any browser (for Loom recording / judges testing). The guard is
-// the production default — only the explicit env opt-in disables it.
-const DEMO_BYPASS_WORLD_GUARD =
-  import.meta.env.VITE_DEMO_BYPASS_WORLD_GUARD === 'true';
-
-/**
- * DEMO_MODE — gates all mock/fake data in WorldMap.
- *
- * true  (VITE_CLANWORLD_DEMO_MODE=true):  render mock clans, bandits, walls,
- *        canned travel — preserves existing dev/hackathon UX.
- * false (default / unset):               render empty world with a
- *        "no chain data yet" placeholder — production default.
- *
- * Set VITE_CLANWORLD_DEMO_MODE=true in .env.local (or .env.development) for
- * local dev. Leave unset / false in production .env.
- */
-export const DEMO_MODE = import.meta.env.VITE_CLANWORLD_DEMO_MODE === 'true';
+// Env flags moved to ./config/env to break the WorldMap ↔ App circular
+// dependency (PR #133 review MUST FIX #3). Re-exported here for any external
+// callers; new internal callers should import directly from ./config/env.
+import { DEMO_MODE, DEMO_BYPASS_WORLD_GUARD } from './config/env';
+export { DEMO_MODE };
 
 /**
  * Top-level route decision. Lightweight path-based routing avoids a router

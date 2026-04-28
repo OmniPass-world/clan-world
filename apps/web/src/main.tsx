@@ -102,7 +102,10 @@ if (!convexUrl && !isCockpitPath) {
   // it at an unroutable address is harmless for the read-only stub view —
   // useQuery will simply return undefined forever, which the cockpit's
   // placeholder content already handles gracefully.
-  const convex = new ConvexReactClient(convexUrl ?? 'https://203.0.113.1');
+  // PR #133 review SHOULD FIX (Copilot): use `||` not `??` so an EMPTY string
+  // VITE_CONVEX_URL also falls back. `??` only handles null/undefined and
+  // would let `''` through, breaking ConvexReactClient construction.
+  const convex = new ConvexReactClient(convexUrl || 'https://203.0.113.1');
   root.render(
     <React.StrictMode>
       <Provider client={convex}>

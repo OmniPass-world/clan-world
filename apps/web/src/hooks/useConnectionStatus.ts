@@ -57,7 +57,11 @@ export function useConnectionStatus(options: Options = {}): {
   retry: () => void;
 } {
   const { url = HEARTBEAT_URL, intervalMs = HEARTBEAT_INTERVAL_MS } = options;
-  const [status, setStatus] = useState<ConnectionStatus>('connected');
+  // Initialize as 'reconnecting' until the first probe completes. Previously
+  // initialized to 'connected', which caused a brief green pill flash before
+  // the first HEAD probe resolved (PR #133 review SHOULD FIX #4). Probe
+  // succeeds → flips to 'connected'; probe fails → already in correct state.
+  const [status, setStatus] = useState<ConnectionStatus>('reconnecting');
   const [retryToken, setRetryToken] = useState(0);
 
   // Status ref so the visibility handler can check current state without
@@ -114,13 +118,16 @@ export function useConnectionStatus(options: Options = {}): {
           return;
         }
         // Failure path
+        retryCount += 1;
+        // Off-by-one fix (PR #133 review SHOULD FIX #5): increment FIRST, then
+        // compare. Previously `retryCount >= MAX_RETRIES` checked before
+        // increment meant the FOURTH failure tripped disconnect, not the third.
         if (retryCount >= MAX_RETRIES) {
           setStatus('disconnected');
           return;
         }
         setStatus('reconnecting');
-        const delay = BACKOFF_MS[retryCount] ?? BACKOFF_MS[BACKOFF_MS.length - 1];
-        retryCount += 1;
+        const delay = BACKOFF_MS[retryCount - 1] ?? BACKOFF_MS[BACKOFF_MS.length - 1];
         backoffTimer = setTimeout(() => void heartbeat(), delay);
       } finally {
         inFlight = false;
