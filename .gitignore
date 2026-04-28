@@ -153,3 +153,6 @@ docs/planning/V1/
 **/test-results/
 **/playwright-report/
 **/playwright/.cache/
+
+# port-for: ports.yml is tracked, ports.lock is per-worktree state
+.world/ports.lock

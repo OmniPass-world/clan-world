@@ -1,10 +1,17 @@
+import { execSync } from 'node:child_process';
 import { defineConfig, devices } from '@playwright/test';
 
-// TODO: replace 58840 with port-for-resolved value once the
-// `port-for --init <worktree>` slot for clan-world is registered. Until then
-// PLAYWRIGHT_BASE_URL env override is the canonical way to point tests at the
-// real dev server.
-const DEFAULT_PORT = 58840;
+// Canonical port resolved from port-for registry (clan-world slot 587, env=test).
+// Falls back to 58770 (canonical value from .world/ports.yml) when port-for is
+// unavailable (CI, non-do-box hosts). PLAYWRIGHT_BASE_URL override takes precedence.
+const DEFAULT_PORT = (() => {
+  try {
+    const port = parseInt(execSync('port-for clan-world-frontend-test', { encoding: 'utf8' }).trim(), 10);
+    return Number.isNaN(port) ? 58770 : port;
+  } catch {
+    return 58770;
+  }
+})();
 const baseURL =
   process.env.PLAYWRIGHT_BASE_URL ?? `http://localhost:${DEFAULT_PORT}`;
 
