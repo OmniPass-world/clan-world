@@ -1,0 +1,16 @@
+# ClanWorld Elder personality manifest
+# Content lives in personalities/elder-N.md
+# Used by: make install (copies personalities/elder-N.md → DEST/elder-N/.claude/CLAUDE.md)
+elders:
+  - number: 1
+    name: Storm Riders
+    accent: lightning
+  - number: 2
+    name: Iron Guard
+    accent: steel
+  - number: 3
+    name: Crimson Elder
+    accent: red
+  - number: 4
+    name: Verdant Wardens
+    accent: green

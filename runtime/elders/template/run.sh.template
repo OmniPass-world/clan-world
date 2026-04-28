@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# elder-{{ELDER_NUMBER}} entry point — adapted from ~/agents/_template/run.sh
+# Pattern A per back-on-plan §1A: shared parent .claude/ at ~/clan-world/.claude/
+# is auto-inherited via Claude Code parent-walk; this script only sets per-elder
+# isolated CLAUDE_CONFIG_DIR for OAuth + plugin state.
+
+set -euo pipefail
+
+ELDER_NUMBER={{ELDER_NUMBER}}
+AGENT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# === Core isolation — OAuth via CLAUDE_CONFIG_DIR per ADR 0013 ===
+# NEVER use ANTHROPIC_API_KEY, NEVER use --bare (forces API key).
+export CLAUDE_CONFIG_DIR="$AGENT_DIR/.claude"
+
+# OAuth credentials: symlink to host-shared credentials so token refresh stays fresh.
+# Run once during agent setup if not already present:
+if [ ! -e "$CLAUDE_CONFIG_DIR/.credentials.json" ]; then
+  ln -sf ~/.claude/.credentials.json "$CLAUDE_CONFIG_DIR/.credentials.json" || true
+fi
+
+# === Plugin isolation (Telegram unused for Elders, but isolation matters) ===
+export TELEGRAM_STATE_DIR="$AGENT_DIR/.claude/channels/telegram"
+export CLAUDE_CODE_PLUGIN_CACHE_DIR="$AGENT_DIR/state/plugin-cache"
+
+# === Runtime state dirs ===
+mkdir -p "$AGENT_DIR/state/plugin-cache" "$AGENT_DIR/state/outbox"
+
+# === Identity ===
+export AGENT_NAME="elder-$ELDER_NUMBER"
+export AGENT_ROLE="ClanWorld Elder (clan $ELDER_NUMBER)"
+export ELDER_NUMBER
+# Elder CLI expects ELDER_N (memory/peer/ack-clear subcommands key by it).
+export ELDER_N="$ELDER_NUMBER"
+
+# === Model: Sonnet 4.6 default; override via env if Liam wants Opus for strategic depth ===
+export ANTHROPIC_MODEL="${ANTHROPIC_MODEL:-claude-sonnet-4-6}"
+
+# === Time zone ===
+export TZ="America/New_York"
+
+# === Elder CLI on PATH ===
+# The runner injects situation blocks; Elders respond by calling `elder` subcommands
+# (world snapshot, clan view, market actions, peer whispers, memory save, ack-clear).
+# Binary lives in the clan-world workspace; symlink/PATH avoids hardcoding repo paths in skills.
+export PATH="$HOME/code/omnipass-world/clan-world/packages/agents/bin:$PATH"
+
+# === CWD must be the elder's dir so Claude Code parent-walks .claude/ correctly ===
+# Walks up from $AGENT_DIR finding:
+#   $AGENT_DIR/.claude/             (per-elder, here)
+#   ~/clan-world/.claude/        (shared parent — Pattern A)
+# Settings + skills + hooks union from both.
+cd "$AGENT_DIR"
+echo "[$AGENT_NAME] Starting... model=$ANTHROPIC_MODEL $(date '+%Y-%m-%d %H:%M:%S %Z')"
+
+# Per-cwd session continuation. Encoded path matches Claude Code's projects/ layout.
+CWD_ENCODED="${PWD//\//-}"
+CONTINUE_FLAG="--continue"
+if [ ! -d "$CLAUDE_CONFIG_DIR/projects/$CWD_ENCODED" ]; then
+  CONTINUE_FLAG=""
+  echo "[$AGENT_NAME] No prior session for $PWD — starting fresh"
+fi
+
+# Elders don't need the Telegram plugin (no inbound Telegram), so omit --channels.
+# The runner injects situation blocks via tmux send-keys directly to this REPL.
+exec claude \
+  --dangerously-skip-permissions \
+  $CONTINUE_FLAG \
+  "$@"
