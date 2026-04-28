@@ -41,6 +41,19 @@ const IDKIT_CONFIG: IDKitRequestHookConfig = {
 const DEMO_BYPASS_WORLD_GUARD =
   import.meta.env.VITE_DEMO_BYPASS_WORLD_GUARD === 'true';
 
+/**
+ * DEMO_MODE — gates all mock/fake data in WorldMap.
+ *
+ * true  (VITE_CLANWORLD_DEMO_MODE=true):  render mock clans, bandits, walls,
+ *        canned travel — preserves existing dev/hackathon UX.
+ * false (default / unset):               render empty world with a
+ *        "no chain data yet" placeholder — production default.
+ *
+ * Set VITE_CLANWORLD_DEMO_MODE=true in .env.local (or .env.development) for
+ * local dev. Leave unset / false in production .env.
+ */
+export const DEMO_MODE = import.meta.env.VITE_CLANWORLD_DEMO_MODE === 'true';
+
 export function App() {
   // When the demo bypass env is set, start verified=true so the WorldMap canvas
   // renders immediately without an IDKit verify round-trip (which can't complete
