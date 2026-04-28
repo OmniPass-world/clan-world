@@ -19,6 +19,11 @@ purposes:
     env: dev
     canonical: 58740   # Vite dev server for apps/web
 
+  - name: clan-world-landing-dev
+    type: frontend
+    env: dev
+    canonical: 58741   # Vite dev server for apps/landing
+
   - name: clan-world-backend-dev
     type: backend
     env: dev
