@@ -1,7 +1,16 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import type { IElderMemoryStore } from '@clan-world/agents/seams';
-import type { ElderId } from './types';
+
+/**
+ * Default state dir for the runner — `~/.world/clanworld-runner/state`.
+ * Matches the path the Elder CLI reads/writes; exported so the 0G adapter
+ * can fall back to a local file under the same directory.
+ */
+export function defaultStateDir(base: string = os.homedir()): string {
+  return path.join(base, '.world', 'clanworld-runner', 'state');
+}
 
 /**
  * S2 stub of `IElderMemoryStore` backed by a per-Elder JSON file.
@@ -13,11 +22,15 @@ import type { ElderId } from './types';
  * a single daemon. The Elder CLI (`elder memory save/recall`) reads + writes
  * the same file but is invoked synchronously from inside the Elder's tmux
  * session, so writes do not race the runner's writes.
+ *
+ * Atomic write: data is written to a randomly-suffixed temp file then renamed
+ * onto the target so concurrent writers (e.g. runner + Elder CLI) do not
+ * corrupt the JSON document.
  */
 export class FileMemoryStore implements IElderMemoryStore {
   private readonly file: string;
 
-  constructor(elder: ElderId, stateDir: string) {
+  constructor(elder: number, stateDir: string = defaultStateDir()) {
     this.file = path.join(stateDir, `elder-${elder}-memory.json`);
   }
 
@@ -51,8 +64,10 @@ export class FileMemoryStore implements IElderMemoryStore {
 
   private write(data: Record<string, string>): void {
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
-    // Write to a temp file then rename for atomic durability.
-    const tmp = `${this.file}.tmp`;
+    // Write to a randomly-suffixed temp file then rename for atomic durability.
+    // Random suffix prevents concurrent-process collisions on the temp path.
+    const suffix = Math.random().toString(36).slice(2);
+    const tmp = `${this.file}.${suffix}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', 'utf8');
     fs.renameSync(tmp, this.file);
   }
