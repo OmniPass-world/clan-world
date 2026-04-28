@@ -1,7 +1,42 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.34;
 
-import "./IClanWorld.sol";
+import {
+    IClanWorld,
+    IClanWorldEvents,
+    ClanWorldConstants,
+    ClanState,
+    ClansmanState,
+    BanditState,
+    WheatPlotState,
+    ResourceType,
+    ActionType,
+    MarketExecutionMode,
+    StatusCode,
+    WorldState,
+    TreasuryState,
+    Clan,
+    WheatPlot,
+    Clansman,
+    Mission,
+    BanditTroop,
+    ScheduledMarketAction,
+    DefenseContribution,
+    PackedRoute,
+    DerivedClanState,
+    DerivedClansmanState,
+    ClanOrder,
+    OrderResult,
+    PoolSeedConfig,
+    LeaderboardEntry,
+    WorldSnapshot,
+    ClansmanFullView,
+    ClanFullView,
+    PoolReserves,
+    MarketState,
+    ActiveBanditView,
+    RegionOccupant
+} from "./IClanWorld.sol";
 
 /// @title ClanWorld
 /// @notice Phase 1 real engine implementation of IClanWorld v4.
@@ -167,7 +202,7 @@ contract ClanWorld is IClanWorld {
 
         // Reverse into result
         bytes8 packed;
-        uint256 byteShift = 56;
+        uint64 byteShift = 56;
         for (uint256 i = pathLen; i > 0; i--) {
             packed = packed | bytes8(uint64(path[i - 1]) << byteShift);
             if (byteShift >= 8) byteShift -= 8;
@@ -475,7 +510,7 @@ contract ClanWorld is IClanWorld {
     }
 
     function _gatherWheat(
-        Clan storage clan,
+        Clan storage /* clan — unused but kept positional for callsite parity */,
         Clansman storage cs,
         Mission storage m,
         uint32 clanId,
@@ -1083,20 +1118,21 @@ contract ClanWorld is IClanWorld {
     // OTC TRANSFERS — Phase 2 stubs
     // =========================================================================
 
-    function transferGold(uint32, uint32, uint256) external override {
+    function transferGold(uint32, uint32, uint256) external pure override {
         revert("ClanWorld: OTC transfers available in Phase 2");
     }
 
-    function transferVaultResource(uint32, uint32, ResourceType, uint256) external override {
+    function transferVaultResource(uint32, uint32, ResourceType, uint256) external pure override {
         revert("ClanWorld: OTC transfers available in Phase 2");
     }
 
-    function transferBlueprint(uint32, uint32, uint256) external override {
+    function transferBlueprint(uint32, uint32, uint256) external pure override {
         revert("ClanWorld: OTC transfers available in Phase 2");
     }
 
     function transferBundle(uint32, uint32, uint256, uint256, uint256, uint256, uint256, uint256)
         external
+        pure
         override
     {
         revert("ClanWorld: OTC transfers available in Phase 2");
@@ -1225,7 +1261,7 @@ contract ClanWorld is IClanWorld {
 
     function quoteTravel(uint8 srcRegion, uint8 dstRegion)
         external
-        view
+        pure
         override
         returns (uint8 travelTicks, bytes8 path)
     {

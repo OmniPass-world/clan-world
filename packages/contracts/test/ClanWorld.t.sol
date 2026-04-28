@@ -3,7 +3,42 @@ pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {ClanWorld} from "../src/ClanWorld.sol";
-import "../src/IClanWorld.sol";
+import {
+    IClanWorld,
+    IClanWorldEvents,
+    ClanWorldConstants,
+    ClanState,
+    ClansmanState,
+    BanditState,
+    WheatPlotState,
+    ResourceType,
+    ActionType,
+    MarketExecutionMode,
+    StatusCode,
+    WorldState,
+    TreasuryState,
+    Clan,
+    WheatPlot,
+    Clansman,
+    Mission,
+    BanditTroop,
+    ScheduledMarketAction,
+    DefenseContribution,
+    PackedRoute,
+    DerivedClanState,
+    DerivedClansmanState,
+    ClanOrder,
+    OrderResult,
+    PoolSeedConfig,
+    LeaderboardEntry,
+    WorldSnapshot,
+    ClansmanFullView,
+    ClanFullView,
+    PoolReserves,
+    MarketState,
+    ActiveBanditView,
+    RegionOccupant
+} from "../src/IClanWorld.sol";
 
 contract ClanWorldTest is Test {
     ClanWorld world;
