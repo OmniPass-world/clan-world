@@ -11,7 +11,14 @@
 # These aliases delegate to the Makefile at $_ELDER_DIR/Makefile
 # so the actual logic stays in one place.
 
-_ELDER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Detect directory where this file lives (bash and zsh compatible)
+if [ -n "${BASH_VERSION:-}" ]; then
+  _ELDER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+elif [ -n "${ZSH_VERSION:-}" ]; then
+  _ELDER_DIR="${0:A:h}"
+else
+  _ELDER_DIR="$(cd "$(dirname "$0")" && pwd)"
+fi
 
 elders-up()     { make -C "$_ELDER_DIR" --no-print-directory elders-up; }
 elders-down()   { make -C "$_ELDER_DIR" --no-print-directory elders-down; }

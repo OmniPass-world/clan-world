@@ -97,8 +97,8 @@ install:
 	@echo ""
 	@echo "Install complete → $(DEST)"
 	@echo "  source $(DEST)/aliases.sh        # shell shortcuts"
-	@echo "  make -C $(DEST) ttyd-up          # start ttyd services"
 	@echo "  make -C $(DEST) elders-up        # spawn elder sessions (OAuth wizard on first run)"
+	@echo "  make -C $(DEST) ttyd-up          # start ttyd services (after elders are running)"
 
 setup: install
 
@@ -115,7 +115,7 @@ ttyd-units:
 	    port=$$((38790 + $$n - 1)); \
 	    unit=$(SYSTEMD_USER_DIR)/ttyd-elder-$$n.service; \
 	    tmp=$$(mktemp); \
-	    printf '[Unit]\nDescription=ttyd readonly web view for elder-%d tmux session\nDocumentation=https://github.com/tsl0922/ttyd\nAfter=default.target\n\n[Service]\nType=simple\nEnvironment=TZ=America/New_York\nExecStart=%%h/bin/ttyd -p %d -t fontSize=11 -t cursorStyle=bar tmux attach-session -t elder-%d\nRestart=on-failure\nRestartSec=5\nStandardOutput=journal\nStandardError=journal\n\n[Install]\nWantedBy=default.target\n' \
+	    printf '[Unit]\nDescription=ttyd readonly web view for elder-%d tmux session\nDocumentation=https://github.com/tsl0922/ttyd\nAfter=default.target\n\n[Service]\nType=simple\nEnvironment=TZ=America/New_York\nExecStart=%%h/bin/ttyd -R -p %d -t fontSize=11 -t cursorStyle=bar tmux attach-session -t elder-%d\nRestart=on-failure\nRestartSec=5\nStandardOutput=journal\nStandardError=journal\n\n[Install]\nWantedBy=default.target\n' \
 	        "$$n" "$$port" "$$n" > $$tmp; \
 	    if ! cmp -s $$tmp $$unit 2>/dev/null; then \
 	        mv $$tmp $$unit; \

@@ -6,8 +6,8 @@ Source tree for the 4-Elder ClanWorld cluster. Deploy to any machine:
     cd runtime/elders
     make install DEST=$HOME/clan-world
     cd $HOME/clan-world
-    make ttyd-up
     make elders-up
+    make ttyd-up
 
 ## What install does
 

@@ -6,7 +6,7 @@ After=default.target
 [Service]
 Type=simple
 Environment=TZ=America/New_York
-ExecStart=%h/bin/ttyd -p {{PORT}} -t fontSize=11 -t cursorStyle=bar tmux attach-session -t elder-{{N}}
+ExecStart=%h/bin/ttyd -R -p {{PORT}} -t fontSize=11 -t cursorStyle=bar tmux attach-session -t elder-{{N}}
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
