@@ -47,7 +47,7 @@ contract ClanWorldStub is IClanWorld {
     // Clan lifecycle
     // -------------------------------------------------------------------------
 
-    function mintClan(address) external payable override returns (uint32, uint256) {
+    function mintClan(address) external override returns (uint32, uint256) {
         return (1, 1);
     }
 

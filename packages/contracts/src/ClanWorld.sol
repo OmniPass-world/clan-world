@@ -718,10 +718,9 @@ contract ClanWorld is IClanWorld {
     // =========================================================================
 
     /// @notice Mint a new clan and spawn its homebase.
-    /// @dev payable per IClanWorld interface; the game has no mint fee — any ETH sent is silently held.
-    ///      A future upgrade may add a fee or revert on non-zero msg.value.
-    function mintClan(address to) external payable override returns (uint32 clanId, uint256 iftTokenId) {
+    function mintClan(address to) external override returns (uint32 clanId, uint256 iftTokenId) {
         require(to != address(0), "ClanWorld: zero address");
+        require(_allClanIds.length < 12, "ClanWorld: max clans");
         clanId = _nextClanId++;
         iftTokenId = uint256(clanId); // Phase 1 placeholder; real iNFT is Phase 7
 
@@ -931,6 +930,14 @@ contract ClanWorld is IClanWorld {
                 _removeDefender(oldTarget, cs.clansmanId);
                 _clanDefendingBase[cs.clansmanId] = 0;
             }
+        }
+
+        // DefendBase zero-travel: register synchronously so getActiveDefenders() has no drop window.
+        // When travelTicks == 0 the clansman is already at the target base — no travel window to wait out.
+        // The _resolveAction guard (clanDefendingBase != targetClanId) will be false next tick, preventing double-register.
+        if (order.action == ActionType.DefendBase && ctx.travelTicks == 0) {
+            _incomingDefenders[order.targetClanId].push(cs.clansmanId);
+            _clanDefendingBase[cs.clansmanId] = order.targetClanId;
         }
 
         if (ctx.wasActive) {
