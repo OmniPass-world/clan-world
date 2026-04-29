@@ -69,6 +69,17 @@ contract DefendBaseTest is Test {
         vm.warp(block.timestamp + ClanWorldConstants.CLANSMAN_COOLDOWN_SECONDS);
     }
 
+    function _advanceTick() internal {
+        vm.warp(block.timestamp + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS);
+        world.heartbeat();
+    }
+
+    function _advanceUntilCurrentTick(uint64 targetTick) internal {
+        while (world.getWorldState().currentTick < targetTick) {
+            _advanceTick();
+        }
+    }
+
     function _otherRegion(uint8 homeRegion) internal pure returns (uint8) {
         return homeRegion == ClanWorldConstants.REGION_FOREST
             ? ClanWorldConstants.REGION_MOUNTAINS
@@ -100,6 +111,7 @@ contract DefendBaseTest is Test {
         Mission memory mission = world.getActiveMission(csId);
         assertTrue(mission.active, "mission stays active");
         assertEq(uint8(mission.action), uint8(ActionType.DefendBase), "mission action");
+        assertEq(mission.targetClanId, clanId, "zero target normalizes to self");
         assertEq(mission.startTick, submittedAtTick, "start tick");
         assertEq(mission.arrivalTick, submittedAtTick, "arrival tick");
         assertEq(mission.actionStartTick, submittedAtTick, "action tick");
@@ -115,6 +127,47 @@ contract DefendBaseTest is Test {
 
         assertTrue(world.getActiveMission(csId).active, "defend_base does not settle complete");
         assertEq(uint8(world.getClansman(csId).state), uint8(ClansmanState.ACTING), "still acting");
+    }
+
+    function test_submitDefendBaseFromNonHome_travelsBeforeRegisteringDefender() public {
+        uint32 clanId = _mintClan();
+        Clan memory clan = world.getClan(clanId);
+        uint32 csId = _firstCs(clanId);
+        uint8 awayRegion = _otherRegion(clan.baseRegion);
+
+        OrderResult[] memory move = _submit(clanId, _waitOrder(csId, awayRegion));
+        assertEq(uint8(move[0].status), uint8(StatusCode.OK), "move away accepted");
+
+        Mission memory moveMission = world.getActiveMission(csId);
+        _advanceUntilCurrentTick(moveMission.executesAtTick + 1);
+        world.settleClan(clanId);
+        assertEq(world.getClansman(csId).currentRegion, awayRegion, "test setup: clansman is away");
+
+        _warpCooldown();
+        OrderResult[] memory defend = _submit(clanId, _defendOrder(csId, clan.baseRegion, 0));
+
+        assertEq(uint8(defend[0].status), uint8(StatusCode.OK), "defend accepted");
+
+        Mission memory defendMission = world.getActiveMission(csId);
+        uint64 expectedTravel = world.getTravelTicks(awayRegion, clan.baseRegion);
+        assertEq(defendMission.executesAtTick, defendMission.submittedAtTick + expectedTravel, "normal travel");
+        assertEq(uint8(world.getClansman(csId).state), uint8(ClansmanState.TRAVELING), "travels home first");
+        assertEq(world.getDefendingClans(clan.baseRegion).length, 0, "not registered before arrival");
+        assertEq(world.getActiveDefenders(clanId).length, 0, "no active defender before arrival");
+
+        _advanceUntilCurrentTick(defendMission.executesAtTick + 1);
+        world.settleClan(clanId);
+
+        Clansman memory cs = world.getClansman(csId);
+        assertEq(uint8(cs.state), uint8(ClansmanState.ACTING), "defender acts after arrival");
+        assertEq(cs.currentRegion, clan.baseRegion, "defender arrived home");
+
+        uint32[] memory defendingClans = world.getDefendingClans(clan.baseRegion);
+        assertEq(defendingClans.length, 1, "registered after arrival");
+        assertEq(defendingClans[0], clanId, "defending clan id");
+        uint32[] memory activeDefenders = world.getActiveDefenders(clanId);
+        assertEq(activeDefenders.length, 1, "active defender after arrival");
+        assertEq(activeDefenders[0], csId, "active defender id");
     }
 
     function test_submitDefendBaseAtNonHome_failsInvalidRegion() public {
@@ -146,22 +199,35 @@ contract DefendBaseTest is Test {
         assertEq(world.getDefendingClans(clan.baseRegion).length, 1, "no duplicate defender");
     }
 
-    function test_resubmitDifferentDefendBaseTarget_isRealRetaskNoDuplicate() public {
+    function test_resubmitExplicitSelfAfterDefaultDefendBase_isNoopNonceUnchanged() public {
         uint32 clanId = _mintClan();
         Clan memory clan = world.getClan(clanId);
         uint32 csId = _firstCs(clanId);
 
         OrderResult[] memory first = _submit(clanId, _defendOrder(csId, clan.baseRegion, 0));
-        _warpCooldown();
-
         OrderResult[] memory second = _submit(clanId, _defendOrder(csId, clan.baseRegion, clanId));
 
-        assertEq(uint8(second[0].status), uint8(StatusCode.OK), "changed target accepted");
-        assertEq(second[0].missionNonce, first[0].missionNonce + 1, "nonce increments");
-        assertEq(world.getActiveMission(csId).targetClanId, clanId, "target changed");
+        assertEq(uint8(second[0].status), uint8(StatusCode.OK), "explicit self is same target");
+        assertEq(second[0].missionNonce, first[0].missionNonce, "nonce unchanged");
+        assertEq(world.getActiveMission(csId).targetClanId, clanId, "target normalized");
         uint32[] memory defenders = world.getDefendingClans(clan.baseRegion);
-        assertEq(defenders.length, 1, "old defender index entry replaced");
+        assertEq(defenders.length, 1, "no duplicate defender");
         assertEq(defenders[0], clanId, "defender remains registered once");
+    }
+
+    function test_defendBaseZeroTargetAppearsInActiveDefenders() public {
+        uint32 clanId = _mintClan();
+        Clan memory clan = world.getClan(clanId);
+        uint32 csId = _firstCs(clanId);
+
+        OrderResult[] memory results = _submit(clanId, _defendOrder(csId, clan.baseRegion, 0));
+
+        assertEq(uint8(results[0].status), uint8(StatusCode.OK), "defend accepted");
+        assertEq(world.getActiveMission(csId).targetClanId, clanId, "stored target is self");
+
+        uint32[] memory activeDefenders = world.getActiveDefenders(clanId);
+        assertEq(activeDefenders.length, 1, "default self-defense is target visible");
+        assertEq(activeDefenders[0], csId, "active defender id");
     }
 
     function test_getDefendingClans_returnsAllCurrentlyDefendingClans() public {

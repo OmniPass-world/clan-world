@@ -343,8 +343,8 @@ contract ClanWorldTest is Test {
             assertEq(uint8(csTraveling.state), uint8(ClansmanState.TRAVELING), "should be TRAVELING before arrival");
         }
 
-        // Advance past travel ticks + 1 action tick
-        uint256 ticksToAdvance = uint256(travelTicks) + 1;
+        // Advance until the arrival tick and four-tick action duration have both closed.
+        uint256 ticksToAdvance = uint256(travelTicks) + world.getActionDuration(ActionType.MineIron) + 1;
         for (uint256 i = 0; i < ticksToAdvance; i++) {
             _advanceTick();
         }
@@ -375,8 +375,8 @@ contract ClanWorldTest is Test {
         (uint8 travelToMountains,) = world.quoteTravel(homeRegion, targetRegion);
         _submitOrder(clanId, cs0, targetRegion, ActionType.MineIron);
 
-        // Advance past travel + 1 action tick to gather some iron
-        for (uint256 i = 0; i < uint256(travelToMountains) + 1; i++) {
+        // Advance through travel and the four-tick mining duration.
+        for (uint256 i = 0; i < uint256(travelToMountains) + world.getActionDuration(ActionType.MineIron) + 1; i++) {
             _advanceTick();
         }
         world.settleClan(clanId);
@@ -390,9 +390,9 @@ contract ClanWorldTest is Test {
         vm.warp(block.timestamp + ClanWorldConstants.CLANSMAN_COOLDOWN_SECONDS + 1);
         _submitOrder(clanId, cs0, homeRegion, ActionType.DepositResources);
 
-        // Advance travel back to homebase + 1 action tick
+        // Advance travel back to homebase + deposit duration.
         (uint8 travelBack,) = world.quoteTravel(targetRegion, homeRegion);
-        for (uint256 i = 0; i < uint256(travelBack) + 1; i++) {
+        for (uint256 i = 0; i < uint256(travelBack) + world.getActionDuration(ActionType.DepositResources) + 1; i++) {
             _advanceTick();
         }
         world.settleClan(clanId);
@@ -838,7 +838,11 @@ contract ClanWorldTest is Test {
         uint256 overflowCount = totalQueuedForTickTwo - cap;
         ScheduledMarketAction[] memory mergedQueue = world.getScheduledMarketActionsForTick(nextTick);
         assertEq(mergedQueue.length, overflowCount + 1, "overflow should merge with native next-tick action");
-        assertEq(mergedQueue[mergedQueue.length - 1].commitSequence, nativeSeq, "native action must stay after older overflow");
+        assertEq(
+            mergedQueue[mergedQueue.length - 1].commitSequence,
+            nativeSeq,
+            "native action must stay after older overflow"
+        );
         for (uint256 i = 1; i < mergedQueue.length; i++) {
             assertGt(mergedQueue[i].commitSequence, mergedQueue[i - 1].commitSequence, "merged queue must be FIFO");
         }
@@ -1240,8 +1244,8 @@ contract ClanWorldTest is Test {
         // Wait for submit-time cooldown to expire (warp only; no ticks yet)
         vm.warp(block.timestamp + ClanWorldConstants.CLANSMAN_COOLDOWN_SECONDS + 1);
 
-        // Advance 1 tick — clansman is already at homebase (NOOP), actionStartTick=currentTick,
-        // so the next closed tick resolves the deposit (empty carry → _completeMission).
+        // Advance until the one-tick deposit duration has closed.
+        _advanceTick();
         _advanceTick();
 
         // Settle the clan — mission completes, clansman back to WAITING with new cooldown
@@ -1378,9 +1382,7 @@ contract ClanWorldTest is Test {
 
         // FishDocks to Forest (not WestDocks or EastDocks) → ERR_INVALID_REGION
         OrderResult[] memory r2 = _submitOrder(clanId, cs2, ClanWorldConstants.REGION_FOREST, ActionType.FishDocks);
-        assertEq(
-            uint8(r2[0].status), uint8(StatusCode.ERR_INVALID_REGION), "3.E6: FishDocks to Forest must be invalid"
-        );
+        assertEq(uint8(r2[0].status), uint8(StatusCode.ERR_INVALID_REGION), "3.E6: FishDocks to Forest must be invalid");
     }
 
     // -------------------------------------------------------------------------
@@ -1482,7 +1484,9 @@ contract ClanWorldTest is Test {
 
         // State must be unchanged — still TRAVELING, no iron
         Clansman memory csAfter = world.getClansman(csId);
-        assertEq(uint8(csAfter.state), uint8(ClansmanState.TRAVELING), "path1: must still be TRAVELING (no ticks passed)");
+        assertEq(
+            uint8(csAfter.state), uint8(ClansmanState.TRAVELING), "path1: must still be TRAVELING (no ticks passed)"
+        );
         assertEq(csAfter.carryIron, 0, "path1: no iron gathered (haven't arrived)");
     }
 
@@ -1521,7 +1525,7 @@ contract ClanWorldTest is Test {
 
     // -------------------------------------------------------------------------
     // test_lazySettle_path3_settleOnCompletion
-    // Path 3: ACTING + tick >= actionStartTick → resolves action
+    // Path 3: ACTING + tick >= settlesAtTick → resolves action
     // -------------------------------------------------------------------------
 
     function test_lazySettle_path3_settleOnCompletion() public {
@@ -1533,8 +1537,8 @@ contract ClanWorldTest is Test {
         (uint8 travelTicks,) = world.quoteTravel(homeRegion, ClanWorldConstants.REGION_MOUNTAINS);
         _submitOrder(clanId, csId, ClanWorldConstants.REGION_MOUNTAINS, ActionType.MineIron);
 
-        // Advance travelTicks + 1 action tick
-        for (uint256 i = 0; i < uint256(travelTicks) + 1; i++) {
+        // Advance through travel and the four-tick mining duration.
+        for (uint256 i = 0; i < uint256(travelTicks) + world.getActionDuration(ActionType.MineIron) + 1; i++) {
             _advanceTick();
         }
 
@@ -1574,7 +1578,11 @@ contract ClanWorldTest is Test {
         _advanceTick();
 
         // Confirm clansman is still TRAVELING (hasn't reached EastDocks yet)
-        assertEq(uint8(world.getClansman(csId).state), uint8(ClansmanState.TRAVELING), "path4: must still be TRAVELING before interrupt");
+        assertEq(
+            uint8(world.getClansman(csId).state),
+            uint8(ClansmanState.TRAVELING),
+            "path4: must still be TRAVELING before interrupt"
+        );
 
         // Overwrite with MineIron to Mountains
         OrderResult[] memory r2 = _submitOrder(clanId, csId, ClanWorldConstants.REGION_MOUNTAINS, ActionType.MineIron);
@@ -1592,7 +1600,7 @@ contract ClanWorldTest is Test {
         // clansman was re-tasked from its current region; compute remaining travel
         uint8 csRegionNow = world.getClansman(csId).currentRegion;
         (uint8 travelToMountains,) = world.quoteTravel(csRegionNow, ClanWorldConstants.REGION_MOUNTAINS);
-        for (uint256 i = 0; i < uint256(travelToMountains) + 1; i++) {
+        for (uint256 i = 0; i < uint256(travelToMountains) + world.getActionDuration(ActionType.MineIron) + 1; i++) {
             _advanceTick();
         }
         world.settleClan(clanId);
@@ -1655,7 +1663,8 @@ contract ClanWorldTest is Test {
         (uint8 travelTicks,) = harness.quoteTravel(homeRegion, ClanWorldConstants.REGION_MOUNTAINS);
         assertGt(travelTicks, 0, "path6: need travel > 0 so clansman is TRAVELING when killed");
 
-        OrderResult[] memory r = _submitOrderHarness(harness, clanId, csId, ClanWorldConstants.REGION_MOUNTAINS, ActionType.MineIron);
+        OrderResult[] memory r =
+            _submitOrderHarness(harness, clanId, csId, ClanWorldConstants.REGION_MOUNTAINS, ActionType.MineIron);
         assertEq(uint8(r[0].status), uint8(StatusCode.OK), "path6: order must succeed");
         assertTrue(harness.getActiveMission(csId).active, "path6: mission must be active before kill");
 
@@ -1705,7 +1714,9 @@ contract ClanWorldTest is Test {
 
         // Kill the clansman
         harness.killClansman(csId);
-        assertEq(uint8(harness.getClansman(csId).state), uint8(ClansmanState.DEAD), "path6-defender: clansman must be DEAD");
+        assertEq(
+            uint8(harness.getClansman(csId).state), uint8(ClansmanState.DEAD), "path6-defender: clansman must be DEAD"
+        );
 
         // Settle the clan — triggers Path 6, should remove from registry
         _advanceTickHarness(harness);
@@ -1734,8 +1745,8 @@ contract ClanWorldTest is Test {
         (uint8 travelTicks,) = world.quoteTravel(homeRegion, ClanWorldConstants.REGION_MOUNTAINS);
         _submitOrder(clanId, csId, ClanWorldConstants.REGION_MOUNTAINS, ActionType.MineIron);
 
-        // Advance past travel + 1 action tick WITHOUT calling settleClan
-        for (uint256 i = 0; i < uint256(travelTicks) + 1; i++) {
+        // Advance through travel and the four-tick mining duration WITHOUT calling settleClan.
+        for (uint256 i = 0; i < uint256(travelTicks) + world.getActionDuration(ActionType.MineIron) + 1; i++) {
             _advanceTick();
         }
 
@@ -1839,9 +1850,7 @@ contract ClanWorldTest is Test {
         );
         assertEq(uint8(results[2].status), uint8(StatusCode.OK), "3.E8: order[2] must be OK");
         assertEq(
-            uint8(results[3].status),
-            uint8(StatusCode.ERR_INVALID_REGION),
-            "3.E8: order[3] must be ERR_INVALID_REGION"
+            uint8(results[3].status), uint8(StatusCode.ERR_INVALID_REGION), "3.E8: order[3] must be ERR_INVALID_REGION"
         );
     }
 }

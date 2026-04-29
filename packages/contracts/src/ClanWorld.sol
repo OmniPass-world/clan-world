@@ -308,7 +308,6 @@ contract ClanWorld is IClanWorld {
         }
 
         if (!m.active) return; // no active mission — nothing to settle
-        if (m.action == ActionType.DefendBase) return; // persistent defender mission
 
         bytes32 tickSeed;
         for (uint64 tick = fromTick; tick < toTick; tick++) {
@@ -319,11 +318,20 @@ contract ClanWorld is IClanWorld {
                 cs.state = ClansmanState.ACTING;
                 cs.currentRegion = m.targetRegion;
                 emit WorkerArrived(clanId, cs.clansmanId, m.targetRegion, tick);
+
+                if (m.action == ActionType.DefendBase) {
+                    _registerDefender(m.targetRegion, clanId, cs.clansmanId);
+                }
             }
 
-            // Path 3: ACTING at/past actionStartTick → resolve
-            if (cs.state == ClansmanState.ACTING && tick >= m.actionStartTick) {
+            if (m.action == ActionType.DefendBase) continue; // persistent defender mission
+
+            // Path 3: ACTING at/past settlesAtTick → resolve
+            if (cs.state == ClansmanState.ACTING && tick >= m.settlesAtTick) {
                 _resolveAction(clan, cs, m, clanId, tick, tickSeed);
+                if (m.active && getActionDuration(m.action) > 0) {
+                    _completeMission(cs, m);
+                }
             }
 
             // If mission completed during this tick, stop iterating
@@ -1018,6 +1026,7 @@ contract ClanWorld is IClanWorld {
         uint8 travelTicks;
         uint64 arrivalTick;
         uint64 newNonce;
+        uint32 targetClanId;
         bool wasActive;
         uint64 oldNonce;
     }
@@ -1046,10 +1055,11 @@ contract ClanWorld is IClanWorld {
                 return result;
             }
 
+            uint32 defendTargetClanId = order.targetClanId == 0 ? clanId : order.targetClanId;
             Mission storage currentM = _missions[order.clansmanId];
             if (
                 currentM.active && currentM.action == ActionType.DefendBase && currentM.targetRegion == order.gotoRegion
-                    && currentM.targetClanId == order.targetClanId
+                    && currentM.targetClanId == defendTargetClanId
             ) {
                 result.status = StatusCode.OK;
                 result.cooldownEndsAtTs = cs.cooldownEndsAtTs;
@@ -1069,6 +1079,8 @@ contract ClanWorld is IClanWorld {
         OrderCtx memory ctx;
         ctx.fromRegion = cs.currentRegion;
         ctx.gotoRegion = order.gotoRegion;
+        ctx.targetClanId =
+            order.action == ActionType.DefendBase && order.targetClanId == 0 ? clanId : order.targetClanId;
 
         // NOOP bypass: treat 0 as "stay here"; DefendBase requires explicit home region.
         ctx.isNoop = order.action != ActionType.DefendBase
@@ -1095,8 +1107,8 @@ contract ClanWorld is IClanWorld {
         ctx.wasActive = existingM.active;
         ctx.oldNonce = existingM.nonce;
 
-        // Compute travel. DefendBase snaps to the home base immediately.
-        ctx.travelTicks = order.action == ActionType.DefendBase ? 0 : _travelTicks(ctx.fromRegion, ctx.gotoRegion);
+        // Compute travel from the clansman's current region to the order target.
+        ctx.travelTicks = _travelTicks(ctx.fromRegion, ctx.gotoRegion);
         ctx.arrivalTick = _addTicksClamped(_world.currentTick, uint64(ctx.travelTicks));
 
         // New nonce
@@ -1126,7 +1138,7 @@ contract ClanWorld is IClanWorld {
             _enqueueScheduledMarketAction(clanId, order, cs.clansmanId, ctx.arrivalTick, ctx.newNonce);
         }
 
-        if (order.action == ActionType.DefendBase) {
+        if (order.action == ActionType.DefendBase && ctx.travelTicks == 0) {
             _registerDefender(ctx.gotoRegion, clanId, cs.clansmanId);
         }
 
@@ -1172,7 +1184,7 @@ contract ClanWorld is IClanWorld {
         m.marketMode = (order.action == ActionType.MarketBuy || order.action == ActionType.MarketSell)
             ? MarketExecutionMode.Scheduled
             : MarketExecutionMode.None;
-        m.targetClanId = order.targetClanId;
+        m.targetClanId = ctx.targetClanId;
         m.marketToken = order.marketToken;
         m.marketAmount = order.marketAmount;
         m.maxGoldIn = order.maxGoldIn;

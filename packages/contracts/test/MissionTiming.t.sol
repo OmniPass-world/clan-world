@@ -6,8 +6,10 @@ import {ClanWorld} from "../src/ClanWorld.sol";
 import {
     ClanWorldConstants,
     ActionType,
+    ClansmanState,
     StatusCode,
     ClanFullView,
+    Clansman,
     ClanOrder,
     OrderResult,
     Mission
@@ -24,6 +26,12 @@ contract MissionTimingTest is Test {
     function _advanceTick() internal {
         vm.warp(block.timestamp + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS);
         world.heartbeat();
+    }
+
+    function _advanceUntilCurrentTick(uint64 targetTick) internal {
+        while (world.getWorldState().currentTick < targetTick) {
+            _advanceTick();
+        }
     }
 
     function _mintClan() internal returns (uint32 clanId) {
@@ -78,6 +86,36 @@ contract MissionTimingTest is Test {
         assertEq(submitted, mission.submittedAtTick, "getter submitted");
         assertEq(executes, mission.executesAtTick, "getter executes");
         assertEq(settles, mission.settlesAtTick, "getter settles");
+    }
+
+    function test_settlementWaitsUntilSettlesAtTickForGatherMission() public {
+        uint32 clanId = _mintClan();
+        uint32 csId = _firstCs(clanId);
+
+        OrderResult[] memory results =
+            _submitOrder(clanId, csId, ClanWorldConstants.REGION_MOUNTAINS, ActionType.MineIron);
+        assertEq(uint8(results[0].status), uint8(StatusCode.OK), "order should be accepted");
+
+        Mission memory mission = world.getActiveMission(csId);
+        assertEq(mission.settlesAtTick, mission.executesAtTick + 4, "four tick action duration");
+
+        _advanceUntilCurrentTick(mission.executesAtTick + 1);
+        world.settleClan(clanId);
+
+        Clansman memory arrived = world.getClansman(csId);
+        assertEq(uint8(arrived.state), uint8(ClansmanState.ACTING), "arrived and action started");
+        assertEq(arrived.currentRegion, ClanWorldConstants.REGION_MOUNTAINS, "arrived at target");
+        assertEq(arrived.carryIron, 0, "no iron before settlesAtTick");
+        assertTrue(world.getActiveMission(csId).active, "mission remains active before settlesAtTick");
+
+        _advanceUntilCurrentTick(mission.settlesAtTick + 1);
+        world.settleClan(clanId);
+
+        Clansman memory settled = world.getClansman(csId);
+        assertGt(settled.carryIron, 0, "iron granted at settlesAtTick");
+        assertEq(uint8(settled.state), uint8(ClansmanState.WAITING), "mission completed");
+        assertFalse(world.getActiveMission(csId).active, "mission inactive after settlement");
+        assertGt(settled.cooldownEndsAtTs, block.timestamp, "cooldown starts on settlement");
     }
 
     function test_getActionDuration_eachActionType() public view {
