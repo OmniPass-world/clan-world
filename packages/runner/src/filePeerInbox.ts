@@ -79,7 +79,10 @@ export class FilePeerInbox implements IElderPeerInbox {
       msg: message,
       ts: sentAt,
     };
-    fs.appendFileSync(file, JSON.stringify(entry) + '\n', 'utf8');
+    fs.appendFileSync(file, JSON.stringify(entry) + '\n', {
+      encoding: 'utf8',
+      mode: 0o600,
+    });
   }
 
   async inbox(): Promise<PeerMessage[]> {

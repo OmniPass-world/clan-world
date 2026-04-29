@@ -12,7 +12,7 @@ export interface IChainClient {
 
 const DEFAULT_CONTRACT_ADDRESS = '0x1BF5649f29CbB53E117a5aE969A18A71790f83E8' as const;
 
-const baseSepolia = defineChain({
+export const baseSepolia = defineChain({
   id: 84532,
   name: 'Base Sepolia',
   nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
@@ -325,13 +325,26 @@ class RealChainClient implements IChainClient {
 
     const keyPath = readEnv('ELDER_WALLET_KEY_PATH');
     let pk: string | undefined;
+    let pkSource: string | undefined;
     if (keyPath) {
-      pk = fs.readFileSync(keyPath, 'utf8').trim();
+      try {
+        pk = fs.readFileSync(keyPath, 'utf8').trim();
+        pkSource = `ELDER_WALLET_KEY_PATH file at ${keyPath}`;
+      } catch (err) {
+        if (err && typeof err === 'object' && 'code' in err && err.code === 'ENOENT') {
+          throw new Error(
+            `ELDER_WALLET_KEY_PATH file not found at ${keyPath}; either set DEPLOYER_PRIVATE_KEY env var or provide a key file`,
+          );
+        }
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new Error(`Failed to read ELDER_WALLET_KEY_PATH file at ${keyPath}: ${msg}`);
+      }
     } else {
       const fallbackKey = readEnv('DEPLOYER_PRIVATE_KEY');
       if (fallbackKey) {
         console.warn('[RealChainClient] ELDER_WALLET_KEY_PATH not set; falling back to DEPLOYER_PRIVATE_KEY (deprecated)');
         pk = fallbackKey;
+        pkSource = 'DEPLOYER_PRIVATE_KEY env var';
       }
     }
     if (!pk) throw new Error('Neither ELDER_WALLET_KEY_PATH nor DEPLOYER_PRIVATE_KEY is set');
@@ -339,7 +352,9 @@ class RealChainClient implements IChainClient {
     // Normalize: add 0x prefix if missing
     if (!pk.startsWith('0x')) pk = '0x' + pk;
     if (!/^0x[0-9a-fA-F]{64}$/.test(pk)) {
-      throw new Error(`ELDER_WALLET_KEY_PATH: file does not contain a valid 64-hex-char private key`);
+      throw new Error(
+        `Invalid private key from ${pkSource ?? 'unknown source'}: expected a 64-hex-char private key (0x-prefixed optional)`,
+      );
     }
 
     const account = privateKeyToAccount(pk as `0x${string}`);

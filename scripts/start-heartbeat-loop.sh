@@ -39,17 +39,26 @@ if [ "$missing" -eq 1 ]; then
   exit 1
 fi
 
-echo "Starting heartbeat loop (interval: 20s)"
+echo "Starting heartbeat loop (interval: 65s; avoids on-chain 60s heartbeat guard)"
 echo "  engine: $CLAN_WORLD_CONTRACT_ADDRESS"
 echo "  rpc:    $RPC_URL_PRIMARY"
 echo "  convex: $CONVEX_DEPLOY_URL"
 
 while true; do
-  forge script packages/contracts/script/Heartbeat.s.sol \
+  heartbeat_stderr="$(mktemp)"
+  if ! forge script packages/contracts/script/Heartbeat.s.sol \
     --root packages/contracts \
     --broadcast \
     --rpc-url "$RPC_URL_PRIMARY" \
-    || true  # contract reverts (e.g. rate-limited tick) must not kill the loop
+    2> >(tee "$heartbeat_stderr" >&2); then
+    if grep -qi "RateLimited" "$heartbeat_stderr"; then
+      echo "heartbeat rate-limited; continuing" >&2
+    else
+      rm -f "$heartbeat_stderr"
+      exit 1
+    fi
+  fi
+  rm -f "$heartbeat_stderr"
 
   curl -sS --fail -X POST "$CONVEX_DEPLOY_URL/api/heartbeat-webhook" \
     -H "Authorization: Bearer $WEBHOOK_SHARED_SECRET" \

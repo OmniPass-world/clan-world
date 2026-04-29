@@ -451,7 +451,10 @@ export class AxlPeerInbox implements IElderPeerInbox {
     if (!this.#journalPath) return;
     try {
       fs.mkdirSync(path.dirname(this.#journalPath), { recursive: true });
-      fs.appendFileSync(this.#journalPath, JSON.stringify(entry) + '\n', 'utf8');
+      fs.appendFileSync(this.#journalPath, JSON.stringify(entry) + '\n', {
+        encoding: 'utf8',
+        mode: 0o600,
+      });
     } catch (err) {
       console.warn('[AxlPeerInbox] journal write failed — crash durability reduced:', err);
     }

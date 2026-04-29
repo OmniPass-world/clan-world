@@ -32,9 +32,10 @@ satisfies four seam interfaces from `@clan-world/agents/seams`:
 
 ```bash
 # 1. Provision a fresh runner wallet (NEVER reuse an Elder key) and fund it
-#    with World Chain Sepolia ETH.
+#    with Base Sepolia ETH.
 export RUNNER_PRIVATE_KEY=0x...
 export CLAN_WORLD_CONTRACT_ADDRESS=0xC012275376b867944cd874FB2d600d6dA3B4A56e
+export RPC_URL_PRIMARY=https://base-sepolia.g.alchemy.com/v2/...
 export CONVEX_URL=https://...convex.cloud   # optional; runner idles without it
 
 # 2. Make sure 4 tmux sessions exist with Elder Claude Code already attached:
@@ -46,8 +47,8 @@ pnpm --filter @clan-world/runner start
 
 ## Env vars
 
-See [`.env.example`](./.env.example). All vars are read from `process.env`
-at startup — the daemon does **not** auto-load any `.env` file.
+See [`.env.example`](./.env.example). `pnpm start` loads the repo-root
+`.env.local`; other launchers can provide the same vars through `process.env`.
 
 ## State directory
 

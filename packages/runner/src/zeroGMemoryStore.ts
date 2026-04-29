@@ -79,7 +79,10 @@ function writeCacheToDisk(filePath: string, data: Record<string, string>): void 
   // Random suffix prevents concurrent-process collisions.
   const suffix = Math.random().toString(36).slice(2);
   const tmpPath = `${filePath}.${suffix}.tmp`;
-  fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2) + '\n', 'utf8');
+  fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2) + '\n', {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
   fs.renameSync(tmpPath, filePath);
 }
 

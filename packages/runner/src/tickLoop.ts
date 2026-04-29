@@ -126,6 +126,10 @@ export async function tickLoop(deps: TickLoopDeps): Promise<void> {
             deps.signal.removeEventListener('abort', linkAbort);
           }
           if (!status.ok) {
+            if (status.reason === 'duplicate-tick') {
+              log.info(`elder ${elder}: tick ${chainTick} already processed by other elder, skipping`);
+              return true;
+            }
             log.warn(`elder ${elder}: delivery returned not-ok: ${status.reason}`);
             return status.reason === 'aborted'; // shutdown is "ok" — don't retry
           }

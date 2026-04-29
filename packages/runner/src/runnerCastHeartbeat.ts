@@ -2,13 +2,13 @@ import {
   ContractFunctionRevertedError,
   createPublicClient,
   createWalletClient,
-  defineChain,
   http,
   type Account,
   type PublicClient,
   type WalletClient,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { baseSepolia } from '@clan-world/shared/adapters';
 import {
   HeartbeatRateLimitedError,
   type IHeartbeatCaller,
@@ -41,6 +41,14 @@ const HEARTBEAT_ABI = [
           { name: 'seasonEndTick', type: 'uint64' },
           { name: 'seasonFinalized', type: 'bool' },
           { name: 'nextHeartbeatAtTs', type: 'uint64' },
+          { name: 'nextBanditSpawnEligibleTick', type: 'uint64' },
+          { name: 'currentBanditSpawnChanceBps', type: 'uint16' },
+          { name: 'currentTickSeed', type: 'bytes32' },
+          { name: 'activeBanditId', type: 'uint32' },
+          { name: 'winterActive', type: 'bool' },
+          { name: 'winterStartsAtTick', type: 'uint64' },
+          { name: 'winterEndsAtTick', type: 'uint64' },
+          { name: 'nextCommitSequence', type: 'uint64' },
         ],
       },
     ],
@@ -48,24 +56,17 @@ const HEARTBEAT_ABI = [
   },
 ] as const;
 
-const worldChainSepolia = defineChain({
-  id: 4801,
-  name: 'World Chain Sepolia',
-  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-  rpcUrls: { default: { http: ['https://worldchain-sepolia.g.alchemy.com/public'] } },
-});
-
 export interface RunnerHeartbeatConfig {
   /** Hex-encoded 64-char private key, optionally 0x-prefixed. */
   privateKey: string;
-  /** Override RPC URL; defaults to the World Chain Sepolia public endpoint. */
+  /** Override RPC URL; defaults to the Base Sepolia public endpoint. */
   rpcUrl?: string;
   /** ClanWorld contract address. */
   contractAddress: `0x${string}`;
 }
 
 /**
- * Reads `RUNNER_PRIVATE_KEY`, `CHAIN_RPC_URL`, `CLAN_WORLD_CONTRACT_ADDRESS`
+ * Reads `RUNNER_PRIVATE_KEY`, `RPC_URL_PRIMARY`, `CLAN_WORLD_CONTRACT_ADDRESS`
  * from env. Throws if `RUNNER_PRIVATE_KEY` is missing — the runner intentionally
  * does not generate or store its own wallet; provisioning is operator-side.
  */
@@ -85,7 +86,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): RunnerHeart
   }
   return {
     privateKey: pk,
-    rpcUrl: env['CHAIN_RPC_URL'],
+    rpcUrl: env['RPC_URL_PRIMARY'] ?? env['RPC_URL_FALLBACK'],
     contractAddress: contractAddress as `0x${string}`,
   };
 }
@@ -109,10 +110,10 @@ export class RunnerCastHeartbeat implements IHeartbeatCaller {
     const pk = normalizePk(cfg.privateKey);
     this.account = privateKeyToAccount(pk);
     const transport = cfg.rpcUrl ? http(cfg.rpcUrl) : http();
-    this.publicClient = createPublicClient({ chain: worldChainSepolia, transport });
+    this.publicClient = createPublicClient({ chain: baseSepolia, transport });
     this.walletClient = createWalletClient({
       account: this.account,
-      chain: worldChainSepolia,
+      chain: baseSepolia,
       transport,
     });
     this.contractAddress = cfg.contractAddress;
@@ -122,7 +123,7 @@ export class RunnerCastHeartbeat implements IHeartbeatCaller {
     try {
       const hash = await this.walletClient.writeContract({
         account: this.account,
-        chain: worldChainSepolia,
+        chain: baseSepolia,
         address: this.contractAddress,
         abi: HEARTBEAT_ABI,
         functionName: 'heartbeat',

@@ -148,7 +148,10 @@ function readLastTick(file: string): number | undefined {
 
 function writeLastTick(file: string, tick: number): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `${tick}\n`, 'utf8');
+  fs.writeFileSync(file, `${tick}\n`, {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
 }
 
 async function waitForFile(file: string, timeoutMs: number): Promise<'found' | 'timeout'> {

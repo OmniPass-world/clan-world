@@ -50,7 +50,10 @@ export function readMemory(n: number, base?: string): Record<string, string> {
 export function writeMemory(n: number, data: Record<string, string>, base?: string): void {
   const file = memoryFile(n, base);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(data, null, 2) + '\n', 'utf8');
+  fs.writeFileSync(file, JSON.stringify(data, null, 2) + '\n', {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
 }
 
 export interface Deps {
@@ -123,7 +126,10 @@ export async function runCommand(
     const entry = JSON.stringify({ from: n, to: clanId, msg, ts: new Date().toISOString() });
     const file = recipientInboxFile(clanId, homeBase);
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.appendFileSync(file, entry + '\n', 'utf8');
+    fs.appendFileSync(file, entry + '\n', {
+      encoding: 'utf8',
+      mode: 0o600,
+    });
     return 'whisper sent\n';
   }
 
@@ -151,7 +157,10 @@ export async function runCommand(
     const n = getElderN(env);
     const file = ackFile(n, homeBase);
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, new Date().toISOString() + '\n', 'utf8');
+    fs.writeFileSync(file, new Date().toISOString() + '\n', {
+      encoding: 'utf8',
+      mode: 0o600,
+    });
     return 'ack cleared\n';
   }
 

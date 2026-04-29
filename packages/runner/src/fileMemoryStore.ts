@@ -68,7 +68,10 @@ export class FileMemoryStore implements IElderMemoryStore {
     // Random suffix prevents concurrent-process collisions on the temp path.
     const suffix = Math.random().toString(36).slice(2);
     const tmp = `${this.file}.${suffix}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', 'utf8');
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', {
+      encoding: 'utf8',
+      mode: 0o600,
+    });
     fs.renameSync(tmp, this.file);
   }
 }
