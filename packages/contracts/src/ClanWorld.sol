@@ -1164,25 +1164,19 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     /// @notice Permissionless heartbeat. Closes the current tick, advances tick counter.
     ///         Execution order per spec §4.2 (CEI-safe):
     ///         CEI guard: nextHeartbeatAtTs written first to close reentrancy window.
-    ///         Seed:      closedTick seed derived and published before step 1 so
-    ///                    settlement RNG reads real entropy, not zero.
     ///         1. Settle missions completing this tick.
     ///         2. Execute scheduled market actions for closedTick (external calls).
-    ///         3. Eager-settle clans touched by world events (Phase 3 stub).
-    ///         4. Resolve world events (season boundary, winter transitions).
-    ///         5. Increment tick and publish (seed already written above).
+    ///         3. Eager-settle clans touched by world events (Phase 9 stub).
+    ///         4. Resolve closed-tick bandit/world events.
+    ///         5. Increment tick and publish the next tick seed atomically.
     function heartbeat() external override nonReentrant {
         require(block.timestamp >= _world.nextHeartbeatAtTs, "ClanWorld: heartbeat rate limited");
 
         uint64 closedTick = _world.currentTick;
+        bytes32 closedTickSeed = _world.currentTickSeed;
 
         // CEI: update rate-limit guard before any external calls
         _world.nextHeartbeatAtTs = uint64(block.timestamp) + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS;
-
-        // Derive and publish seed for closedTick before step 1 (settlement reads it for RNG)
-        bytes32 newSeed = keccak256(abi.encode(block.prevrandao, _world.currentTickSeed, closedTick));
-        _tickSeeds[closedTick] = newSeed;
-        _world.currentTickSeed = newSeed;
 
         // Step 1: Settle missions that complete this tick (settlesAtTick == closedTick).
         // Bounded by 12-clan cap x 4 clansmen = 48 max iterations.
@@ -1191,18 +1185,21 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         // Step 2: Execute scheduled market actions for closedTick (may make external calls).
         _executeScheduledMarketActions(closedTick);
 
-        // Step 3: Eager-settle clans touched by world events (Phase 3 bandit — stub).
-        // TODO Phase 3: _settleClansNearBandit(closedTick);
+        // Step 3: Eager-settle clans touched by world events (Phase 9 bandit — stub).
+        // TODO Phase 9: _settleClansNearBandit(closedTick);
 
         // Step 4: Evaluate deterministic bandit spawns for the closed tick.
-        _evaluateBanditSpawns(newSeed);
+        _evaluateBanditSpawns(closedTickSeed);
 
         // Step 5: Resolve world events (season boundary, winter transitions).
         _resolveWorldEvents(closedTick);
 
-        // Step 6: Increment tick and publish (seed already written above; complete the atomic pair).
+        // Step 6: Increment tick and publish the opened tick seed as one visible state transition.
         uint64 newTick = closedTick + 1;
+        bytes32 newSeed = keccak256(abi.encode(block.prevrandao, closedTickSeed, closedTick));
         _world.currentTick = newTick;
+        _tickSeeds[newTick] = newSeed;
+        _world.currentTickSeed = newSeed;
         _world.nextHeartbeatAtTick = newTick + 1;
 
         emit TickAdvanced(closedTick, newTick, newSeed);

@@ -36,6 +36,72 @@ contract HeartbeatOrderingHarness is ClanWorld {
     }
 }
 
+contract RecordingPool {
+    address public immutable TOKEN_A;
+    address public immutable TOKEN_B;
+    address public immutable ENGINE;
+
+    uint256 public reserveA;
+    uint256 public reserveB;
+    uint64 public observedTick;
+    bytes32 public observedSeed;
+    bool public observedSell;
+    bool private _seeded;
+
+    modifier onlyEngine() {
+        require(msg.sender == ENGINE, "RecordingPool: only engine");
+        _;
+    }
+
+    constructor(address tokenA_, address tokenB_, address engine_) {
+        TOKEN_A = tokenA_;
+        TOKEN_B = tokenB_;
+        ENGINE = engine_;
+    }
+
+    function seed(uint256 amountA, uint256 amountB) external onlyEngine {
+        require(!_seeded, "RecordingPool: already seeded");
+        require(amountA > 0 && amountB > 0, "RecordingPool: zero seed");
+        reserveA = amountA;
+        reserveB = amountB;
+        _seeded = true;
+    }
+
+    function sellResource(uint256 amountIn) external onlyEngine returns (uint256 goldOut) {
+        require(amountIn > 0, "RecordingPool: zero amount");
+        require(reserveA > 0 && reserveB > 0, "RecordingPool: not seeded");
+
+        WorldState memory state = HeartbeatOrderingHarness(ENGINE).getWorldState();
+        observedTick = state.currentTick;
+        observedSeed = state.currentTickSeed;
+        observedSell = true;
+
+        goldOut = (reserveB * amountIn) / (reserveA + amountIn);
+        require(goldOut > 0, "RecordingPool: zero output");
+        reserveA += amountIn;
+        reserveB -= goldOut;
+    }
+
+    function quoteBuy(uint256 amountOut) external view returns (uint256 goldIn) {
+        require(amountOut > 0, "RecordingPool: zero amount");
+        require(amountOut < reserveA, "RecordingPool: insufficient resource reserve");
+        uint256 num = reserveB * amountOut;
+        uint256 denom_ = reserveA - amountOut;
+        goldIn = num / denom_ + (num % denom_ == 0 ? 0 : 1);
+    }
+
+    function buyResource(uint256 amountOut) external onlyEngine returns (uint256 goldIn) {
+        require(amountOut > 0, "RecordingPool: zero amount");
+        require(amountOut < reserveA, "RecordingPool: insufficient resource reserve");
+        require(reserveB > 0, "RecordingPool: not seeded");
+        uint256 num = reserveB * amountOut;
+        uint256 denom_ = reserveA - amountOut;
+        goldIn = num / denom_ + (num % denom_ == 0 ? 0 : 1);
+        reserveA -= amountOut;
+        reserveB += goldIn;
+    }
+}
+
 contract HeartbeatOrderingTest is Test {
     HeartbeatOrderingHarness world;
     address elder = address(0xA1);
@@ -51,6 +117,7 @@ contract HeartbeatOrderingTest is Test {
     StubPool ironPool;
     StubPool wheatPool;
     StubPool fishPool;
+    RecordingPool recordingWoodPool;
 
     function setUp() public {
         world = new HeartbeatOrderingHarness();
@@ -164,6 +231,46 @@ contract HeartbeatOrderingTest is Test {
         world.seedPools(cfg);
     }
 
+    function _setupRecordingMarket() internal {
+        woodToken = new MinimalERC20("Wood", "WOOD");
+        ironToken = new MinimalERC20("Iron", "IRON");
+        wheatToken = new MinimalERC20("Wheat", "WHEAT");
+        fishToken = new MinimalERC20("Fish", "FISH");
+        goldToken = new MinimalERC20("Gold", "GOLD");
+        blueprintToken = new MinimalERC20("BPRT", "BPRT");
+
+        address wAddr = address(world);
+        recordingWoodPool = new RecordingPool(address(woodToken), address(goldToken), wAddr);
+        ironPool = new StubPool(address(ironToken), address(goldToken), wAddr);
+        wheatPool = new StubPool(address(wheatToken), address(goldToken), wAddr);
+        fishPool = new StubPool(address(fishToken), address(goldToken), wAddr);
+
+        address[6] memory tokens = [
+            address(woodToken),
+            address(ironToken),
+            address(wheatToken),
+            address(fishToken),
+            address(goldToken),
+            address(blueprintToken)
+        ];
+        address[4] memory pools = [address(recordingWoodPool), address(wheatPool), address(fishPool), address(ironPool)];
+        world.initTreasury(tokens, pools);
+
+        uint256 resSeed = 1000e18;
+        uint256 goldSeed = 1000e18;
+        PoolSeedConfig memory cfg = PoolSeedConfig({
+            woodSeed: resSeed,
+            wheatSeed: resSeed,
+            fishSeed: resSeed,
+            ironSeed: resSeed,
+            goldSeedForWood: goldSeed,
+            goldSeedForWheat: goldSeed,
+            goldSeedForFish: goldSeed,
+            goldSeedForIron: goldSeed
+        });
+        world.seedPools(cfg);
+    }
+
     // -------------------------------------------------------------------------
     // test_heartbeat_settlementBeforeMarket
     //
@@ -250,6 +357,33 @@ contract HeartbeatOrderingTest is Test {
 
         assertEq(world.getWorldState().currentTick, tick2 + 1, "tick must increment again");
         assertEq(world.getWorldState().currentTickSeed, expectedSeed2, "seed must chain from prior seed");
+    }
+
+    function test_heartbeat_scheduledMarketObservesClosedTickSeedBeforeIncrement() public {
+        _setupRecordingMarket();
+        uint32 clanId = _mintClan();
+        uint32 csId = _firstCs(clanId);
+
+        OrderResult[] memory r = _submitMarketOrder(clanId, csId, ActionType.MarketSell, address(woodToken), 5e18, 0);
+        assertEq(uint8(r[0].status), uint8(StatusCode.OK), "market sell order must enqueue");
+
+        Mission memory m = world.getActiveMission(csId);
+        uint64 executeAtTick = m.actionStartTick;
+        _advanceToTick(executeAtTick);
+
+        WorldState memory beforeClose = world.getWorldState();
+        assertEq(beforeClose.currentTick, executeAtTick, "setup must be at execute tick before close");
+        bytes32 seedForClosedTick = beforeClose.currentTickSeed;
+
+        _advanceTick();
+
+        assertTrue(recordingWoodPool.observedSell(), "scheduled sell must execute");
+        assertEq(recordingWoodPool.observedTick(), executeAtTick, "market observes closed tick before increment");
+        assertEq(recordingWoodPool.observedSeed(), seedForClosedTick, "market observes seed for closed tick");
+
+        WorldState memory afterClose = world.getWorldState();
+        assertEq(afterClose.currentTick, executeAtTick + 1, "heartbeat opens next tick after market execution");
+        assertNotEq(afterClose.currentTickSeed, seedForClosedTick, "next tick seed publishes after close-tick work");
     }
 
     // -------------------------------------------------------------------------
