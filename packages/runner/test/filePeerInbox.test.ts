@@ -73,4 +73,10 @@ describe('FilePeerInbox', () => {
     expect(fs.existsSync(oldClanFile)).toBe(false);
     expect(fs.readFileSync(mappedFile, 'utf8')).toContain('"toClanId":"clan-7"');
   });
+
+  it('rejects unsafe read-side inbox keys derived from own clan id', () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clanworld-peer-inbox-'));
+
+    expect(() => new FilePeerInbox(1, '../../escape', stateDir)).toThrow(/unsafe inbox key/);
+  });
 });

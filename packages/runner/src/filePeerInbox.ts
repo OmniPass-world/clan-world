@@ -53,6 +53,7 @@ export class FilePeerInbox implements IElderPeerInbox {
     } else {
       this.elderN = inboxKeyForClanId(ownClanId) || String(elder);
     }
+    assertSafeInboxKey(this.elderN);
   }
 
   async send(toClanId: string, message: string, tick: number): Promise<void> {
@@ -82,6 +83,7 @@ export class FilePeerInbox implements IElderPeerInbox {
   }
 
   async inbox(): Promise<PeerMessage[]> {
+    assertSafeInboxKey(this.elderN);
     const file = path.join(this.inboxDir, `elder-${this.elderN}.jsonl`);
     if (!fs.existsSync(file)) return [];
     const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);

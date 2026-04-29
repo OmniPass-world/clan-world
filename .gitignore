@@ -47,6 +47,10 @@ web_modules/
 # TypeScript cache
 *.tsbuildinfo
 
+# Codex local state
+.codex
+.codex/
+
 # Optional npm cache directory
 .npm
 
