@@ -5,7 +5,7 @@ import {Script, console} from "forge-std/Script.sol";
 import {MinimalERC20} from "../src/MinimalERC20.sol";
 import {StubPool} from "../src/StubPool.sol";
 import {ClanWorld} from "../src/ClanWorld.sol";
-import {PoolSeedConfig, ResourceType} from "../src/IClanWorld.sol";
+import {PoolSeedConfig} from "../src/IClanWorld.sol";
 
 contract Deploy is Script {
     function run() external {
@@ -32,11 +32,6 @@ contract Deploy is Script {
         // 2. Deploy ClanWorld first (needed as engine arg for pools).
         ClanWorld game = new ClanWorld();
         console.log("CLAN_WORLD_CONTRACT_ADDRESS:", address(game));
-
-        wood.configureBoundary(uint8(ResourceType.Wood), address(game));
-        iron.configureBoundary(uint8(ResourceType.Iron), address(game));
-        wheat.configureBoundary(uint8(ResourceType.Wheat), address(game));
-        fish.configureBoundary(uint8(ResourceType.Fish), address(game));
 
         // 3. Deploy 4 AMM pools (Phase 6.2: constant-product pools).
         StubPool woodGold = new StubPool(address(wood), address(gold), address(game));

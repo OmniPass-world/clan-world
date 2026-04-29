@@ -219,8 +219,10 @@ contract HeartbeatOrderingTest is Test {
         assertEq(sellMission.arrivalTick, t0 + 2, "sell arrivalTick must be t0+2");
         assertEq(sellMission.settlesAtTick, t0 + 3, "sell settlesAtTick must be t0+3");
 
-        // Give cs0 carry wood. Zero vault so market sell only succeeds if step1 ran first.
+        // Give cs0 carry wood (for deposit) and cs1 carry wood (for sell).
+        // Sell now draws from carry, not vault — zero vault to confirm vault is not involved.
         world.setCarryWood(csId0, 10e18);
+        world.setCarryWood(csId1, 5e18);
         world.setVaultWood(clanId, 0);
         assertEq(world.getClan(clanId).vaultWood, 0, "vault wood must be 0 before test tick");
 
@@ -228,8 +230,7 @@ contract HeartbeatOrderingTest is Test {
 
         // Advance to tick t0+4. The heartbeat closing t0+3 runs:
         //   Step 1: _settleCompletingMissions(t0+3) → deposit fires, cs0 carry 10e18 → vault
-        //   Step 2: _executeScheduledMarketActions(t0+3) → sell fires, 5e18 vault wood → gold
-        // If reversed: sell would fail (vault=0), gold unchanged.
+        //   Step 2: _executeScheduledMarketActions(t0+3) → sell fires, cs1 carry 5e18 → gold
         _advanceToTick(t0 + 4);
 
         uint256 goldAfter = world.getClan(clanId).goldBalance;
@@ -340,7 +341,8 @@ contract HeartbeatOrderingTest is Test {
         assertEq(world.getActiveMission(csId0).settlesAtTick, t0 + 3, "deposit settlesAtTick must be t0+3");
 
         // cs1: at Forest, sells wood to UT. Forest→UT = 2 ticks. settlesAtTick = t0+3.
-        // Vault has 20e18 starter wood — sell always has enough.
+        // Give cs1 carry wood — sell draws from carry (not vault).
+        world.setCarryWood(csId1, 10e18);
         OrderResult[] memory r1 = _submitMarketOrder(clanId, csId1, ActionType.MarketSell, address(woodToken), 5e18, 0);
         assertEq(uint8(r1[0].status), uint8(StatusCode.OK), "market sell must enqueue");
         assertEq(world.getActiveMission(csId1).arrivalTick, t0 + 2, "sell arrivalTick must be t0+2");

@@ -8,9 +8,6 @@ import {StubPool} from "../src/StubPool.sol";
 import {ResourceType} from "../src/IClanWorld.sol";
 
 contract ResourceBoundaryTokensTest is Test {
-    event ResourceMinted(uint8 indexed resourceType, address indexed to, uint256 amount);
-    event ResourceBurned(uint8 indexed resourceType, address indexed from, uint256 amount);
-
     ClanWorld world;
     MinimalERC20 woodToken;
     MinimalERC20 ironToken;
@@ -27,11 +24,6 @@ contract ResourceBoundaryTokensTest is Test {
         fishToken = new MinimalERC20("Fish", "FISH");
         goldToken = new MinimalERC20("Gold", "GOLD");
         blueprintToken = new MinimalERC20("BPRT", "BPRT");
-
-        woodToken.configureBoundary(uint8(ResourceType.Wood), address(world));
-        ironToken.configureBoundary(uint8(ResourceType.Iron), address(world));
-        wheatToken.configureBoundary(uint8(ResourceType.Wheat), address(world));
-        fishToken.configureBoundary(uint8(ResourceType.Fish), address(world));
     }
 
     function test_getResourceTokenReturnsConfiguredBoundaryTokens() public {
@@ -56,27 +48,6 @@ contract ResourceBoundaryTokensTest is Test {
         assertEq(world.getResourceToken(uint8(ResourceType.Iron)), address(ironToken), "iron");
         assertEq(world.getResourceToken(uint8(ResourceType.Wheat)), address(wheatToken), "wheat");
         assertEq(world.getResourceToken(uint8(ResourceType.Fish)), address(fishToken), "fish");
-    }
-
-    function test_onlyEngineCanMintAndBurnBoundaryTokens() public {
-        address holder = address(0xCAFE);
-
-        vm.expectRevert(bytes("MinimalERC20: not engine"));
-        woodToken.mint(holder, 10e18);
-
-        vm.expectEmit(true, true, false, true, address(woodToken));
-        emit ResourceMinted(uint8(ResourceType.Wood), holder, 10e18);
-        vm.prank(address(world));
-        woodToken.mint(holder, 10e18);
-
-        assertEq(woodToken.balanceOf(holder), 10e18, "minted balance");
-
-        vm.expectEmit(true, true, false, true, address(woodToken));
-        emit ResourceBurned(uint8(ResourceType.Wood), holder, 4e18);
-        vm.prank(address(world));
-        woodToken.burn(holder, 4e18);
-
-        assertEq(woodToken.balanceOf(holder), 6e18, "burned balance");
     }
 
     function test_seedTreasuryMintsStartingSupply() public {

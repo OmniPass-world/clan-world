@@ -9,9 +9,6 @@ contract MinimalERC20 {
 
     uint256 public totalSupply;
     address public immutable DEPLOYER;
-    address public engine;
-    uint8 public resourceType;
-    bool public boundaryConfigured;
     bool public treasurySeeded;
 
     mapping(address => uint256) public balanceOf;
@@ -19,15 +16,11 @@ contract MinimalERC20 {
 
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner_, address indexed spender, uint256 value);
-    event BoundaryConfigured(uint8 indexed resourceType, address indexed engine);
-    event ResourceMinted(uint8 indexed resourceType, address indexed to, uint256 amount);
-    event ResourceBurned(uint8 indexed resourceType, address indexed from, uint256 amount);
 
     constructor(string memory name_, string memory symbol_) {
         name = name_;
         symbol = symbol_;
         DEPLOYER = msg.sender;
-        resourceType = type(uint8).max;
     }
 
     /// @dev Wrapped per forge-lint unwrapped-modifier-logic — keeps modifier
@@ -36,29 +29,9 @@ contract MinimalERC20 {
         require(msg.sender == DEPLOYER, "MinimalERC20: not deployer");
     }
 
-    function _onlyEngine() internal view {
-        require(boundaryConfigured && msg.sender == engine, "MinimalERC20: not engine");
-    }
-
     modifier onlyDeployer() {
         _onlyDeployer();
         _;
-    }
-
-    modifier onlyEngine() {
-        _onlyEngine();
-        _;
-    }
-
-    function configureBoundary(uint8 resourceType_, address engine_) external onlyDeployer {
-        require(!boundaryConfigured, "MinimalERC20: boundary configured");
-        require(engine_ != address(0), "MinimalERC20: zero engine");
-
-        resourceType = resourceType_;
-        engine = engine_;
-        boundaryConfigured = true;
-
-        emit BoundaryConfigured(resourceType_, engine_);
     }
 
     function seedTreasury(address treasury, uint256 amount) external onlyDeployer {
@@ -67,18 +40,6 @@ contract MinimalERC20 {
 
         treasurySeeded = true;
         _mint(treasury, amount);
-    }
-
-    function mint(address to, uint256 amount) external onlyEngine {
-        _mint(to, amount);
-        emit ResourceMinted(resourceType, to, amount);
-    }
-
-    function burn(address from, uint256 amount) external onlyEngine {
-        balanceOf[from] -= amount;
-        totalSupply -= amount;
-        emit Transfer(from, address(0), amount);
-        emit ResourceBurned(resourceType, from, amount);
     }
 
     function _mint(address to, uint256 amount) internal {

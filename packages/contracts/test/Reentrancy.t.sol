@@ -94,8 +94,14 @@ contract MockReentrantPool {
     }
 }
 
+contract ClanWorldReentrantHarness is ClanWorld {
+    function setCarryWood(uint32 csId, uint256 amount) external {
+        _clansmen[csId].carryWood = amount;
+    }
+}
+
 contract ReentrancyTest is Test {
-    ClanWorld world;
+    ClanWorldReentrantHarness world;
     address elder = address(0xA1);
 
     MinimalERC20 woodToken;
@@ -110,13 +116,15 @@ contract ReentrancyTest is Test {
     StubPool fishPool;
 
     function setUp() public {
-        world = new ClanWorld();
+        world = new ClanWorldReentrantHarness();
     }
 
     function test_marketPoolHeartbeatCallback_revertsWithReentrancyGuard() public {
         _setupReentrantMarket();
         uint32 clanId = _mintClan();
         uint32 csId = _firstCs(clanId);
+        // Give clansman carry wood so the scheduled sell has something to sell
+        world.setCarryWood(csId, 10e18);
 
         uint256 goldBefore = world.getClan(clanId).goldBalance;
 

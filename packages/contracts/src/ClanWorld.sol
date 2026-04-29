@@ -1174,7 +1174,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         // Cooldown check. Market orders may still fall back to the scheduled path;
         // only the immediate path requires the worker to be off cooldown.
-        if (!isMarketAction && block.timestamp < cs.cooldownEndsAtTs) {
+        if (block.timestamp < cs.cooldownEndsAtTs) {
             result.status = StatusCode.ERR_COOLDOWN_ACTIVE;
             result.cooldownEndsAtTs = cs.cooldownEndsAtTs;
             result.missionNonce = cs.lastMissionNonce;
@@ -1457,14 +1457,23 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     }
 
     function _sortScheduledMarketActionsByCommitSequence(ScheduledMarketAction[] storage actions) internal {
-        for (uint256 i = 1; i < actions.length; i++) {
-            ScheduledMarketAction memory key = actions[i];
+        uint256 len = actions.length;
+        if (len <= 1) return;
+        ScheduledMarketAction[] memory arr = new ScheduledMarketAction[](len);
+        for (uint256 i = 0; i < len; i++) {
+            arr[i] = actions[i];
+        }
+        for (uint256 i = 1; i < len; i++) {
+            ScheduledMarketAction memory key = arr[i];
             uint256 j = i;
-            while (j > 0 && actions[j - 1].commitSequence > key.commitSequence) {
-                actions[j] = actions[j - 1];
+            while (j > 0 && arr[j - 1].commitSequence > key.commitSequence) {
+                arr[j] = arr[j - 1];
                 j--;
             }
-            actions[j] = key;
+            arr[j] = key;
+        }
+        for (uint256 i = 0; i < len; i++) {
+            actions[i] = arr[i];
         }
     }
 
@@ -1568,6 +1577,45 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         return false;
     }
 
+    function _hasCarryBalance(Clansman storage cs, address token, uint256 amount) internal view returns (bool) {
+        if (token == _treasury.woodToken) return cs.carryWood >= amount;
+        if (token == _treasury.ironToken) return cs.carryIron >= amount;
+        if (token == _treasury.wheatToken) return cs.carryWheat >= amount;
+        if (token == _treasury.fishToken) return cs.carryFish >= amount;
+        return false;
+    }
+
+    function _deductFromCarry(Clansman storage cs, address token, uint256 amount) internal returns (bool) {
+        if (token == _treasury.woodToken) {
+            if (cs.carryWood < amount) return false;
+            cs.carryWood -= amount;
+            return true;
+        }
+        if (token == _treasury.ironToken) {
+            if (cs.carryIron < amount) return false;
+            cs.carryIron -= amount;
+            return true;
+        }
+        if (token == _treasury.wheatToken) {
+            if (cs.carryWheat < amount) return false;
+            cs.carryWheat -= amount;
+            return true;
+        }
+        if (token == _treasury.fishToken) {
+            if (cs.carryFish < amount) return false;
+            cs.carryFish -= amount;
+            return true;
+        }
+        return false;
+    }
+
+    function _addToCarry(Clansman storage cs, address token, uint256 amount) internal {
+        if (token == _treasury.woodToken) { cs.carryWood += amount; return; }
+        if (token == _treasury.ironToken) { cs.carryIron += amount; return; }
+        if (token == _treasury.wheatToken) { cs.carryWheat += amount; return; }
+        if (token == _treasury.fishToken) { cs.carryFish += amount; return; }
+    }
+
     /// @dev Check a clan vault balance without mutating storage.
     function _hasVaultBalance(Clan storage clan, address token, uint256 amount) internal view returns (bool) {
         if (token == _treasury.woodToken) return clan.vaultWood >= amount;
@@ -1654,7 +1702,20 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         }
 
         Clan storage clan = _clans[clanId];
-        if (!_hasVaultBalance(clan, token, amount)) {
+        Clansman storage cs = _clansmen[clansmanId];
+        if (!_hasCarryBalance(cs, token, amount)) {
+            return _handleMarketFailure(
+                clanId,
+                clansmanId,
+                ActionType.MarketSell,
+                MarketExecutionMode.Immediate,
+                StatusCode.ERR_MISSING_RESOURCES,
+                _world.currentTick
+            );
+        }
+
+        // CEI: deduct carry before external call
+        if (!_deductFromCarry(cs, token, amount)) {
             return _handleMarketFailure(
                 clanId,
                 clansmanId,
@@ -1666,7 +1727,6 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         }
 
         try StubPool(poolAddr).swapExactInForOut(amount, 1) returns (uint256 goldOut) {
-            _deductFromVault(clan, token, amount);
             clan.goldBalance += goldOut;
             emit ImmediateMarketActionExecuted(
                 clanId,
@@ -1680,6 +1740,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             );
             return StatusCode.OK;
         } catch {
+            _addToCarry(cs, token, amount); // restore carry on swap failure
             return _handleMarketFailure(
                 clanId,
                 clansmanId,
@@ -1770,7 +1831,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         try StubPool(poolAddr).swapExactOutForInWithMaxIn(amountOut, maxGoldIn) returns (uint256 actualGoldIn) {
             clan.goldBalance -= actualGoldIn;
-            _addToVault(clan, token, amountOut);
+            _addToCarry(cs, token, amountOut);
             emit ImmediateMarketActionExecuted(
                 clanId,
                 clansmanId,
@@ -1822,7 +1883,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         }
 
         Clan storage clan = _clans[clanId];
-        if (!_deductFromVault(clan, token, amount)) {
+        Clansman storage cs = _clansmen[clansmanId];
+        if (!_deductFromCarry(cs, token, amount)) {
             return _handleMarketFailure(
                 clanId,
                 clansmanId,
@@ -1944,7 +2006,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         }
 
         clan.goldBalance -= actualGoldIn;
-        _addToVault(clan, token, amountOut);
+        _addToCarry(cs, token, amountOut);
 
         emit ScheduledMarketActionExecuted(
             clanId,
