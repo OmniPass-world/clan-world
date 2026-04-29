@@ -821,12 +821,11 @@ contract ClanWorld is IClanWorld {
         require(block.timestamp >= _world.nextHeartbeatAtTs, "ClanWorld: heartbeat rate limited");
 
         uint64 closedTick = _world.currentTick;
-        _world.currentTick = closedTick + 1; // increment first
+        bytes32 newSeed = keccak256(abi.encode(block.prevrandao, _world.currentTickSeed, closedTick));
 
-        // Derive tick seed: domain-separated from block randomness; stored under NEW tick
-        bytes32 newSeed = keccak256(abi.encode(block.prevrandao, closedTick, block.timestamp));
-        _tickSeeds[_world.currentTick] = newSeed; // store under new tick
+        _tickSeeds[closedTick] = newSeed;
         _world.currentTickSeed = newSeed;
+        _world.currentTick = closedTick + 1;
 
         _world.nextHeartbeatAtTs = uint64(block.timestamp) + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS;
 

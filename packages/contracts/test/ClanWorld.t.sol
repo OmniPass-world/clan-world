@@ -153,19 +153,76 @@ contract ClanWorldTest is Test {
         world.heartbeat();
     }
 
+    function test_heartbeat_tickIncrementsExactlyOne() public {
+        uint64 tickBefore = world.getWorldState().currentTick;
+
+        world.heartbeat();
+
+        uint64 tickAfter = world.getWorldState().currentTick;
+        assertEq(tickAfter - tickBefore, 1, "heartbeat should advance exactly one tick");
+    }
+
     // -------------------------------------------------------------------------
     // Test 2: tick seed changes after heartbeat
     // -------------------------------------------------------------------------
 
     function test_heartbeat_seedChanges() public {
-        bytes32 seedBefore = world.getWorldState().currentTickSeed;
-        assertEq(seedBefore, bytes32(0));
+        WorldState memory beforeFirst = world.getWorldState();
+        assertEq(beforeFirst.currentTickSeed, bytes32(0));
 
-        vm.warp(block.timestamp + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS);
+        bytes32 expectedFirstSeed =
+            keccak256(abi.encode(block.prevrandao, beforeFirst.currentTickSeed, beforeFirst.currentTick));
         world.heartbeat();
 
-        bytes32 seedAfter = world.getWorldState().currentTickSeed;
-        assertTrue(seedAfter != bytes32(0), "Seed should be non-zero after heartbeat");
+        WorldState memory afterFirst = world.getWorldState();
+        assertEq(afterFirst.currentTickSeed, expectedFirstSeed, "first seed should use closed tick and prior seed");
+        assertTrue(afterFirst.currentTickSeed != beforeFirst.currentTickSeed, "seed should change after heartbeat");
+
+        vm.warp(block.timestamp + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS);
+        bytes32 expectedSecondSeed =
+            keccak256(abi.encode(block.prevrandao, afterFirst.currentTickSeed, afterFirst.currentTick));
+        world.heartbeat();
+
+        WorldState memory afterSecond = world.getWorldState();
+        assertEq(afterSecond.currentTickSeed, expectedSecondSeed, "second seed should chain from prior seed");
+        assertTrue(afterSecond.currentTickSeed != afterFirst.currentTickSeed, "next seed should differ");
+        assertTrue(
+            afterSecond.currentTickSeed != beforeFirst.currentTickSeed, "next seed should not repeat initial seed"
+        );
+    }
+
+    function test_heartbeat_permissionless() public {
+        address rando = makeAddr("rando");
+        uint64 tickBefore = world.getWorldState().currentTick;
+
+        vm.prank(rando);
+        world.heartbeat();
+
+        assertEq(world.getWorldState().currentTick, tickBefore + 1, "non-owner caller should advance heartbeat");
+    }
+
+    function test_heartbeat_sequenceFiveTicks() public {
+        bytes32[5] memory seeds;
+        uint64 previousTick = world.getWorldState().currentTick;
+
+        for (uint256 i = 0; i < 5; i++) {
+            if (i != 0) {
+                vm.warp(block.timestamp + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS);
+            }
+
+            world.heartbeat();
+
+            WorldState memory state = world.getWorldState();
+            assertEq(state.currentTick, previousTick + 1, "each heartbeat should advance exactly one tick");
+            assertTrue(state.currentTickSeed != bytes32(0), "seed should be non-zero");
+
+            for (uint256 j = 0; j < i; j++) {
+                assertTrue(state.currentTickSeed != seeds[j], "seed sequence should not repeat");
+            }
+
+            seeds[i] = state.currentTickSeed;
+            previousTick = state.currentTick;
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -831,7 +888,11 @@ contract ClanWorldTest is Test {
         uint256 overflowCount = totalQueuedForTickTwo - cap;
         ScheduledMarketAction[] memory mergedQueue = world.getScheduledMarketActionsForTick(nextTick);
         assertEq(mergedQueue.length, overflowCount + 1, "overflow should merge with native next-tick action");
-        assertEq(mergedQueue[mergedQueue.length - 1].commitSequence, nativeSeq, "native action must stay after older overflow");
+        assertEq(
+            mergedQueue[mergedQueue.length - 1].commitSequence,
+            nativeSeq,
+            "native action must stay after older overflow"
+        );
         for (uint256 i = 1; i < mergedQueue.length; i++) {
             assertGt(mergedQueue[i].commitSequence, mergedQueue[i - 1].commitSequence, "merged queue must be FIFO");
         }
