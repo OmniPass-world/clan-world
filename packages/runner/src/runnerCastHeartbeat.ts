@@ -40,6 +40,8 @@ const HEARTBEAT_ABI = [
           { name: 'seasonStartTick', type: 'uint64' },
           { name: 'seasonEndTick', type: 'uint64' },
           { name: 'seasonFinalized', type: 'bool' },
+          { name: 'currentSeasonNumber', type: 'uint64' },
+          { name: 'nextHeartbeatAtTick', type: 'uint64' },
           { name: 'nextHeartbeatAtTs', type: 'uint64' },
           { name: 'nextBanditSpawnEligibleTick', type: 'uint64' },
           { name: 'currentBanditSpawnChanceBps', type: 'uint16' },

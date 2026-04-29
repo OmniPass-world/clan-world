@@ -823,7 +823,7 @@ This is a required bookkeeping part of the combat model.
 # 7. Winter Rules
 
 ## 7.1 Winter cadence
-Winter occurs every `110` ticks.
+Winter occurs every `110` ticks. The first winter opens at tick `110`, so ticks `[100, 110)` remain pre-winter preparation time.
 
 ## 7.2 Winter duration
 Winter lasts `10` ticks.

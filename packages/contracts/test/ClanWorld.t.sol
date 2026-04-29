@@ -2169,7 +2169,7 @@ contract ClanWorldTest is Test {
         harness.setClanUpkeepState(clanId, winterStart, 1e18, 100e18, 100e18, 0);
 
         vm.expectEmit(true, false, false, true);
-        emit IClanWorldEvents.ClanColdShortage(clanId, uint32(winterStart), 2e18);
+        emit IClanWorldEvents.ClanColdShortage(clanId, winterStart, 2e18);
         world.settleClan(clanId);
 
         Clan memory clan = world.getClan(clanId);
@@ -2188,7 +2188,7 @@ contract ClanWorldTest is Test {
         harness.setClanUpkeepState(clanId, winterStart, 0, 100e18, 100e18, 1);
 
         vm.expectEmit(true, false, false, true);
-        emit IClanWorldEvents.WallDegradedByCold(clanId, 1, uint32(winterStart));
+        emit IClanWorldEvents.WallDegradedByCold(clanId, 1, winterStart);
         world.settleClan(clanId);
 
         Clan memory clan = world.getClan(clanId);
@@ -2214,7 +2214,7 @@ contract ClanWorldTest is Test {
         assertEq(clan.coldDamage, 2, "cold damage should hit death threshold");
         assertEq(clan.wallLevel, 0, "wall should remain clamped at zero");
         assertEq(clan.livingClansmen, 3, "one clansman should die from cold");
-        assertEq(_countLogs(logs, keccak256("ClansmanColdDeath(uint32,uint32,uint32)")), 1, "cold death should emit");
+        assertEq(_countLogs(logs, keccak256("ClansmanColdDeath(uint32,uint32,uint64)")), 1, "cold death should emit");
 
         ClanFullView memory view_ = world.getClanFullView(clanId);
         uint256 deadCount = 0;
@@ -2232,20 +2232,93 @@ contract ClanWorldTest is Test {
         uint32 preWinterStarver = _mintClan();
         uint32 winterStarver = _mintClan();
         uint64 winterStart = ClanWorldConstants.WINTER_START_TICK;
-        _advanceToTick(winterStart + 6);
+        _advanceToTick(winterStart + 2);
 
-        harness.setClanUpkeepState(preWinterStarver, winterStart + 3, 100e18, 0, 0, 0);
+        harness.setClanUpkeepState(preWinterStarver, winterStart, 100e18, 0, 0, 0);
         harness.setClanStarvationStartsAtTick(preWinterStarver, winterStart - 5);
-        harness.setClanUpkeepState(winterStarver, winterStart + 3, 100e18, 0, 0, 0);
-        harness.setClanStarvationStartsAtTick(winterStarver, winterStart + 2);
+        harness.setClanUpkeepState(winterStarver, winterStart, 100e18, 0, 0, 0);
 
         world.settleClan(preWinterStarver);
         world.settleClan(winterStarver);
 
         Clan memory preWinterClan = world.getClan(preWinterStarver);
         Clan memory winterClan = world.getClan(winterStarver);
-        assertEq(preWinterClan.livingClansmen, 1, "pre-winter starver should lose one clansman per winter tick");
-        assertEq(winterClan.livingClansmen, 1, "fresh winter starver should lose clansmen at the same cadence");
+        assertEq(preWinterClan.livingClansmen, 3, "pre-winter starver should skip first winter tick death");
+        assertEq(winterClan.livingClansmen, 3, "fresh winter starver should match pre-winter cadence");
+    }
+
+    function test_winter_starvationWoodBurnUsesPreDeathLivingCount() public {
+        ClanWorldTestHarness harness = new ClanWorldTestHarness();
+        world = harness;
+        uint32 clanId = _mintClan();
+        uint64 winterStart = ClanWorldConstants.WINTER_START_TICK;
+        _advanceToTick(winterStart + 2);
+
+        harness.setClanUpkeepState(clanId, winterStart + 1, 25e17, 0, 0, 0);
+        harness.setClanStarvationStartsAtTick(clanId, winterStart);
+
+        world.settleClan(clanId);
+
+        Clan memory clan = world.getClan(clanId);
+        assertEq(clan.livingClansmen, 3, "starvation should kill one clansman");
+        assertEq(clan.vaultWood, 0, "wood should be consumed after shortage");
+        assertEq(clan.coldDamage, 1, "wood burn should use the pre-starvation living count");
+    }
+
+    function test_winterColdDamageResetIsLazyPerClanAfterPartialSettlement() public {
+        ClanWorldTestHarness harness = new ClanWorldTestHarness();
+        world = harness;
+        uint32 partiallySettledClan = _mintClan();
+        uint32 neverSettledClan = _mintClan();
+        uint64 winterStart = ClanWorldConstants.WINTER_START_TICK;
+        uint64 winterEnd = winterStart + ClanWorldConstants.WINTER_DURATION_TICKS;
+        _advanceToTick(winterStart + 3);
+
+        harness.setClanWallLevel(partiallySettledClan, 10);
+        harness.setClanWallLevel(neverSettledClan, 10);
+        harness.setClanUpkeepState(partiallySettledClan, winterStart, 0, 100e18, 100e18, 0);
+        harness.setClanUpkeepState(neverSettledClan, winterStart, 0, 100e18, 100e18, 0);
+
+        world.settleClan(partiallySettledClan);
+        Clan memory partialMidWinter = world.getClan(partiallySettledClan);
+        assertEq(partialMidWinter.wallLevel, 9, "three shortages should have degraded one wall level");
+        assertEq(partialMidWinter.coldDamage, 3, "mid-winter settlement should preserve accrued cold");
+
+        _advanceToTick(winterEnd);
+        world.settleClan(partiallySettledClan);
+        world.settleClan(neverSettledClan);
+
+        Clan memory partialAfterWinter = world.getClan(partiallySettledClan);
+        Clan memory neverAfterWinter = world.getClan(neverSettledClan);
+        assertEq(
+            partialAfterWinter.wallLevel, neverAfterWinter.wallLevel, "partial and lazy settlement should converge"
+        );
+        assertEq(partialAfterWinter.wallLevel, 5, "ten shortages should degrade five wall levels");
+        assertEq(partialAfterWinter.coldDamage, 0, "partial clan cold damage resets after crossing winter end");
+        assertEq(neverAfterWinter.coldDamage, 0, "lazy clan cold damage resets after crossing winter end");
+    }
+
+    function test_winterMintedClanStartsWithLockedEmptyWheatPlots() public {
+        uint64 winterStart = ClanWorldConstants.WINTER_START_TICK;
+        _advanceToTick(winterStart);
+
+        uint32 clanId = _mintClan();
+        ClanFullView memory view_ = world.getClanFullView(clanId);
+        assertEq(uint8(view_.westPlot.state), uint8(WheatPlotState.WinterLocked), "west plot should start locked");
+        assertEq(uint8(view_.eastPlot.state), uint8(WheatPlotState.WinterLocked), "east plot should start locked");
+        assertEq(view_.westPlot.remainingWheat, 0, "west locked plot should start empty");
+        assertEq(view_.eastPlot.remainingWheat, 0, "east locked plot should start empty");
+    }
+
+    function test_winterCropTransitionCapCoversCurrentClanCap() public {
+        for (uint256 i = 0; i < 12; i++) {
+            _mintClan();
+        }
+        assertGe(world.MAX_CROP_TRANSITION_PER_TICK(), 24, "transition cap must cover 12 clans x 2 plots");
+
+        uint64 winterStart = ClanWorldConstants.WINTER_START_TICK;
+        _advanceToTick(winterStart);
+        assertEq(world.getWorldState().currentTick, winterStart, "full clan cap should not brick winter heartbeat");
     }
 
     function test_starvation_kill_deferred_to_next_tick() public {

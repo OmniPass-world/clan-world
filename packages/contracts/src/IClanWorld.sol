@@ -26,6 +26,7 @@ pragma solidity ^0.8.34;
 library ClanWorldConstants {
     // World cadence
     uint64 internal constant HEARTBEAT_INTERVAL_SECONDS = 60;
+    // First winter opens at tick 110; ticks [100,110) remain pre-winter runway.
     uint64 internal constant WINTER_START_TICK = 110;
     uint64 internal constant WINTER_DURATION_TICKS = 10;
     uint64 internal constant WINTER_PERIOD_TICKS = 110;
@@ -507,9 +508,9 @@ interface IClanWorldEvents {
     event ClanEliminated(uint32 indexed clanId, uint64 indexed tick);
     event ClanDied(uint32 indexed clanId, uint64 tick, string reason);
     event ClanStarvationChanged(uint32 indexed clanId, bool isStarving, uint64 atTick);
-    event ClanColdShortage(uint32 indexed clanId, uint32 tick, uint256 woodShort);
-    event WallDegradedByCold(uint32 indexed clanId, uint8 newWallLevel, uint32 tick);
-    event ClansmanColdDeath(uint32 indexed clanId, uint32 csId, uint32 tick);
+    event ClanColdShortage(uint32 indexed clanId, uint64 tick, uint256 woodShort);
+    event WallDegradedByCold(uint32 indexed clanId, uint8 newWallLevel, uint64 tick);
+    event ClansmanColdDeath(uint32 indexed clanId, uint32 csId, uint64 tick);
 
     // ----- missions -----
     event MissionAssigned(

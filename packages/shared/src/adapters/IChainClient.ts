@@ -36,6 +36,8 @@ const CLAN_WORLD_ABI = [
           { name: 'seasonStartTick', type: 'uint64' },
           { name: 'seasonEndTick', type: 'uint64' },
           { name: 'seasonFinalized', type: 'bool' },
+          { name: 'currentSeasonNumber', type: 'uint64' },
+          { name: 'nextHeartbeatAtTick', type: 'uint64' },
           { name: 'winterActive', type: 'bool' },
           { name: 'winterStartsAtTick', type: 'uint64' },
           { name: 'winterEndsAtTick', type: 'uint64' },
