@@ -279,6 +279,48 @@ contract ClanWorld is IClanWorld {
     // INTERNAL SETTLEMENT
     // =========================================================================
 
+    /// @dev Settle a single clansman's mission for the tick range [fromTick, toTick).
+    ///      Handles all 6 mission lifecycle paths. Called from _settleClan and settleClansman.
+    function _settleMissionForClansman(
+        Clan storage clan,
+        Clansman storage cs,
+        uint32 clanId,
+        uint64 fromTick,
+        uint64 toTick
+    ) internal {
+        Mission storage m = _missions[cs.clansmanId];
+
+        // Path 6: dead clansman — invalidate active mission if any
+        if (cs.state == ClansmanState.DEAD) {
+            if (m.active) {
+                m.active = false; // silent invalidation; dead clansman gets no MissionCompleted
+            }
+            return;
+        }
+
+        if (!m.active) return; // no active mission — nothing to settle
+
+        bytes32 tickSeed;
+        for (uint64 tick = fromTick; tick < toTick; tick++) {
+            tickSeed = _tickSeeds[tick];
+
+            // Path 1 → Path 2 transition: TRAVELING → ACTING at arrivalTick
+            if (cs.state == ClansmanState.TRAVELING && tick >= m.arrivalTick) {
+                cs.state = ClansmanState.ACTING;
+                cs.currentRegion = m.targetRegion;
+                emit WorkerArrived(clanId, cs.clansmanId, m.targetRegion, tick);
+            }
+
+            // Path 3: ACTING at/past actionStartTick → resolve
+            if (cs.state == ClansmanState.ACTING && tick >= m.actionStartTick) {
+                _resolveAction(clan, cs, m, clanId, tick, tickSeed);
+            }
+
+            // If mission completed during this tick, stop iterating
+            if (!m.active) break;
+        }
+    }
+
     /// @dev Lazy settlement of a clan forward to currentTick.
     ///      Mutates storage. Called before order submission and by public settleClan().
     function _settleClan(uint32 clanId) internal {
@@ -313,27 +355,10 @@ contract ClanWorld is IClanWorld {
                 }
             }
 
-            // 3. Advance each clansman
-            bytes32 tickSeed = _tickSeeds[tick];
+            // 3. Advance each clansman (single-tick range: [tick, tick+1))
             for (uint256 i = 0; i < clansmanIds.length; i++) {
-                uint32 csId = clansmanIds[i];
-                Clansman storage cs = _clansmen[csId];
-                if (cs.state == ClansmanState.DEAD) continue;
-
-                Mission storage m = _missions[csId];
-                if (!m.active) continue;
-
-                // Travel advancement: if still traveling and this tick >= arrivalTick, arrive
-                if (cs.state == ClansmanState.TRAVELING && tick >= m.arrivalTick) {
-                    cs.state = ClansmanState.ACTING;
-                    cs.currentRegion = m.targetRegion;
-                    emit WorkerArrived(clanId, csId, m.targetRegion, tick);
-                }
-
-                // Action resolution: if acting and this tick >= actionStartTick
-                if (cs.state == ClansmanState.ACTING && tick >= m.actionStartTick) {
-                    _resolveAction(clan, cs, m, clanId, tick, tickSeed);
-                }
+                Clansman storage cs = _clansmen[clansmanIds[i]];
+                _settleMissionForClansman(clan, cs, clanId, tick, tick + 1);
             }
         }
 
@@ -841,6 +866,27 @@ contract ClanWorld is IClanWorld {
     /// @notice Public settlement trigger — lazily settle a clan.
     function settleClan(uint32 clanId) external override {
         _settleClan(clanId);
+    }
+
+    /// @notice Lazily settle a single clansman's mission to current tick. Idempotent.
+    ///         Clan-level upkeep (food deduction, plot regrow) is NOT applied here —
+    ///         call settleClan for full clan-level settlement. This function is for
+    ///         targeted clansman-level settlement only (e.g., on-demand before a read).
+    function settleClansman(uint32 csId) external override {
+        Clansman storage cs = _clansmen[csId];
+        if (cs.clansmanId == 0) return;
+        uint32 clanId = cs.clanId;
+        Clan storage clan = _clans[clanId];
+        if (clan.clanId == 0) return;
+
+        uint64 fromTick = clan.lastSettledTick;
+        uint64 curTick = _world.currentTick;
+        if (fromTick >= curTick) return;
+
+        // Cap to 200 ticks per call (same guard as settleClan)
+        if (curTick > fromTick + 200) curTick = fromTick + 200;
+
+        _settleMissionForClansman(clan, cs, clanId, fromTick, curTick);
     }
 
     /// @notice Finalize season. Phase 1 stub.

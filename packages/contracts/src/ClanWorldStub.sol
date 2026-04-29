@@ -76,6 +76,8 @@ contract ClanWorldStub is IClanWorld {
 
     function settleClan(uint32) external override {}
 
+    function settleClansman(uint32) external override {}
+
     function finalizeSeason() external override {}
 
     // -------------------------------------------------------------------------

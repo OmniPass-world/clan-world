@@ -634,6 +634,9 @@ interface IClanWorld is IClanWorldEvents {
     /// @notice Lazily settle a clan forward to current tick. Idempotent.
     function settleClan(uint32 clanId) external;
 
+    /// @notice Lazily settle a single clansman's mission to current tick. Idempotent.
+    function settleClansman(uint32 csId) external;
+
     /// @notice Finalize the current season. Permissionless after seasonEndTick.
     function finalizeSeason() external;
 
