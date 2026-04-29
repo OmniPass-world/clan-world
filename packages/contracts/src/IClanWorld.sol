@@ -26,8 +26,9 @@ pragma solidity ^0.8.34;
 library ClanWorldConstants {
     // World cadence
     uint64 internal constant HEARTBEAT_INTERVAL_SECONDS = 60;
-    uint64 internal constant TICKS_PER_WINTER_CYCLE = 110;
+    uint64 internal constant WINTER_START_TICK = 110;
     uint64 internal constant WINTER_DURATION_TICKS = 10;
+    uint64 internal constant WINTER_PERIOD_TICKS = 110;
     uint64 internal constant SEASON_DURATION_TICKS = 360;
 
     // Bandit cadence
@@ -489,8 +490,8 @@ struct RegionOccupant {
 interface IClanWorldEvents {
     // ----- world clock -----
     event TickAdvanced(uint64 closedTick, uint64 openedTick, bytes32 tickSeed);
-    event WinterStarted(uint64 indexed tick);
-    event WinterEnded(uint64 indexed tick);
+    event WinterStarted(uint32 indexed tick);
+    event WinterEnded(uint32 indexed tick);
     event SeasonFinalized(uint64 indexed tick, uint32[] rankedClanIds);
 
     // ----- clan lifecycle -----
@@ -709,6 +710,9 @@ interface IClanWorld is IClanWorldEvents {
         external
         view
         returns (uint64 submitted, uint64 executes, uint64 settles);
+
+    /// @notice True iff currentTick is inside the recurring winter window.
+    function isWinter() external view returns (bool);
 
     function getActionDuration(ActionType action) external pure returns (uint64);
 
