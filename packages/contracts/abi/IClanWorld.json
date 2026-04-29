@@ -114,7 +114,7 @@
       ],
       "outputs": [
         {
-          "name": "clanIds",
+          "name": "clansmanIds",
           "type": "uint32[]",
           "internalType": "uint32[]"
         }

@@ -182,6 +182,28 @@ contract DefendBaseTest is Test {
         _assertContains(defenders, seventhClanId);
     }
 
+    function test_getActiveDefenders_keepsTargetSpecificClansmanSemantics() public {
+        uint32 firstClanId = _mintClan();
+        uint8 sharedHome = world.getClan(firstClanId).baseRegion;
+        uint32 seventhClanId;
+        for (uint256 i = 0; i < 6; i++) {
+            seventhClanId = _mintClan();
+        }
+        assertEq(world.getClan(seventhClanId).baseRegion, sharedHome, "test setup shared home");
+
+        uint32 firstCsId = _firstCs(firstClanId);
+        uint32 seventhCsId = _firstCs(seventhClanId);
+        _submit(firstClanId, _defendOrder(firstCsId, sharedHome, firstClanId));
+        _submit(seventhClanId, _defendOrder(seventhCsId, sharedHome, seventhClanId));
+
+        uint32[] memory regionDefenders = world.getDefendingClans(sharedHome);
+        assertEq(regionDefenders.length, 2, "region index includes both defending clans");
+
+        uint32[] memory targetDefenders = world.getActiveDefenders(firstClanId);
+        assertEq(targetDefenders.length, 1, "target-specific getter excludes same-region defenders");
+        assertEq(targetDefenders[0], firstCsId, "returns target-specific clansman id");
+    }
+
     function test_nonDefendBaseMissionOverwritesDefendBase_dropsDefenderIndex() public {
         uint32 clanId = _mintClan();
         Clan memory clan = world.getClan(clanId);

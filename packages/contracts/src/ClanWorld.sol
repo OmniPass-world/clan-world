@@ -1740,8 +1740,32 @@ contract ClanWorld is IClanWorld {
         return _scheduledMarketActions[tick];
     }
 
-    function getActiveDefenders(uint32 targetClanId) external view override returns (uint32[] memory) {
-        return _defendingClansByRegion[_clans[targetClanId].baseRegion];
+    function getActiveDefenders(uint32 targetClanId) external view override returns (uint32[] memory clansmanIds) {
+        uint32[] storage defendingClans = _defendingClansByRegion[_clans[targetClanId].baseRegion];
+        uint256 count = 0;
+
+        for (uint256 i = 0; i < defendingClans.length; i++) {
+            uint32[] storage clanClansmen = _clanClansmanIds[defendingClans[i]];
+            for (uint256 j = 0; j < clanClansmen.length; j++) {
+                Mission storage mission = _missions[clanClansmen[j]];
+                if (mission.active && mission.action == ActionType.DefendBase && mission.targetClanId == targetClanId) {
+                    count++;
+                }
+            }
+        }
+
+        clansmanIds = new uint32[](count);
+        uint256 out = 0;
+        for (uint256 i = 0; i < defendingClans.length; i++) {
+            uint32[] storage clanClansmen = _clanClansmanIds[defendingClans[i]];
+            for (uint256 j = 0; j < clanClansmen.length; j++) {
+                uint32 clansmanId = clanClansmen[j];
+                Mission storage mission = _missions[clansmanId];
+                if (mission.active && mission.action == ActionType.DefendBase && mission.targetClanId == targetClanId) {
+                    clansmanIds[out++] = clansmanId;
+                }
+            }
+        }
     }
 
     function getDefendingClans(uint8 region) external view override returns (uint32[] memory) {
