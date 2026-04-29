@@ -1261,9 +1261,97 @@ contract ClanWorldTest is Test {
         );
 
         // Warp past cooldown and try again — should succeed
+        // Note: the cooldown check uses strict less-than (`block.timestamp < cs.cooldownEndsAtTs`),
+        // so `timestamp == cooldownEndsAtTs` is already expired (boundary is inclusive).
+        // The +1 warp here is conservative; test_phase3E5b_cooldown_exactBoundary verifies the exact boundary.
         vm.warp(cs.cooldownEndsAtTs + 1);
         OrderResult[] memory r3 = _submitOrder(clanId, csId, homeRegion, ActionType.Wait);
         assertEq(uint8(r3[0].status), uint8(StatusCode.OK), "3.E5: after cooldown expires must succeed");
+    }
+
+    // -------------------------------------------------------------------------
+    // 3.E5b: Cooldown exact boundary — at exactly cooldownEndsAtTs, order is accepted
+    // (contract uses strict `<`, so `timestamp == cooldownEndsAtTs` passes)
+    // -------------------------------------------------------------------------
+
+    function test_phase3E5b_cooldown_exactBoundary() public {
+        uint32 clanId = _mintClan();
+        ClanFullView memory v = world.getClanFullView(clanId);
+        uint32 csId = v.clansmen[0].clansman.clansman.clansmanId;
+        uint8 homeRegion = v.clan.clan.baseRegion;
+
+        // Submit first order — sets cooldown
+        OrderResult[] memory r1 = _submitOrder(clanId, csId, homeRegion, ActionType.Wait);
+        assertEq(uint8(r1[0].status), uint8(StatusCode.OK), "3.E5b: first order must succeed");
+        uint64 cooldownEndsAt = r1[0].cooldownEndsAtTs;
+        assertGt(cooldownEndsAt, 0, "3.E5b: cooldown must be set");
+
+        // Warp to exactly cooldownEndsAtTs (not +1) — the strict-less-than guard means
+        // `block.timestamp < cooldownEndsAtTs` is false, so cooldown is considered expired.
+        vm.warp(cooldownEndsAt);
+
+        // Order must be accepted at the exact boundary
+        OrderResult[] memory r2 = _submitOrder(clanId, csId, homeRegion, ActionType.Wait);
+        assertEq(
+            uint8(r2[0].status),
+            uint8(StatusCode.OK),
+            "3.E5b: order at exact cooldownEndsAtTs must succeed (boundary inclusive)"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // 3.phase3: DefendBase does not call _completeMission — cooldown must not slide
+    // -------------------------------------------------------------------------
+
+    function test_phase3_defendBase_noCompletionCooldownSlide() public {
+        uint32 clanId = _mintClan();
+        ClanFullView memory v = world.getClanFullView(clanId);
+        uint32 csId = v.clansmen[0].clansman.clansman.clansmanId;
+        uint8 baseRegion = v.clan.clan.baseRegion;
+
+        // Submit DefendBase to own clan — same region → zero travel → instant ACTING
+        ClanOrder[] memory orders = new ClanOrder[](1);
+        orders[0] = ClanOrder({
+            clansmanId: csId,
+            gotoRegion: baseRegion,
+            action: ActionType.DefendBase,
+            targetClanId: clanId,
+            marketToken: address(0),
+            marketAmount: 0,
+            maxGoldIn: 0
+        });
+        vm.prank(elder);
+        OrderResult[] memory r = world.submitClanOrders(clanId, orders);
+        assertEq(uint8(r[0].status), uint8(StatusCode.OK), "DefendBase order must succeed");
+
+        // Wait for submit-time cooldown to expire before settling
+        vm.warp(block.timestamp + ClanWorldConstants.CLANSMAN_COOLDOWN_SECONDS + 1);
+        _advanceTick();
+        world.settleClan(clanId);
+
+        // Record cooldown after initial settlement
+        uint64 cooldownAfterSubmit = world.getClansman(csId).cooldownEndsAtTs;
+
+        // Run 3 more settle ticks — each calls _resolveAction for DefendBase
+        // DefendBase does NOT call _completeMission, so cooldown must stay flat
+        for (uint256 i = 0; i < 3; i++) {
+            _advanceTick();
+            world.settleClan(clanId);
+            uint64 cooldownNow = world.getClansman(csId).cooldownEndsAtTs;
+            assertEq(
+                cooldownNow,
+                cooldownAfterSubmit,
+                "DefendBase must not slide cooldown: _completeMission must not be called per tick"
+            );
+        }
+
+        // Clansman must still be ACTING (continuous defender, not returned to WAITING)
+        Clansman memory cs = world.getClansman(csId);
+        assertEq(
+            uint8(cs.state),
+            uint8(ClansmanState.ACTING),
+            "DefendBase clansman must remain ACTING after 3 settlement ticks"
+        );
     }
 
     // -------------------------------------------------------------------------
