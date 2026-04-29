@@ -216,6 +216,19 @@ contract ClanWorldStub is IClanWorld {
         return (0, 0);
     }
 
+    function getBaseUpgradeCost(uint8 currentLevel)
+        external
+        pure
+        override
+        returns (uint256 wood, uint256 iron, uint256 wheat)
+    {
+        if (currentLevel == 1) return (40e18, 0, 20e18);
+        if (currentLevel == 2) return (60e18, 5e18, 30e18);
+        if (currentLevel == 3) return (80e18, 10e18, 40e18);
+        if (currentLevel == 4) return (100e18, 15e18, 50e18);
+        return (0, 0, 0);
+    }
+
     function getActionDuration(ActionType) external pure override returns (uint64) {
         return 0;
     }
