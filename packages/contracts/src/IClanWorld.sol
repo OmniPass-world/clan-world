@@ -84,6 +84,10 @@ library ClanWorldConstants {
     uint8 internal constant REGION_EAST_DOCKS = 7;
     uint8 internal constant REGION_DEEP_SEA = 8;
 
+    // Market event resource ids. ResourceType covers the four vault resources;
+    // gold is the quote asset emitted as resource id 4.
+    uint8 internal constant RESOURCE_GOLD = 4;
+
     // Sentinels
     uint32 internal constant CLAN_ID_NULL = 0; // valid clan IDs start at 1
     uint32 internal constant BANDIT_ID_NULL = 0;
@@ -178,7 +182,8 @@ enum StatusCode {
     ERR_NO_ACTIVE_BANDIT,
     ERR_SEASON_ENDED,
     ERR_NOT_ENOUGH_GOLD,
-    ERR_CARRY_FULL
+    ERR_CARRY_FULL,
+    ERR_MARKET_INSUFFICIENT_LIQUIDITY
 }
 
 // =============================================================================
@@ -190,8 +195,8 @@ struct WorldState {
     uint64 seasonStartTick;
     uint64 seasonEndTick;
     bool seasonFinalized;
-    uint64 currentSeasonNumber;   // 1-indexed; incremented each time seasonEndTick is crossed
-    uint64 nextHeartbeatAtTick;   // estimated tick that will be opened by the next heartbeat (for off-chain UI)
+    uint64 currentSeasonNumber; // 1-indexed; incremented each time seasonEndTick is crossed
+    uint64 nextHeartbeatAtTick; // estimated tick that will be opened by the next heartbeat (for off-chain UI)
 
     uint64 nextHeartbeatAtTs;
     uint64 nextBanditSpawnEligibleTick;
@@ -551,22 +556,26 @@ interface IClanWorldEvents {
     // ----- market -----
     event ImmediateMarketActionExecuted(
         uint32 indexed clanId,
-        uint32 indexed clansmanId,
-        address tokenIn,
-        address tokenOut,
+        uint32 csId,
+        ActionType action,
+        uint8 resourceIn,
         uint256 amountIn,
+        uint8 resourceOut,
         uint256 amountOut,
-        uint64 atTick
+        uint64 tick
     );
     event ScheduledMarketActionExecuted(
-        uint64 indexed executeAtTick,
-        uint64 indexed commitSequence,
         uint32 indexed clanId,
-        uint32 clansmanId,
-        address tokenIn,
-        address tokenOut,
+        uint32 csId,
+        ActionType action,
+        uint8 resourceIn,
         uint256 amountIn,
-        uint256 amountOut
+        uint8 resourceOut,
+        uint256 amountOut,
+        uint64 settledAtTick
+    );
+    event MarketActionFailed(
+        uint32 indexed clanId, uint32 csId, ActionType action, MarketExecutionMode mode, StatusCode reason, uint64 tick
     );
     event ScheduledMarketActionCommitted(
         uint64 indexed executeAtTick,
@@ -578,7 +587,6 @@ interface IClanWorldEvents {
         uint256 marketAmount,
         uint256 maxGoldIn
     );
-    event MarketActionFailed(uint32 indexed clanId, uint32 indexed clansmanId, ActionType action, StatusCode reason);
     event ResourceMinted(uint8 indexed resourceType, address indexed to, uint256 amount);
     event ResourceBurned(uint8 indexed resourceType, address indexed from, uint256 amount);
 

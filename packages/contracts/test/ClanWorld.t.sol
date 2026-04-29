@@ -741,11 +741,10 @@ contract ClanWorldTest is Test {
         return world.getClanFullView(clanId).clansmen[0].clansman.clansman.clansmanId;
     }
 
-    function _setupHarnessClanAt(
-        ClansmanState state,
-        uint8 region,
-        uint64 cooldownEndsAtTs
-    ) internal returns (ClanWorldTestHarness harness, address woodAddr, uint32 clanId, uint32 csId) {
+    function _setupHarnessClanAt(ClansmanState state, uint8 region, uint64 cooldownEndsAtTs)
+        internal
+        returns (ClanWorldTestHarness harness, address woodAddr, uint32 clanId, uint32 csId)
+    {
         harness = new ClanWorldTestHarness();
         world = harness;
         woodAddr = _setupMarket();
@@ -759,9 +758,19 @@ contract ClanWorldTest is Test {
             _setupHarnessClanAt(ClansmanState.WAITING, ClanWorldConstants.REGION_UNICORN_TOWN, 0);
 
         Clan memory beforeClan = world.getClan(clanId);
+        uint256 expectedGoldOut = woodPool.getAmountOutForExactIn(5e18);
 
-        vm.expectEmit(true, true, false, false);
-        emit IClanWorldEvents.ImmediateMarketActionExecuted(clanId, csId, woodAddr, address(goldToken), 5e18, 0, 0);
+        vm.expectEmit(true, false, false, true);
+        emit IClanWorldEvents.ImmediateMarketActionExecuted(
+            clanId,
+            csId,
+            ActionType.MarketSell,
+            uint8(ResourceType.Wood),
+            5e18,
+            ClanWorldConstants.RESOURCE_GOLD,
+            expectedGoldOut,
+            world.getWorldState().currentTick
+        );
         OrderResult[] memory r = _submitMarketOrder(clanId, csId, ActionType.MarketSell, woodAddr, 5e18, 0);
 
         Clan memory afterClan = world.getClan(clanId);
@@ -838,7 +847,19 @@ contract ClanWorldTest is Test {
             _setupHarnessClanAt(ClansmanState.WAITING, ClanWorldConstants.REGION_UNICORN_TOWN, 0);
 
         Clan memory beforeClan = world.getClan(clanId);
+        uint256 expectedGoldIn = woodPool.getAmountInForExactOut(1e18);
 
+        vm.expectEmit(true, false, false, true);
+        emit IClanWorldEvents.ImmediateMarketActionExecuted(
+            clanId,
+            csId,
+            ActionType.MarketBuy,
+            ClanWorldConstants.RESOURCE_GOLD,
+            expectedGoldIn,
+            uint8(ResourceType.Wood),
+            1e18,
+            world.getWorldState().currentTick
+        );
         OrderResult[] memory r = _submitMarketOrder(clanId, csId, ActionType.MarketBuy, woodAddr, 1e18, 2e18);
 
         Clan memory afterClan = world.getClan(clanId);
@@ -855,8 +876,15 @@ contract ClanWorldTest is Test {
 
         Clan memory beforeClan = world.getClan(clanId);
 
-        vm.expectEmit(true, true, false, true);
-        emit IClanWorldEvents.MarketActionFailed(clanId, csId, ActionType.MarketBuy, StatusCode.ERR_INVALID_ACTION);
+        vm.expectEmit(true, false, false, true);
+        emit IClanWorldEvents.MarketActionFailed(
+            clanId,
+            csId,
+            ActionType.MarketBuy,
+            MarketExecutionMode.Immediate,
+            StatusCode.ERR_MARKET_INSUFFICIENT_LIQUIDITY,
+            world.getWorldState().currentTick
+        );
         OrderResult[] memory r = _submitMarketOrder(
             clanId, csId, ActionType.MarketBuy, woodAddr, world.INITIAL_RESOURCE_POOL_SEED() + 1, type(uint256).max
         );
@@ -865,7 +893,9 @@ contract ClanWorldTest is Test {
         Clansman memory cs = world.getClansman(csId);
 
         assertEq(uint8(r[0].status), uint8(StatusCode.OK), "failed immediate action is still accepted");
-        assertEq(uint8(r[0].marketMode), uint8(MarketExecutionMode.Immediate), "failed immediate action stays immediate");
+        assertEq(
+            uint8(r[0].marketMode), uint8(MarketExecutionMode.Immediate), "failed immediate action stays immediate"
+        );
         assertEq(afterClan.vaultWood, beforeClan.vaultWood, "failed buy should not credit resources");
         assertEq(afterClan.goldBalance, beforeClan.goldBalance, "failed buy should not debit gold");
         assertGt(cs.cooldownEndsAtTs, block.timestamp, "failed immediate action should consume cooldown");
@@ -878,9 +908,14 @@ contract ClanWorldTest is Test {
 
         Clan memory beforeClan = world.getClan(clanId);
 
-        vm.expectEmit(true, true, false, true);
+        vm.expectEmit(true, false, false, true);
         emit IClanWorldEvents.MarketActionFailed(
-            clanId, csId, ActionType.MarketBuy, StatusCode.ERR_MARKET_BUY_MAX_GOLD_EXCEEDED
+            clanId,
+            csId,
+            ActionType.MarketBuy,
+            MarketExecutionMode.Immediate,
+            StatusCode.ERR_MARKET_BUY_MAX_GOLD_EXCEEDED,
+            world.getWorldState().currentTick
         );
         OrderResult[] memory r = _submitMarketOrder(clanId, csId, ActionType.MarketBuy, woodAddr, 1e18, 0);
 
@@ -914,13 +949,26 @@ contract ClanWorldTest is Test {
         // Find out which tick the action fires
         Mission memory m = world.getActiveMission(csId);
         uint64 executeAtTick = m.settlesAtTick;
+        uint256 expectedGoldOut = woodPool.getAmountOutForExactIn(5e18);
 
-        // Advance ticks until heartbeat closes executeAtTick
+        // Advance ticks until the heartbeat before executeAtTick
         uint64 curTick = world.getWorldState().currentTick;
-        uint256 ticksNeeded = uint256(executeAtTick - curTick) + 1;
-        for (uint256 i = 0; i < ticksNeeded; i++) {
+        for (uint256 i = 0; i < uint256(executeAtTick - curTick); i++) {
             _advanceTick();
         }
+
+        vm.expectEmit(true, false, false, true);
+        emit IClanWorldEvents.ScheduledMarketActionExecuted(
+            clanId,
+            csId,
+            ActionType.MarketSell,
+            uint8(ResourceType.Wood),
+            5e18,
+            ClanWorldConstants.RESOURCE_GOLD,
+            expectedGoldOut,
+            executeAtTick
+        );
+        _advanceTick();
 
         // Settle clan to apply any mission resolution
         world.settleClan(clanId);
@@ -992,9 +1040,14 @@ contract ClanWorldTest is Test {
 
         // Now the next heartbeat will close executeAtTick — that's when MarketActionFailed fires
         // Place expectEmit right before the final heartbeat
-        vm.expectEmit(true, true, false, true);
+        vm.expectEmit(true, false, false, true);
         emit IClanWorldEvents.MarketActionFailed(
-            clanId, csId, ActionType.MarketBuy, StatusCode.ERR_MARKET_BUY_MAX_GOLD_EXCEEDED
+            clanId,
+            csId,
+            ActionType.MarketBuy,
+            MarketExecutionMode.Scheduled,
+            StatusCode.ERR_MARKET_BUY_MAX_GOLD_EXCEEDED,
+            executeAtTick
         );
         _advanceTick();
 
@@ -1048,8 +1101,12 @@ contract ClanWorldTest is Test {
         uint64 newExecuteAtTick = newMission.settlesAtTick;
         assertGt(newMission.nonce, oldMission.nonce, "replacement should bump nonce");
 
-        assertEq(world.getScheduledMarketActionsForTick(oldExecuteAtTick).length, 0, "old mission not queued before settle");
-        assertEq(world.getScheduledMarketActionsForTick(newExecuteAtTick).length, 0, "new mission not queued before settle");
+        assertEq(
+            world.getScheduledMarketActionsForTick(oldExecuteAtTick).length, 0, "old mission not queued before settle"
+        );
+        assertEq(
+            world.getScheduledMarketActionsForTick(newExecuteAtTick).length, 0, "new mission not queued before settle"
+        );
 
         uint256 goldBefore = world.getClan(clanId).goldBalance;
 
@@ -1095,7 +1152,7 @@ contract ClanWorldTest is Test {
 
         uint64 executeAtTick = 3;
         bytes32 executedSig =
-            keccak256("ScheduledMarketActionExecuted(uint64,uint64,uint32,uint32,address,address,uint256,uint256)");
+            keccak256("ScheduledMarketActionExecuted(uint32,uint32,uint8,uint8,uint256,uint8,uint256,uint64)");
 
         _advanceTick(); // close tick 1
         _advanceTick(); // close tick 2
@@ -1109,7 +1166,9 @@ contract ClanWorldTest is Test {
             if (logs[i].emitter != address(world) || logs[i].topics.length == 0 || logs[i].topics[0] != executedSig) {
                 continue;
             }
-            if (uint64(uint256(logs[i].topics[1])) != executeAtTick) continue;
+            (,,,,,, uint64 settledAtTick) =
+                abi.decode(logs[i].data, (uint32, ActionType, uint8, uint256, uint8, uint256, uint64));
+            if (settledAtTick != executeAtTick) continue;
             executedCount++;
         }
 
@@ -1134,7 +1193,7 @@ contract ClanWorldTest is Test {
                 action: ActionType.MarketSell,
                 targetClanId: 0,
                 marketToken: woodAddr,
-                marketAmount: 2e18,
+                marketAmount: uint256(i + 1) * 1e18,
                 maxGoldIn: 0
             });
         }
@@ -1147,7 +1206,7 @@ contract ClanWorldTest is Test {
         Mission memory m = world.getActiveMission(orders[0].clansmanId);
         uint64 executeAtTick = m.settlesAtTick;
         bytes32 executedSig =
-            keccak256("ScheduledMarketActionExecuted(uint64,uint64,uint32,uint32,address,address,uint256,uint256)");
+            keccak256("ScheduledMarketActionExecuted(uint32,uint32,uint8,uint8,uint256,uint8,uint256,uint64)");
 
         while (world.getWorldState().currentTick < executeAtTick) {
             _advanceTick();
@@ -1157,18 +1216,18 @@ contract ClanWorldTest is Test {
         _advanceTick();
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        uint64 previousSeq;
         uint256 executedCount;
         for (uint256 i = 0; i < logs.length; i++) {
             if (logs[i].emitter != address(world) || logs[i].topics.length == 0 || logs[i].topics[0] != executedSig) {
                 continue;
             }
-            if (uint64(uint256(logs[i].topics[1])) != executeAtTick) continue;
+            (,, uint8 resourceIn, uint256 amountIn,,, uint64 settledAtTick) =
+                abi.decode(logs[i].data, (uint32, ActionType, uint8, uint256, uint8, uint256, uint64));
+            if (settledAtTick != executeAtTick) continue;
 
-            uint64 seq = uint64(uint256(logs[i].topics[2]));
-            if (executedCount > 0) assertGt(seq, previousSeq, "execution should be FIFO");
-            assertEq(uint32(uint256(logs[i].topics[3])), clanId, "same clan should execute");
-            previousSeq = seq;
+            assertEq(uint32(uint256(logs[i].topics[1])), clanId, "same clan should execute");
+            assertEq(resourceIn, uint8(ResourceType.Wood), "sell should input wood");
+            assertEq(amountIn, uint256(executedCount + 1) * 1e18, "execution should be FIFO");
             executedCount++;
         }
 
@@ -1224,13 +1283,38 @@ contract ClanWorldTest is Test {
         uint64 maxTick = m1.settlesAtTick > m2.settlesAtTick ? m1.settlesAtTick : m2.settlesAtTick;
         uint64 curTick = world.getWorldState().currentTick;
         uint256 ticksNeeded = uint256(maxTick - curTick) + 1;
+        bytes32 scheduledSig =
+            keccak256("ScheduledMarketActionExecuted(uint32,uint32,uint8,uint8,uint256,uint8,uint256,uint64)");
+        vm.recordLogs();
         for (uint256 i = 0; i < ticksNeeded; i++) {
             _advanceTick();
+        }
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        bool sawClan1SellEvent;
+        bool sawClan2BuyEvent;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter != address(world) || logs[i].topics.length == 0 || logs[i].topics[0] != scheduledSig) {
+                continue;
+            }
+
+            uint32 eventClanId = uint32(uint256(logs[i].topics[1]));
+            (uint32 eventCsId, ActionType eventAction,,,,,) =
+                abi.decode(logs[i].data, (uint32, ActionType, uint8, uint256, uint8, uint256, uint64));
+
+            if (eventClanId == clanId1 && eventCsId == csId1 && eventAction == ActionType.MarketSell) {
+                sawClan1SellEvent = true;
+            }
+            if (eventClanId == clanId2 && eventCsId == csId2 && eventAction == ActionType.MarketBuy) {
+                sawClan2BuyEvent = true;
+            }
         }
 
         world.settleClan(clanId1);
         world.settleClan(clanId2);
 
+        assertTrue(sawClan1SellEvent, "sell event should carry clan1 id");
+        assertTrue(sawClan2BuyEvent, "buy event should carry clan2 id");
         // Clan1 sold wood → gold should increase
         assertGt(world.getClan(clanId1).goldBalance, 3e18, "clan1 should have more gold after sell");
         // Clan2 bought wood → vault wood should increase beyond starter 20e18

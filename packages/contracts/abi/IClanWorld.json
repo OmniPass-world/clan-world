@@ -1698,11 +1698,6 @@
               "name": "missionNonce",
               "type": "uint64",
               "internalType": "uint64"
-            },
-            {
-              "name": "marketMode",
-              "type": "uint8",
-              "internalType": "enum MarketExecutionMode"
             }
           ]
         }
@@ -2447,6 +2442,11 @@
               "name": "missionNonce",
               "type": "uint64",
               "internalType": "uint64"
+            },
+            {
+              "name": "marketMode",
+              "type": "uint8",
+              "internalType": "enum MarketExecutionMode"
             }
           ]
         }
@@ -3070,22 +3070,22 @@
           "internalType": "uint32"
         },
         {
-          "name": "clansmanId",
+          "name": "csId",
           "type": "uint32",
-          "indexed": true,
+          "indexed": false,
           "internalType": "uint32"
         },
         {
-          "name": "tokenIn",
-          "type": "address",
+          "name": "action",
+          "type": "uint8",
           "indexed": false,
-          "internalType": "address"
+          "internalType": "enum ActionType"
         },
         {
-          "name": "tokenOut",
-          "type": "address",
+          "name": "resourceIn",
+          "type": "uint8",
           "indexed": false,
-          "internalType": "address"
+          "internalType": "uint8"
         },
         {
           "name": "amountIn",
@@ -3094,13 +3094,19 @@
           "internalType": "uint256"
         },
         {
+          "name": "resourceOut",
+          "type": "uint8",
+          "indexed": false,
+          "internalType": "uint8"
+        },
+        {
           "name": "amountOut",
           "type": "uint256",
           "indexed": false,
           "internalType": "uint256"
         },
         {
-          "name": "atTick",
+          "name": "tick",
           "type": "uint64",
           "indexed": false,
           "internalType": "uint64"
@@ -3168,9 +3174,9 @@
           "internalType": "uint32"
         },
         {
-          "name": "clansmanId",
+          "name": "csId",
           "type": "uint32",
-          "indexed": true,
+          "indexed": false,
           "internalType": "uint32"
         },
         {
@@ -3180,10 +3186,22 @@
           "internalType": "enum ActionType"
         },
         {
+          "name": "mode",
+          "type": "uint8",
+          "indexed": false,
+          "internalType": "enum MarketExecutionMode"
+        },
+        {
           "name": "reason",
           "type": "uint8",
           "indexed": false,
           "internalType": "enum StatusCode"
+        },
+        {
+          "name": "tick",
+          "type": "uint64",
+          "indexed": false,
+          "internalType": "uint64"
         }
       ],
       "anonymous": false
@@ -3587,40 +3605,28 @@
       "name": "ScheduledMarketActionExecuted",
       "inputs": [
         {
-          "name": "executeAtTick",
-          "type": "uint64",
-          "indexed": true,
-          "internalType": "uint64"
-        },
-        {
-          "name": "commitSequence",
-          "type": "uint64",
-          "indexed": true,
-          "internalType": "uint64"
-        },
-        {
           "name": "clanId",
           "type": "uint32",
           "indexed": true,
           "internalType": "uint32"
         },
         {
-          "name": "clansmanId",
+          "name": "csId",
           "type": "uint32",
           "indexed": false,
           "internalType": "uint32"
         },
         {
-          "name": "tokenIn",
-          "type": "address",
+          "name": "action",
+          "type": "uint8",
           "indexed": false,
-          "internalType": "address"
+          "internalType": "enum ActionType"
         },
         {
-          "name": "tokenOut",
-          "type": "address",
+          "name": "resourceIn",
+          "type": "uint8",
           "indexed": false,
-          "internalType": "address"
+          "internalType": "uint8"
         },
         {
           "name": "amountIn",
@@ -3629,10 +3635,22 @@
           "internalType": "uint256"
         },
         {
+          "name": "resourceOut",
+          "type": "uint8",
+          "indexed": false,
+          "internalType": "uint8"
+        },
+        {
           "name": "amountOut",
           "type": "uint256",
           "indexed": false,
           "internalType": "uint256"
+        },
+        {
+          "name": "settledAtTick",
+          "type": "uint64",
+          "indexed": false,
+          "internalType": "uint64"
         }
       ],
       "anonymous": false

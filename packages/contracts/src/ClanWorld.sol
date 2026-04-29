@@ -96,8 +96,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         _world.nextHeartbeatAtTick = 1; // first heartbeat will open tick 1
         // First winter: last WINTER_DURATION_TICKS of first TICKS_PER_WINTER_CYCLE cycle
         // i.e. ticks [100, 110)
-        _world.winterStartsAtTick =
-            ClanWorldConstants.TICKS_PER_WINTER_CYCLE - ClanWorldConstants.WINTER_DURATION_TICKS; // = 100
+        _world.winterStartsAtTick = ClanWorldConstants.TICKS_PER_WINTER_CYCLE - ClanWorldConstants.WINTER_DURATION_TICKS; // = 100
         _world.winterEndsAtTick = ClanWorldConstants.TICKS_PER_WINTER_CYCLE; // = 110
         _world.winterActive = false;
         _treasury.treasuryOwner = msg.sender;
@@ -1334,14 +1333,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         });
         _scheduledMarketActions[executeAtTick].push(sma);
         emit ScheduledMarketActionCommitted(
-            executeAtTick,
-            sma.commitSequence,
-            clanId,
-            clansmanId,
-            m.action,
-            m.marketToken,
-            m.marketAmount,
-            m.maxGoldIn
+            executeAtTick, sma.commitSequence, clanId, clansmanId, m.action, m.marketToken, m.marketAmount, m.maxGoldIn
         );
     }
 
@@ -1397,7 +1389,14 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             // Validate clansman still belongs to the clan
             Clansman storage cs = _clansmen[sma.clansmanId];
             if (cs.clanId != sma.clanId || cs.state == ClansmanState.DEAD) {
-                emit MarketActionFailed(sma.clanId, sma.clansmanId, sma.action, StatusCode.ERR_INVALID_CLANSMAN);
+                _emitMarketActionFailed(
+                    sma.clanId,
+                    sma.clansmanId,
+                    sma.action,
+                    MarketExecutionMode.Scheduled,
+                    StatusCode.ERR_INVALID_CLANSMAN,
+                    tick
+                );
                 continue;
             }
 
@@ -1406,7 +1405,14 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             // cannot use m.active as a validity signal here — check action type and nonce.
             Mission storage m = _missions[sma.clansmanId];
             if (m.action != sma.action || m.nonce != sma.missionNonce) {
-                emit MarketActionFailed(sma.clanId, sma.clansmanId, sma.action, StatusCode.ERR_INVALID_ACTION);
+                _emitMarketActionFailed(
+                    sma.clanId,
+                    sma.clansmanId,
+                    sma.action,
+                    MarketExecutionMode.Scheduled,
+                    StatusCode.ERR_INVALID_ACTION,
+                    tick
+                );
                 continue;
             }
 
@@ -1417,7 +1423,14 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
                 // success
                 }
                 catch {
-                    emit MarketActionFailed(sma.clanId, sma.clansmanId, sma.action, StatusCode.ERR_INVALID_ACTION);
+                    _emitMarketActionFailed(
+                        sma.clanId,
+                        sma.clansmanId,
+                        sma.action,
+                        MarketExecutionMode.Scheduled,
+                        StatusCode.ERR_INVALID_ACTION,
+                        tick
+                    );
                 }
             } else if (sma.action == ActionType.MarketBuy) {
                 try this._executeMarketBuyExternal(
@@ -1432,7 +1445,14 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
                 // success
                 }
                 catch {
-                    emit MarketActionFailed(sma.clanId, sma.clansmanId, sma.action, StatusCode.ERR_INVALID_ACTION);
+                    _emitMarketActionFailed(
+                        sma.clanId,
+                        sma.clansmanId,
+                        sma.action,
+                        MarketExecutionMode.Scheduled,
+                        StatusCode.ERR_INVALID_ACTION,
+                        tick
+                    );
                 }
             }
         }
@@ -1459,10 +1479,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         uint32 clansmanId,
         address token,
         uint256 amount,
-        uint64 commitSequence
+        uint64
     ) external {
         require(msg.sender == address(this), "ClanWorld: internal only");
-        _executeMarketSell(closedTick, clanId, clansmanId, token, amount, commitSequence);
+        _executeMarketSell(closedTick, clanId, clansmanId, token, amount);
     }
 
     /// @dev External wrapper for _executeMarketBuy — enables try/catch from heartbeat loop.
@@ -1473,10 +1493,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         address token,
         uint256 amountOut,
         uint256 maxGoldIn,
-        uint64 commitSequence
+        uint64
     ) external {
         require(msg.sender == address(this), "ClanWorld: internal only");
-        _executeMarketBuy(closedTick, clanId, clansmanId, token, amountOut, maxGoldIn, commitSequence);
+        _executeMarketBuy(closedTick, clanId, clansmanId, token, amountOut, maxGoldIn);
     }
 
     /// @dev Map a resource token address to its pool address.
@@ -1486,6 +1506,27 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         if (token == _treasury.wheatToken) return _treasury.wheatGoldPool;
         if (token == _treasury.fishToken) return _treasury.fishGoldPool;
         return address(0);
+    }
+
+    /// @dev Map a market token address to the canonical uint8 resource id used by market events.
+    function _marketResourceForToken(address token) internal view returns (uint8) {
+        if (token == _treasury.woodToken) return uint8(ResourceType.Wood);
+        if (token == _treasury.ironToken) return uint8(ResourceType.Iron);
+        if (token == _treasury.wheatToken) return uint8(ResourceType.Wheat);
+        if (token == _treasury.fishToken) return uint8(ResourceType.Fish);
+        if (token == _treasury.goldToken) return ClanWorldConstants.RESOURCE_GOLD;
+        revert("ClanWorld: invalid market resource");
+    }
+
+    function _emitMarketActionFailed(
+        uint32 clanId,
+        uint32 clansmanId,
+        ActionType action,
+        MarketExecutionMode mode,
+        StatusCode reason,
+        uint64 tick
+    ) internal {
+        emit MarketActionFailed(clanId, clansmanId, action, mode, reason, tick);
     }
 
     /// @dev Add an amount of a resource token to the clan vault.
@@ -1552,18 +1593,39 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
     function _executeImmediateMarketSell(uint32 clanId, uint32 clansmanId, address token, uint256 amount) internal {
         if (!_treasury.poolsSeeded) {
-            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketSell, StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN);
+            _emitMarketActionFailed(
+                clanId,
+                clansmanId,
+                ActionType.MarketSell,
+                MarketExecutionMode.Immediate,
+                StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN,
+                _world.currentTick
+            );
             return;
         }
         address poolAddr = _poolFor(token);
         if (poolAddr == address(0)) {
-            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketSell, StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN);
+            _emitMarketActionFailed(
+                clanId,
+                clansmanId,
+                ActionType.MarketSell,
+                MarketExecutionMode.Immediate,
+                StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN,
+                _world.currentTick
+            );
             return;
         }
 
         Clan storage clan = _clans[clanId];
         if (!_hasVaultBalance(clan, token, amount)) {
-            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketSell, StatusCode.ERR_MISSING_RESOURCES);
+            _emitMarketActionFailed(
+                clanId,
+                clansmanId,
+                ActionType.MarketSell,
+                MarketExecutionMode.Immediate,
+                StatusCode.ERR_MISSING_RESOURCES,
+                _world.currentTick
+            );
             return;
         }
 
@@ -1571,10 +1633,24 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             _deductFromVault(clan, token, amount);
             clan.goldBalance += goldOut;
             emit ImmediateMarketActionExecuted(
-                clanId, clansmanId, token, _treasury.goldToken, amount, goldOut, _world.currentTick
+                clanId,
+                clansmanId,
+                ActionType.MarketSell,
+                _marketResourceForToken(token),
+                amount,
+                ClanWorldConstants.RESOURCE_GOLD,
+                goldOut,
+                _world.currentTick
             );
         } catch {
-            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketSell, StatusCode.ERR_INVALID_ACTION);
+            _emitMarketActionFailed(
+                clanId,
+                clansmanId,
+                ActionType.MarketSell,
+                MarketExecutionMode.Immediate,
+                StatusCode.ERR_MARKET_INSUFFICIENT_LIQUIDITY,
+                _world.currentTick
+            );
         }
     }
 
@@ -1586,12 +1662,26 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         uint256 maxGoldIn
     ) internal {
         if (!_treasury.poolsSeeded) {
-            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketBuy, StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN);
+            _emitMarketActionFailed(
+                clanId,
+                clansmanId,
+                ActionType.MarketBuy,
+                MarketExecutionMode.Immediate,
+                StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN,
+                _world.currentTick
+            );
             return;
         }
         address poolAddr = _poolFor(token);
         if (poolAddr == address(0)) {
-            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketBuy, StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN);
+            _emitMarketActionFailed(
+                clanId,
+                clansmanId,
+                ActionType.MarketBuy,
+                MarketExecutionMode.Immediate,
+                StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN,
+                _world.currentTick
+            );
             return;
         }
 
@@ -1599,19 +1689,38 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         try StubPool(poolAddr).getAmountInForExactOut(amountOut) returns (uint256 quotedGoldIn) {
             goldIn = quotedGoldIn;
         } catch {
-            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketBuy, StatusCode.ERR_INVALID_ACTION);
+            _emitMarketActionFailed(
+                clanId,
+                clansmanId,
+                ActionType.MarketBuy,
+                MarketExecutionMode.Immediate,
+                StatusCode.ERR_MARKET_INSUFFICIENT_LIQUIDITY,
+                _world.currentTick
+            );
             return;
         }
 
         Clan storage clan = _clans[clanId];
         if (goldIn > maxGoldIn) {
-            emit MarketActionFailed(
-                clanId, clansmanId, ActionType.MarketBuy, StatusCode.ERR_MARKET_BUY_MAX_GOLD_EXCEEDED
+            _emitMarketActionFailed(
+                clanId,
+                clansmanId,
+                ActionType.MarketBuy,
+                MarketExecutionMode.Immediate,
+                StatusCode.ERR_MARKET_BUY_MAX_GOLD_EXCEEDED,
+                _world.currentTick
             );
             return;
         }
         if (clan.goldBalance < goldIn) {
-            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketBuy, StatusCode.ERR_NOT_ENOUGH_GOLD);
+            _emitMarketActionFailed(
+                clanId,
+                clansmanId,
+                ActionType.MarketBuy,
+                MarketExecutionMode.Immediate,
+                StatusCode.ERR_NOT_ENOUGH_GOLD,
+                _world.currentTick
+            );
             return;
         }
 
@@ -1619,35 +1728,65 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             clan.goldBalance -= actualGoldIn;
             _addToVault(clan, token, amountOut);
             emit ImmediateMarketActionExecuted(
-                clanId, clansmanId, _treasury.goldToken, token, actualGoldIn, amountOut, _world.currentTick
+                clanId,
+                clansmanId,
+                ActionType.MarketBuy,
+                ClanWorldConstants.RESOURCE_GOLD,
+                actualGoldIn,
+                _marketResourceForToken(token),
+                amountOut,
+                _world.currentTick
             );
         } catch {
-            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketBuy, StatusCode.ERR_INVALID_ACTION);
+            _emitMarketActionFailed(
+                clanId,
+                clansmanId,
+                ActionType.MarketBuy,
+                MarketExecutionMode.Immediate,
+                StatusCode.ERR_INVALID_ACTION,
+                _world.currentTick
+            );
         }
     }
 
     /// @dev Execute a scheduled market sell: deduct resource from vault, credit gold.
-    function _executeMarketSell(
-        uint64 closedTick,
-        uint32 clanId,
-        uint32 clansmanId,
-        address token,
-        uint256 amount,
-        uint64 commitSequence
-    ) internal {
+    function _executeMarketSell(uint64 closedTick, uint32 clanId, uint32 clansmanId, address token, uint256 amount)
+        internal
+    {
         if (!_treasury.poolsSeeded) {
-            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketSell, StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN);
+            _emitMarketActionFailed(
+                clanId,
+                clansmanId,
+                ActionType.MarketSell,
+                MarketExecutionMode.Scheduled,
+                StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN,
+                closedTick
+            );
             return;
         }
         address poolAddr = _poolFor(token);
         if (poolAddr == address(0)) {
-            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketSell, StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN);
+            _emitMarketActionFailed(
+                clanId,
+                clansmanId,
+                ActionType.MarketSell,
+                MarketExecutionMode.Scheduled,
+                StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN,
+                closedTick
+            );
             return;
         }
 
         Clan storage clan = _clans[clanId];
         if (!_deductFromVault(clan, token, amount)) {
-            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketSell, StatusCode.ERR_MISSING_RESOURCES);
+            _emitMarketActionFailed(
+                clanId,
+                clansmanId,
+                ActionType.MarketSell,
+                MarketExecutionMode.Scheduled,
+                StatusCode.ERR_MISSING_RESOURCES,
+                closedTick
+            );
             return;
         }
 
@@ -1655,7 +1794,14 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         clan.goldBalance += goldOut;
 
         emit ScheduledMarketActionExecuted(
-            closedTick, commitSequence, clanId, clansmanId, token, _treasury.goldToken, amount, goldOut
+            clanId,
+            clansmanId,
+            ActionType.MarketSell,
+            _marketResourceForToken(token),
+            amount,
+            ClanWorldConstants.RESOURCE_GOLD,
+            goldOut,
+            closedTick
         );
     }
 
@@ -1666,32 +1812,70 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         uint32 clansmanId,
         address token,
         uint256 amountOut,
-        uint256 maxGoldIn,
-        uint64 commitSequence
+        uint256 maxGoldIn
     ) internal {
         if (!_treasury.poolsSeeded) {
-            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketBuy, StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN);
+            _emitMarketActionFailed(
+                clanId,
+                clansmanId,
+                ActionType.MarketBuy,
+                MarketExecutionMode.Scheduled,
+                StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN,
+                closedTick
+            );
             return;
         }
         address poolAddr = _poolFor(token);
         if (poolAddr == address(0)) {
-            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketBuy, StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN);
+            _emitMarketActionFailed(
+                clanId,
+                clansmanId,
+                ActionType.MarketBuy,
+                MarketExecutionMode.Scheduled,
+                StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN,
+                closedTick
+            );
             return;
         }
 
         // Quote gold cost without updating reserves
-        uint256 goldIn = StubPool(poolAddr).quoteBuy(amountOut);
+        uint256 goldIn;
+        try StubPool(poolAddr).quoteBuy(amountOut) returns (uint256 quotedGoldIn) {
+            goldIn = quotedGoldIn;
+        } catch {
+            _emitMarketActionFailed(
+                clanId,
+                clansmanId,
+                ActionType.MarketBuy,
+                MarketExecutionMode.Scheduled,
+                StatusCode.ERR_MARKET_INSUFFICIENT_LIQUIDITY,
+                closedTick
+            );
+            return;
+        }
 
         Clan storage clan = _clans[clanId];
 
         if (goldIn > maxGoldIn) {
-            emit MarketActionFailed(
-                clanId, clansmanId, ActionType.MarketBuy, StatusCode.ERR_MARKET_BUY_MAX_GOLD_EXCEEDED
+            _emitMarketActionFailed(
+                clanId,
+                clansmanId,
+                ActionType.MarketBuy,
+                MarketExecutionMode.Scheduled,
+                StatusCode.ERR_MARKET_BUY_MAX_GOLD_EXCEEDED,
+                closedTick
             );
             return;
         }
         if (clan.goldBalance < goldIn) {
-            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketBuy, StatusCode.ERR_NOT_ENOUGH_GOLD);
+            _emitMarketActionFailed(
+                clanId,
+                clansmanId,
+                ActionType.MarketBuy,
+                MarketExecutionMode.Scheduled,
+                StatusCode.ERR_NOT_ENOUGH_GOLD,
+                closedTick
+            );
             return;
         }
 
@@ -1701,7 +1885,14 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         _addToVault(clan, token, amountOut);
 
         emit ScheduledMarketActionExecuted(
-            closedTick, commitSequence, clanId, clansmanId, _treasury.goldToken, token, actualGoldIn, amountOut
+            clanId,
+            clansmanId,
+            ActionType.MarketBuy,
+            ClanWorldConstants.RESOURCE_GOLD,
+            actualGoldIn,
+            _marketResourceForToken(token),
+            amountOut,
+            closedTick
         );
     }
 
