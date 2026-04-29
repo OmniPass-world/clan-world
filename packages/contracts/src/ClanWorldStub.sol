@@ -229,6 +229,22 @@ contract ClanWorldStub is IClanWorld {
         return (0, 0, 0);
     }
 
+    function getMonumentUpgradeCost(uint8 currentLevel)
+        external
+        pure
+        override
+        returns (uint256 wood, uint256 iron, uint256 wheat, uint256 blueprint)
+    {
+        if (currentLevel == 0) return (30e18, 0, 20e18, 0);
+        if (currentLevel == 1) return (50e18, 0, 30e18, 0);
+        if (currentLevel == 2) return (70e18, 5e18, 40e18, 0);
+        if (currentLevel == 3) return (90e18, 10e18, 50e18, 0);
+        if (currentLevel == 4) return (120e18, 15e18, 60e18, 0);
+        if (currentLevel == 5) return (150e18, 20e18, 80e18, 0);
+        if (currentLevel >= 6 && currentLevel < 10) return (200e18, 25e18, 100e18, 1e18);
+        return (0, 0, 0, 0);
+    }
+
     function getActionDuration(ActionType) external pure override returns (uint64) {
         return 0;
     }

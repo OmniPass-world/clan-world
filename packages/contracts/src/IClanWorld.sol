@@ -549,6 +549,7 @@ interface IClanWorldEvents {
     event BaseLevelChanged(uint32 indexed clanId, uint8 oldLevel, uint8 newLevel, uint64 atTick);
     event BaseUpgraded(uint32 indexed clanId, uint8 newLevel, uint32 settledAtTick);
     event MonumentLevelChanged(uint32 indexed clanId, uint8 oldLevel, uint8 newLevel, uint64 atTick);
+    event MonumentUpgraded(uint32 indexed clanId, uint8 newLevel, uint32 settledAtTick);
 
     // ----- market -----
     event ImmediateMarketActionExecuted(
@@ -718,6 +719,11 @@ interface IClanWorld is IClanWorldEvents {
     function getWallUpgradeCost(uint8 currentLevel) external pure returns (uint256 wood, uint256 iron);
 
     function getBaseUpgradeCost(uint8 currentLevel) external pure returns (uint256 wood, uint256 iron, uint256 wheat);
+
+    function getMonumentUpgradeCost(uint8 currentLevel)
+        external
+        pure
+        returns (uint256 wood, uint256 iron, uint256 wheat, uint256 blueprint);
 
     function getActionDuration(ActionType action) external pure returns (uint64);
 

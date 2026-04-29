@@ -128,7 +128,7 @@ contract MissionTimingTest is Test {
         assertEq(world.getActionDuration(ActionType.DepositResources), 1, "deposit");
         assertEq(world.getActionDuration(ActionType.BuildWall), 1, "build wall");
         assertEq(world.getActionDuration(ActionType.UpgradeBase), 2, "upgrade base");
-        assertEq(world.getActionDuration(ActionType.UpgradeMonument), 1, "upgrade monument");
+        assertEq(world.getActionDuration(ActionType.UpgradeMonument), 4, "upgrade monument");
         assertEq(world.getActionDuration(ActionType.DefendBase), 0, "defend base");
         assertEq(world.getActionDuration(ActionType.MarketBuy), 1, "market buy");
         assertEq(world.getActionDuration(ActionType.MarketSell), 1, "market sell");

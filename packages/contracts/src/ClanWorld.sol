@@ -66,6 +66,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     mapping(uint32 => uint8) private _pendingWallUpgradesByClan; // clanId => queued, unsettled wall upgrades
     mapping(uint32 => BaseUpgradeReservation) private _baseUpgradeReservations; // clansmanId => reserved upgrade
     mapping(uint32 => uint8) private _pendingBaseUpgradesByClan; // clanId => queued, unsettled base upgrades
+    mapping(uint32 => MonumentUpgradeReservation) private _monumentUpgradeReservations; // clansmanId => reserved upgrade
+    mapping(uint32 => uint8) private _pendingMonumentUpgradesByClan; // clanId => queued, unsettled monument upgrades
 
     uint32 private _nextClanId;
     uint32 private _nextClansmanId;
@@ -91,14 +93,26 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         uint256 wheatCost;
     }
 
+    struct MonumentUpgradeReservation {
+        bool active;
+        uint32 clanId;
+        uint64 missionNonce;
+        uint256 woodCost;
+        uint256 ironCost;
+        uint256 wheatCost;
+        uint256 blueprintCost;
+    }
+
     // =========================================================================
     // CONSTANTS — Wheat harvest rate (not in IClanWorld constants)
     // =========================================================================
 
     uint64 private constant DEPOSIT_DURATION_TICKS = 1;
     uint64 private constant UPGRADE_WALL_DURATION_TICKS = 2;
+    uint64 private constant UPGRADE_MONUMENT_DURATION_TICKS = 4;
     uint8 private constant WALL_MAX_LEVEL = 5;
     uint8 private constant BASE_MAX_LEVEL = 5;
+    uint8 private constant MONUMENT_MAX_LEVEL = 10;
     uint256 private constant WHEAT_HARVEST_RATE = 20e18;
     /// @dev Caps market queue work per heartbeat; overflow is deferred to the next tick.
     uint256 public constant MAX_MARKET_ACTIONS_PER_TICK = 32;
@@ -337,6 +351,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
                     _clearDefender(cs.clansmanId);
                 } else if (m.action == ActionType.UpgradeWall) {
                     _refundWallUpgradeReservation(cs.clansmanId);
+                } else if (m.action == ActionType.UpgradeBase) {
+                    _refundBaseUpgradeReservation(cs.clansmanId);
+                } else if (m.action == ActionType.UpgradeMonument) {
+                    _refundMonumentUpgradeReservation(cs.clansmanId);
                 }
                 m.active = false; // silent invalidation; dead clansman gets no MissionCompleted
             }
@@ -749,7 +767,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         } else if (action == ActionType.UpgradeBase) {
             success = _settleBaseUpgrade(clan, cs.clansmanId, m.nonce, clanId, tick);
         } else if (action == ActionType.UpgradeMonument) {
-            success = _tryUpgradeMonument(clan, clanId, tick);
+            success = _settleMonumentUpgrade(clan, cs.clansmanId, m.nonce, clanId, tick);
         }
 
         if (!success) {
@@ -834,57 +852,27 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         return true;
     }
 
-    function _tryUpgradeMonument(Clan storage clan, uint32 clanId, uint64 tick) internal returns (bool) {
-        uint8 nextLevel = clan.monumentLevel + 1;
-        if (nextLevel > 10) return false;
-
-        uint256 woodCost;
-        uint256 wheatCost;
-        uint256 ironCost;
-        uint256 blueprintCost;
-
-        if (nextLevel == 1) {
-            woodCost = 30e18;
-            wheatCost = 20e18;
-        } else if (nextLevel == 2) {
-            woodCost = 50e18;
-            wheatCost = 30e18;
-        } else if (nextLevel == 3) {
-            woodCost = 70e18;
-            wheatCost = 40e18;
-            ironCost = 5e18;
-        } else if (nextLevel == 4) {
-            woodCost = 90e18;
-            wheatCost = 50e18;
-            ironCost = 10e18;
-        } else if (nextLevel == 5) {
-            woodCost = 120e18;
-            wheatCost = 60e18;
-            ironCost = 15e18;
-        } else if (nextLevel == 6) {
-            woodCost = 150e18;
-            wheatCost = 80e18;
-            ironCost = 20e18;
-        } else if (nextLevel <= 10) {
-            woodCost = 200e18;
-            wheatCost = 100e18;
-            ironCost = 25e18;
-            blueprintCost = 1e18;
+    function _settleMonumentUpgrade(
+        Clan storage clan,
+        uint32 clansmanId,
+        uint64 missionNonce,
+        uint32 clanId,
+        uint64 tick
+    ) internal returns (bool) {
+        MonumentUpgradeReservation storage reservation = _monumentUpgradeReservations[clansmanId];
+        if (!reservation.active || reservation.clanId != clanId || reservation.missionNonce != missionNonce) {
+            return false;
         }
 
-        if (
-            clan.vaultWood < woodCost || clan.vaultWheat < wheatCost || clan.vaultIron < ironCost
-                || clan.blueprintBalance < blueprintCost
-        ) return false;
-
-        clan.vaultWood -= woodCost;
-        clan.vaultWheat -= wheatCost;
-        clan.vaultIron -= ironCost;
-        clan.blueprintBalance -= blueprintCost;
+        _clearMonumentUpgradeReservation(clansmanId);
+        if (clan.monumentLevel >= MONUMENT_MAX_LEVEL) return false;
 
         uint8 old = clan.monumentLevel;
-        clan.monumentLevel = nextLevel;
-        emit MonumentLevelChanged(clanId, old, nextLevel, tick);
+        clan.monumentLevel = old + 1;
+        emit MonumentLevelChanged(clanId, old, clan.monumentLevel, tick);
+        // Phase 8 event ABI uses uint32; season tick horizons are far below this cap.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        emit MonumentUpgraded(clanId, clan.monumentLevel, uint32(tick));
         return true;
     }
 
@@ -1257,12 +1245,18 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         if (ctx.wasActive && existingM.action == ActionType.UpgradeBase) {
             _refundBaseUpgradeReservation(order.clansmanId);
         }
+        if (ctx.wasActive && existingM.action == ActionType.UpgradeMonument) {
+            _refundMonumentUpgradeReservation(order.clansmanId);
+        }
 
         if (order.action == ActionType.UpgradeWall) {
             _reserveWallUpgrade(clan, clanId, order.clansmanId, ctx.newNonce);
         }
         if (order.action == ActionType.UpgradeBase) {
             _reserveBaseUpgrade(clan, clanId, order.clansmanId, ctx.newNonce);
+        }
+        if (order.action == ActionType.UpgradeMonument) {
+            _reserveMonumentUpgrade(clan, clanId, order.clansmanId, ctx.newNonce);
         }
 
         // Install mission via helper to keep stack shallow
@@ -1677,6 +1671,9 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         if (action == ActionType.UpgradeBase) {
             return _validateUpgradeBaseOrder(clan, cs.clansmanId);
         }
+        if (action == ActionType.UpgradeMonument) {
+            return _validateUpgradeMonumentOrder(clan, cs.clansmanId);
+        }
 
         // ChopWood: must go to Forest
         if (action == ActionType.ChopWood) {
@@ -1863,6 +1860,85 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         delete _baseUpgradeReservations[clansmanId];
     }
 
+    function _validateUpgradeMonumentOrder(Clan storage clan, uint32 clansmanId) internal view returns (StatusCode) {
+        uint8 pendingUpgrades = _pendingMonumentUpgradesByClan[clan.clanId];
+        uint256 availableWood = clan.vaultWood;
+        uint256 availableIron = clan.vaultIron;
+        uint256 availableWheat = clan.vaultWheat;
+        uint256 availableBlueprint = clan.blueprintBalance;
+
+        MonumentUpgradeReservation storage existing = _monumentUpgradeReservations[clansmanId];
+        if (existing.active && existing.clanId == clan.clanId) {
+            pendingUpgrades -= 1;
+            availableWood += existing.woodCost;
+            availableIron += existing.ironCost;
+            availableWheat += existing.wheatCost;
+            availableBlueprint += existing.blueprintCost;
+        }
+
+        uint8 plannedCurrentLevel = clan.monumentLevel + pendingUpgrades;
+        if (plannedCurrentLevel >= MONUMENT_MAX_LEVEL) return StatusCode.ERR_INVALID_ACTION;
+
+        (uint256 woodCost, uint256 ironCost, uint256 wheatCost, uint256 blueprintCost) =
+            _monumentUpgradeCost(plannedCurrentLevel);
+        if (
+            availableWood < woodCost || availableIron < ironCost || availableWheat < wheatCost
+                || availableBlueprint < blueprintCost
+        ) {
+            return StatusCode.ERR_MISSING_RESOURCES;
+        }
+
+        return StatusCode.OK;
+    }
+
+    function _reserveMonumentUpgrade(Clan storage clan, uint32 clanId, uint32 clansmanId, uint64 missionNonce)
+        internal
+    {
+        uint8 plannedCurrentLevel = clan.monumentLevel + _pendingMonumentUpgradesByClan[clanId];
+        (uint256 woodCost, uint256 ironCost, uint256 wheatCost, uint256 blueprintCost) =
+            _monumentUpgradeCost(plannedCurrentLevel);
+
+        clan.vaultWood -= woodCost;
+        clan.vaultIron -= ironCost;
+        clan.vaultWheat -= wheatCost;
+        clan.blueprintBalance -= blueprintCost;
+        _pendingMonumentUpgradesByClan[clanId] += 1;
+
+        _monumentUpgradeReservations[clansmanId] = MonumentUpgradeReservation({
+            active: true,
+            clanId: clanId,
+            missionNonce: missionNonce,
+            woodCost: woodCost,
+            ironCost: ironCost,
+            wheatCost: wheatCost,
+            blueprintCost: blueprintCost
+        });
+    }
+
+    function _refundMonumentUpgradeReservation(uint32 clansmanId) internal {
+        MonumentUpgradeReservation storage reservation = _monumentUpgradeReservations[clansmanId];
+        if (!reservation.active) return;
+
+        Clan storage clan = _clans[reservation.clanId];
+        clan.vaultWood += reservation.woodCost;
+        clan.vaultIron += reservation.ironCost;
+        clan.vaultWheat += reservation.wheatCost;
+        clan.blueprintBalance += reservation.blueprintCost;
+        _clearMonumentUpgradeReservation(clansmanId);
+    }
+
+    function _clearMonumentUpgradeReservation(uint32 clansmanId) internal {
+        MonumentUpgradeReservation storage reservation = _monumentUpgradeReservations[clansmanId];
+        if (!reservation.active) return;
+
+        uint32 clanId = reservation.clanId;
+        if (_pendingMonumentUpgradesByClan[clanId] > 0) {
+            _pendingMonumentUpgradesByClan[clanId] -= 1;
+        }
+
+        delete _monumentUpgradeReservations[clansmanId];
+    }
+
     function _validateDefendBaseOrder(Clan storage clan, ClanOrder calldata order, uint8 gotoRegion)
         internal
         view
@@ -1988,6 +2064,15 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         return _baseUpgradeCost(currentLevel);
     }
 
+    function getMonumentUpgradeCost(uint8 currentLevel)
+        public
+        pure
+        override
+        returns (uint256 wood, uint256 iron, uint256 wheat, uint256 blueprint)
+    {
+        return _monumentUpgradeCost(currentLevel);
+    }
+
     function _wallUpgradeCost(uint8 currentLevel) internal pure returns (uint256 wood, uint256 iron) {
         if (currentLevel == 0) return (20e18, 0);
         if (currentLevel == 1) return (35e18, 0);
@@ -2003,6 +2088,21 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         if (currentLevel == 3) return (80e18, 10e18, 40e18);
         if (currentLevel == 4) return (100e18, 15e18, 50e18);
         return (0, 0, 0);
+    }
+
+    function _monumentUpgradeCost(uint8 currentLevel)
+        internal
+        pure
+        returns (uint256 wood, uint256 iron, uint256 wheat, uint256 blueprint)
+    {
+        if (currentLevel == 0) return (30e18, 0, 20e18, 0);
+        if (currentLevel == 1) return (50e18, 0, 30e18, 0);
+        if (currentLevel == 2) return (70e18, 5e18, 40e18, 0);
+        if (currentLevel == 3) return (90e18, 10e18, 50e18, 0);
+        if (currentLevel == 4) return (120e18, 15e18, 60e18, 0);
+        if (currentLevel == 5) return (150e18, 20e18, 80e18, 0);
+        if (currentLevel >= 6 && currentLevel < MONUMENT_MAX_LEVEL) return (200e18, 25e18, 100e18, 1e18);
+        return (0, 0, 0, 0);
     }
 
     function getActionDuration(ActionType action) public pure override returns (uint64) {
@@ -2021,10 +2121,11 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             return UPGRADE_WALL_DURATION_TICKS;
         }
 
-        if (
-            action == ActionType.BuildWall || action == ActionType.UpgradeMonument || action == ActionType.MarketBuy
-                || action == ActionType.MarketSell
-        ) {
+        if (action == ActionType.UpgradeMonument) {
+            return UPGRADE_MONUMENT_DURATION_TICKS;
+        }
+
+        if (action == ActionType.BuildWall || action == ActionType.MarketBuy || action == ActionType.MarketSell) {
             return 1;
         }
 
