@@ -68,6 +68,7 @@ contract BanditAttackResolutionTest is Test {
         uint64 atTick
     );
     event BanditDefeated(uint32 indexed banditId, uint32 indexed targetClanId, uint64 atTick);
+    event BlueprintEarned(uint32 indexed clanId, uint32 indexed banditId, uint64 tick);
     event LootDistributed(
         uint32 indexed banditId,
         uint32[] clanIdsRewarded,
@@ -203,6 +204,24 @@ contract BanditAttackResolutionTest is Test {
         assertEq(world.getBandit(banditId).id, 0, "defeated bandit deleted");
     }
 
+    function test_defeatedBanditAwardsBlueprintToTargetClan() public {
+        uint32 clanId = _mintClan();
+        uint32[] memory defenders = new uint32[](1);
+        defenders[0] = clanId;
+        _activateTargetDefenders(clanId, defenders, 4);
+
+        uint256 blueprintBefore = world.getClan(clanId).blueprintBalance;
+        uint32 banditId = _forceAttack(clanId, 1);
+        world.setBanditStrength(banditId, 0);
+
+        vm.expectEmit(true, true, false, true, address(world));
+        emit BlueprintEarned(clanId, banditId, world.getWorldState().currentTick);
+
+        _advanceTick();
+
+        assertEq(world.getClan(clanId).blueprintBalance, blueprintBefore + 1, "target blueprint awarded");
+    }
+
     function test_defeatedBanditLootSplitsEquallyAcrossFourDefendingClans() public {
         uint32[] memory clanIds = _mintClans(4);
         _activateTargetDefenders(clanIds[0], clanIds, 1);
@@ -235,6 +254,43 @@ contract BanditAttackResolutionTest is Test {
             assertEq(clan.vaultIron, ironBefore[i] + 25e18, "iron share");
             assertEq(clan.goldBalance, goldBefore[i] + 25e18, "gold share");
         }
+    }
+
+    function test_mixedClanDefenseAwardsBlueprintOnlyToBaseOwner() public {
+        uint32[] memory clanIds = _mintClans(4);
+        _activateTargetDefenders(clanIds[0], clanIds, 1);
+
+        uint256[4] memory blueprintBefore;
+        for (uint256 i = 0; i < clanIds.length; i++) {
+            blueprintBefore[i] = world.getClan(clanIds[i]).blueprintBalance;
+        }
+
+        uint32 banditId = _forceAttack(clanIds[0], 1);
+        world.setBanditStrength(banditId, 0);
+
+        _advanceTick();
+
+        assertEq(world.getClan(clanIds[0]).blueprintBalance, blueprintBefore[0] + 1, "base owner blueprint");
+        for (uint256 i = 1; i < clanIds.length; i++) {
+            assertEq(world.getClan(clanIds[i]).blueprintBalance, blueprintBefore[i], "helper clan no blueprint");
+        }
+    }
+
+    function test_multipleDefeatedBanditsEachAwardBlueprint() public {
+        uint32 clanId = _mintClan();
+        uint32[] memory defenders = new uint32[](1);
+        defenders[0] = clanId;
+        _activateTargetDefenders(clanId, defenders, 4);
+
+        uint256 blueprintBefore = world.getClan(clanId).blueprintBalance;
+        uint32 firstBanditId = _forceAttack(clanId, 1);
+        uint32 secondBanditId = _forceAttack(clanId, 1);
+        world.setBanditStrength(firstBanditId, 0);
+        world.setBanditStrength(secondBanditId, 0);
+
+        _advanceTick();
+
+        assertEq(world.getClan(clanId).blueprintBalance, blueprintBefore + 2, "one blueprint per defeated bandit");
     }
 
     function test_defeatedBanditLootBurnsWholeTokenOverflowAcrossThreeDefendingClans() public {
@@ -309,6 +365,17 @@ contract BanditAttackResolutionTest is Test {
         assertEq(afterClan.vaultFish, beforeClan.vaultFish, "fish unchanged");
         assertEq(afterClan.vaultIron, beforeClan.vaultIron, "iron unchanged");
         assertEq(afterClan.goldBalance, beforeClan.goldBalance, "gold unchanged");
+        assertEq(uint8(world.getBandit(banditId).state), uint8(BanditState.Escaped), "bandit escaped");
+    }
+
+    function test_escapedBanditDoesNotAwardBlueprint() public {
+        uint32 clanId = _mintClan();
+        uint256 blueprintBefore = world.getClan(clanId).blueprintBalance;
+        uint32 banditId = _forceAttack(clanId, 100);
+
+        _advanceTick();
+
+        assertEq(world.getClan(clanId).blueprintBalance, blueprintBefore, "blueprint unchanged");
         assertEq(uint8(world.getBandit(banditId).state), uint8(BanditState.Escaped), "bandit escaped");
     }
 

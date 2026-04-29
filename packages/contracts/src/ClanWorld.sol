@@ -1116,6 +1116,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         if (defeated) {
             emit BanditDefeated(banditId, targetClanId, closedTick);
             _distributeBanditLootToDefendingClans(banditId, targetClanId);
+            targetClan.blueprintBalance += 1;
+            emit BlueprintEarned(targetClanId, banditId, closedTick);
             _transitionBanditState(banditId, BanditState.Defeated);
         } else {
             _transitionBanditState(banditId, BanditState.Escaped);
