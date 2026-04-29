@@ -38,7 +38,6 @@ import {
     RegionOccupant
 } from "./IClanWorld.sol";
 import {StubPool} from "./StubPool.sol";
-import {RNG} from "./lib/RNG.sol";
 import {ReentrancyGuard} from "./util/ReentrancyGuard.sol";
 
 /// @title ClanWorld
@@ -77,7 +76,6 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
     uint64 private constant DEPOSIT_DURATION_TICKS = 1;
     uint256 private constant WHEAT_HARVEST_RATE = 20e18;
-    uint256 private constant DOMAIN_GATHER = uint256(keccak256("clanworld.gather.v1"));
     /// @dev Caps market queue work per heartbeat; overflow is deferred to the next tick.
     uint256 public constant MAX_MARKET_ACTIONS_PER_TICK = 32;
 
@@ -455,7 +453,9 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         } else if (action == ActionType.HarvestWheat) {
             _gatherWheat(clan, cs, m, clanId, tick, starving);
         } else if (action == ActionType.DepositResources) {
-            _doDeposit(clan, cs, m, clanId);
+            // Deposit event ABI intentionally stores the current tick as uint32.
+            // forge-lint: disable-next-line(unsafe-typecast)
+            _doDeposit(clan, cs, m, clanId, uint32(tick));
         } else if (action == ActionType.Wait) {
             // NOOP — worker stays ACTING (continuous), no transition needed
             // Wait mission is effectively persistent until interrupted
@@ -494,11 +494,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         uint256 remaining = ClanWorldConstants.CLANSMAN_CARRY_CAP - cs.carryWood;
         uint256 yield = ClanWorldConstants.WOOD_YIELD_PER_TICK * uint256(getActionDuration(ActionType.ChopWood));
-        uint256 nonce = uint256(keccak256(abi.encodePacked(clanId, cs.clansmanId)));
-        bool critGate = RNG.rngBool(tickSeed, DOMAIN_GATHER, nonce);
-        bool isCrit = critGate
-            && RNG.rngBounded(tickSeed, DOMAIN_GATHER, nonce + 1, 5000) < ClanWorldConstants.WOOD_CRIT_BPS;
-        if (isCrit) {
+        bytes32 woodRng = keccak256(abi.encode("wood_crit", tickSeed, cs.clansmanId, m.nonce, tick));
+        if (uint256(woodRng) % 10000 < ClanWorldConstants.WOOD_CRIT_BPS) {
             yield *= 2;
         }
 
@@ -670,7 +667,9 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         // else continuous
     }
 
-    function _doDeposit(Clan storage clan, Clansman storage cs, Mission storage m, uint32 clanId) internal {
+    function _doDeposit(Clan storage clan, Clansman storage cs, Mission storage m, uint32 clanId, uint32 tick)
+        internal
+    {
         // Must be at homebase region
         if (cs.currentRegion != clan.baseRegion) {
             _completeMission(cs, m);
@@ -698,7 +697,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         cs.carryWheat = 0;
         cs.carryFish = 0;
 
-        emit ResourcesDeposited(clanId, cs.clansmanId, woodDelta, ironDelta, fishDelta, wheatDelta);
+        emit ResourcesDeposited(clanId, cs.clansmanId, woodDelta, ironDelta, wheatDelta, fishDelta, tick);
         _completeMission(cs, m);
     }
 

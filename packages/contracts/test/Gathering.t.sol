@@ -77,7 +77,7 @@ contract GatheringTest is Test {
     }
 
     function test_chopWoodAtForestYieldsBaseTimesActionDuration() public {
-        vm.prevrandao(bytes32(uint256(1)));
+        vm.prevrandao(bytes32(uint256(2)));
         uint32 clanId = _mintClan();
         uint32 csId = _firstCs(clanId);
 
@@ -90,9 +90,11 @@ contract GatheringTest is Test {
     function test_chopWoodCritDistributionAcrossSeeds() public {
         uint256 baseYield = ClanWorldConstants.WOOD_YIELD_PER_TICK * world.getActionDuration(ActionType.ChopWood);
         uint256 critCount = 0;
+        world = new GatheringHarness();
+        uint256 cleanState = vm.snapshotState();
 
         for (uint256 i = 0; i < 100; i++) {
-            world = new GatheringHarness();
+            assertTrue(vm.revertToState(cleanState), "reset gathering world");
             vm.prevrandao(bytes32(uint256(i + 10_000)));
             uint32 clanId = _mintClan();
             uint32 csId = _firstCs(clanId);
