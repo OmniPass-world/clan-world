@@ -37,6 +37,7 @@ import {
     ActiveBanditView,
     RegionOccupant
 } from "./IClanWorld.sol";
+import {RNG} from "./lib/RNG.sol";
 import {StubPool} from "./StubPool.sol";
 import {ReentrancyGuard} from "./util/ReentrancyGuard.sol";
 
@@ -63,11 +64,13 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     mapping(uint32 => uint8) private _clansmanDefendingRegion; // clansmanId => defended home region
     mapping(uint32 => BanditTroop) internal _bandits;
     mapping(uint8 => uint32[]) internal _banditsByRegion; // region => bandit IDs
+    mapping(uint8 => BanditSpawnState) internal _banditSpawnByRegion;
     mapping(uint64 => bytes32) private _tickSeeds; // tick => seed
 
     uint32 private _nextClanId;
     uint32 private _nextClansmanId;
     uint32 internal _nextBanditId;
+    uint32 internal _activeBanditCount;
     uint32[] private _allClanIds;
 
     // per-clan clansman list: clanId => clansmanId[]
@@ -80,6 +83,19 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     uint256 private constant WHEAT_HARVEST_RATE = 20e18;
     /// @dev Caps market queue work per heartbeat; overflow is deferred to the next tick.
     uint256 public constant MAX_MARKET_ACTIONS_PER_TICK = 32;
+    uint256 internal constant DOMAIN_BANDIT_SPAWN = uint256(keccak256("clanworld.bandit.spawn.v1"));
+    uint64 internal constant MIN_SPAWN_COOLDOWN_TICKS = ClanWorldConstants.BANDIT_COOLDOWN_TICKS;
+    uint16 internal constant BANDIT_SPAWN_PROBABILITY_INCREMENT_BPS = 1000;
+    uint16 internal constant BANDIT_SPAWN_MAX_PROBABILITY_BPS = 8000;
+    uint8 internal constant MAX_BANDITS_PER_REGION = 3;
+    uint8 internal constant MAX_TOTAL_BANDITS = 8;
+    uint32 internal constant MIN_BANDIT_SPAWN_STRENGTH = 100;
+    uint32 internal constant BANDIT_SPAWN_STRENGTH_SPREAD = 151;
+
+    struct BanditSpawnState {
+        uint64 lastSpawnTick;
+        uint16 probabilityAccum;
+    }
 
     // =========================================================================
     // CONSTRUCTOR
@@ -885,6 +901,11 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             strength: strength
         });
         _banditsByRegion[region].push(id);
+        _activeBanditCount += 1;
+
+        BanditSpawnState storage spawnState = _banditSpawnByRegion[region];
+        spawnState.lastSpawnTick = _world.currentTick;
+        spawnState.probabilityAccum = 0;
 
         if (_world.activeBanditId == ClanWorldConstants.BANDIT_ID_NULL) {
             _world.activeBanditId = id;
@@ -966,6 +987,9 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         }
 
         delete _bandits[id];
+        if (_activeBanditCount > 0) {
+            _activeBanditCount -= 1;
+        }
         if (_world.activeBanditId == id) {
             _world.activeBanditId = ClanWorldConstants.BANDIT_ID_NULL;
         }
@@ -975,6 +999,120 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         if (strength > type(uint16).max) return type(uint16).max;
         // forge-lint: disable-next-line(unsafe-typecast)
         return uint16(strength);
+    }
+
+    function _evaluateBanditSpawns(bytes32 tickSeed) internal {
+        if (_activeBanditCount >= MAX_TOTAL_BANDITS) {
+            return;
+        }
+
+        uint256[] memory candidateWeights = new uint256[](8);
+        for (uint8 region = ClanWorldConstants.REGION_FOREST; region <= ClanWorldConstants.REGION_DEEP_SEA; region++) {
+            uint256 weight = _banditSpawnRegionWeight(region);
+            if (weight == 0 || _banditsByRegion[region].length >= MAX_BANDITS_PER_REGION) {
+                continue;
+            }
+
+            BanditSpawnState storage spawnState = _banditSpawnByRegion[region];
+            if (_world.currentTick < spawnState.lastSpawnTick + MIN_SPAWN_COOLDOWN_TICKS) {
+                continue;
+            }
+
+            spawnState.probabilityAccum = _incrementBanditSpawnProbability(spawnState.probabilityAccum);
+            if (_banditSpawnRollPasses(tickSeed, region, spawnState.probabilityAccum)) {
+                candidateWeights[region - 1] = weight;
+            }
+        }
+
+        uint8 selectedRegion = _selectBanditSpawnRegion(tickSeed, candidateWeights);
+        if (selectedRegion != ClanWorldConstants.REGION_NOOP) {
+            _spawnBandit(selectedRegion, _banditSpawnStrength(tickSeed, selectedRegion));
+        }
+
+        _refreshBanditSpawnWorldPreview();
+    }
+
+    function _incrementBanditSpawnProbability(uint16 probabilityAccum) internal pure returns (uint16) {
+        uint256 next = uint256(probabilityAccum) + BANDIT_SPAWN_PROBABILITY_INCREMENT_BPS;
+        if (next > BANDIT_SPAWN_MAX_PROBABILITY_BPS) {
+            return BANDIT_SPAWN_MAX_PROBABILITY_BPS;
+        }
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return uint16(next);
+    }
+
+    function _banditSpawnRollPasses(bytes32 tickSeed, uint8 region, uint16 probabilityAccum)
+        internal
+        pure
+        returns (bool)
+    {
+        return _banditSpawnRoll(tickSeed, region) < uint256(probabilityAccum);
+    }
+
+    function _banditSpawnRoll(bytes32 tickSeed, uint8 region) internal pure returns (uint256) {
+        uint256 nonce = uint256(keccak256(abi.encodePacked("bandit_spawn", region)));
+        return RNG.rngBounded(tickSeed, DOMAIN_BANDIT_SPAWN, nonce, 10000);
+    }
+
+    function _selectBanditSpawnRegion(bytes32 tickSeed, uint256[] memory weights) internal pure returns (uint8) {
+        uint256 selected = RNG.rngWeightedPick(
+            tickSeed, DOMAIN_BANDIT_SPAWN, uint256(keccak256(abi.encodePacked("bandit_spawn_region"))), weights
+        );
+        if (weights.length == 0 || weights[selected] == 0) {
+            return ClanWorldConstants.REGION_NOOP;
+        }
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return uint8(selected + 1);
+    }
+
+    function _banditSpawnStrength(bytes32 tickSeed, uint8 region) internal pure returns (uint32) {
+        uint256 nonce = uint256(keccak256(abi.encodePacked("bandit_spawn_strength", region)));
+        uint256 roll = RNG.rngBounded(tickSeed, DOMAIN_BANDIT_SPAWN, nonce, BANDIT_SPAWN_STRENGTH_SPREAD);
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return MIN_BANDIT_SPAWN_STRENGTH + uint32(roll);
+    }
+
+    function _banditSpawnRegionWeight(uint8 region) internal view returns (uint256 weight) {
+        for (uint256 i = 0; i < _allClanIds.length; i++) {
+            Clan storage clan = _clans[_allClanIds[i]];
+            if (clan.clanState == ClanState.DEAD) {
+                continue;
+            }
+
+            if (clan.baseRegion == region) {
+                weight += 100 + (_lootValueRaw(clan) / 1e18);
+            }
+
+            uint32[] storage clansmanIds = _clanClansmanIds[clan.clanId];
+            for (uint256 j = 0; j < clansmanIds.length; j++) {
+                Clansman storage cs = _clansmen[clansmanIds[j]];
+                if (cs.state != ClansmanState.DEAD && cs.currentRegion == region) {
+                    weight += 25;
+                }
+            }
+        }
+    }
+
+    function _refreshBanditSpawnWorldPreview() internal {
+        uint64 nextEligibleTick = type(uint64).max;
+        uint16 maxChance = 0;
+
+        for (uint8 region = ClanWorldConstants.REGION_FOREST; region <= ClanWorldConstants.REGION_DEEP_SEA; region++) {
+            BanditSpawnState storage spawnState = _banditSpawnByRegion[region];
+            uint64 eligibleTick = spawnState.lastSpawnTick + MIN_SPAWN_COOLDOWN_TICKS;
+            if (
+                _banditSpawnRegionWeight(region) > 0 && _banditsByRegion[region].length < MAX_BANDITS_PER_REGION
+                    && eligibleTick < nextEligibleTick
+            ) {
+                nextEligibleTick = eligibleTick;
+            }
+            if (spawnState.probabilityAccum > maxChance) {
+                maxChance = spawnState.probabilityAccum;
+            }
+        }
+
+        _world.nextBanditSpawnEligibleTick = nextEligibleTick == type(uint64).max ? 0 : nextEligibleTick;
+        _world.currentBanditSpawnChanceBps = maxChance;
     }
 
     // =========================================================================
@@ -1014,10 +1152,13 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         // Step 3: Eager-settle clans touched by world events (Phase 3 bandit — stub).
         // TODO Phase 3: _settleClansNearBandit(closedTick);
 
-        // Step 4: Resolve world events (season boundary, winter transitions).
+        // Step 4: Evaluate deterministic bandit spawns for the closed tick.
+        _evaluateBanditSpawns(newSeed);
+
+        // Step 5: Resolve world events (season boundary, winter transitions).
         _resolveWorldEvents(closedTick);
 
-        // Step 5: Increment tick and publish (seed already written above; complete the atomic pair).
+        // Step 6: Increment tick and publish (seed already written above; complete the atomic pair).
         uint64 newTick = closedTick + 1;
         _world.currentTick = newTick;
         _world.nextHeartbeatAtTick = newTick + 1;
