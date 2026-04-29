@@ -26,12 +26,17 @@ library RNG {
             return 0;
         }
 
-        uint256 threshold = type(uint256).max - (type(uint256).max % max);
+        uint256 remainder;
+        unchecked {
+            // Computes 2^256 % max without trying to represent 2^256 directly.
+            remainder = (uint256(0) - max) % max;
+        }
+        uint256 maxValid = type(uint256).max - remainder;
         uint256 attempt = 0;
 
         while (true) {
             uint256 value = uint256(keccak256(abi.encodePacked(domainSalt, seed, nonce, max, attempt)));
-            if (value < threshold) {
+            if (value <= maxValid) {
                 return value % max;
             }
 

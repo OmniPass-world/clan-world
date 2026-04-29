@@ -97,6 +97,31 @@ contract RNGTest is Test {
         }
     }
 
+    function test_rngBounded_powerOfTwoBoundsUseFirstSample() public pure {
+        _assertPowerOfTwoBoundUsesFirstSample(uint256(1) << 200);
+        _assertPowerOfTwoBoundUsesFirstSample(uint256(1) << 255);
+    }
+
+    function test_rngBounded_distributionForMax256() public pure {
+        uint256[256] memory buckets;
+        uint256 hitBuckets = 0;
+
+        for (uint256 nonce = 0; nonce < 1000; nonce++) {
+            uint256 value = RNG.rngBounded(SEED, DOMAIN_A, nonce, 256);
+            assertLt(value, 256, "value must stay in range");
+
+            if (buckets[value] == 0) {
+                hitBuckets++;
+            }
+            buckets[value]++;
+        }
+
+        assertGe(hitBuckets, 245, "nearly every bucket should be represented");
+        for (uint256 i = 0; i < buckets.length; i++) {
+            assertLe(buckets[i], 12, "bucket should not dominate");
+        }
+    }
+
     function test_rngBool_distribution() public pure {
         uint256 trueCount = 0;
 
@@ -175,6 +200,13 @@ contract RNGTest is Test {
 
         for (uint256 i = 0; i < n; i++) {
             assertTrue(seen[i], "missing value");
+        }
+    }
+
+    function _assertPowerOfTwoBoundUsesFirstSample(uint256 max) internal pure {
+        for (uint256 nonce = 0; nonce < 100; nonce++) {
+            uint256 firstSample = uint256(keccak256(abi.encodePacked(DOMAIN_A, SEED, nonce, max, uint256(0))));
+            assertEq(RNG.rngBounded(SEED, DOMAIN_A, nonce, max), firstSample & (max - 1), "should not reject");
         }
     }
 
