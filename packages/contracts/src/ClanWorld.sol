@@ -293,6 +293,13 @@ contract ClanWorld is IClanWorld {
         // Path 6: dead clansman — invalidate active mission if any
         if (cs.state == ClansmanState.DEAD) {
             if (m.active) {
+                if (m.action == ActionType.DefendBase) {
+                    uint32 oldTarget = _clanDefendingBase[cs.clansmanId];
+                    if (oldTarget != 0) {
+                        _removeDefender(oldTarget, cs.clansmanId);
+                        _clanDefendingBase[cs.clansmanId] = 0;
+                    }
+                }
                 m.active = false; // silent invalidation; dead clansman gets no MissionCompleted
             }
             return;
@@ -869,24 +876,13 @@ contract ClanWorld is IClanWorld {
     }
 
     /// @notice Lazily settle a single clansman's mission to current tick. Idempotent.
-    ///         Clan-level upkeep (food deduction, plot regrow) is NOT applied here —
-    ///         call settleClan for full clan-level settlement. This function is for
-    ///         targeted clansman-level settlement only (e.g., on-demand before a read).
+    ///         Internally settles the entire clan (including upkeep) to guarantee
+    ///         correct ordering and prevent double-settlement. Callers may call this
+    ///         or settleClan interchangeably; both are safe and idempotent.
     function settleClansman(uint32 csId) external override {
         Clansman storage cs = _clansmen[csId];
         if (cs.clansmanId == 0) return;
-        uint32 clanId = cs.clanId;
-        Clan storage clan = _clans[clanId];
-        if (clan.clanId == 0) return;
-
-        uint64 fromTick = clan.lastSettledTick;
-        uint64 curTick = _world.currentTick;
-        if (fromTick >= curTick) return;
-
-        // Cap to 200 ticks per call (same guard as settleClan)
-        if (curTick > fromTick + 200) curTick = fromTick + 200;
-
-        _settleMissionForClansman(clan, cs, clanId, fromTick, curTick);
+        _settleClan(cs.clanId);
     }
 
     /// @notice Finalize season. Phase 1 stub.

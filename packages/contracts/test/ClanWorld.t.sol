@@ -1676,6 +1676,50 @@ contract ClanWorldTest is Test {
     }
 
     // -------------------------------------------------------------------------
+    // test_lazySettle_path6_deadDefender_cleanedFromRegistry
+    // Path 6 + DefendBase: dead defending clansman must be removed from registry
+    // -------------------------------------------------------------------------
+
+    function test_lazySettle_path6_deadDefender_cleanedFromRegistry() public {
+        (ClanWorldTestHarness harness, uint32 clanId, uint32 csId) = _setupHarness();
+        uint8 baseRegion = harness.getClanFullView(clanId).clan.clan.baseRegion;
+
+        // Submit DefendBase to own base (zero travel → immediately registered)
+        ClanOrder[] memory orders = new ClanOrder[](1);
+        orders[0] = ClanOrder({
+            clansmanId: csId,
+            gotoRegion: baseRegion,
+            action: ActionType.DefendBase,
+            targetClanId: clanId,
+            marketToken: address(0),
+            marketAmount: 0,
+            maxGoldIn: 0
+        });
+        vm.prank(elder);
+        OrderResult[] memory r = harness.submitClanOrders(clanId, orders);
+        assertEq(uint8(r[0].status), uint8(StatusCode.OK), "path6-defender: DefendBase order must succeed");
+
+        // Confirm clansman is registered as a defender
+        uint32[] memory defs = harness.getActiveDefenders(clanId);
+        assertEq(defs.length, 1, "path6-defender: should have 1 defender before kill");
+
+        // Kill the clansman
+        harness.killClansman(csId);
+        assertEq(uint8(harness.getClansman(csId).state), uint8(ClansmanState.DEAD), "path6-defender: clansman must be DEAD");
+
+        // Settle the clan — triggers Path 6, should remove from registry
+        _advanceTickHarness(harness);
+        harness.settleClan(clanId);
+
+        // Defender must be removed from registry
+        uint32[] memory defsAfter = harness.getActiveDefenders(clanId);
+        assertEq(defsAfter.length, 0, "path6-defender: dead defender must be removed from registry");
+
+        // Mission must be inactive
+        assertFalse(harness.getActiveMission(csId).active, "path6-defender: mission must be inactive");
+    }
+
+    // -------------------------------------------------------------------------
     // test_lazySettle_settleClansman_onDemand
     // settleClansman settles a single clansman without settleClan
     // -------------------------------------------------------------------------
