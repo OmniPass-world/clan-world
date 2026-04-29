@@ -188,6 +188,19 @@ contract BanditSpawnTest is Test {
         revert("missing miss seed");
     }
 
+    function _hitBothSeed(uint8 firstRegion, uint8 secondRegion, uint16 probability) internal view returns (bytes32) {
+        for (uint256 i = 0; i < 256; i++) {
+            bytes32 seed = keccak256(abi.encodePacked("hit-both", i));
+            if (
+                world.banditSpawnRoll(seed, firstRegion) < probability
+                    && world.banditSpawnRoll(seed, secondRegion) < probability
+            ) {
+                return seed;
+            }
+        }
+        revert("missing hit seed");
+    }
+
     function test_cooldownEnforcedAfterSpawn() public {
         _mintForestClan(world);
         world.spawnBandit(ClanWorldConstants.REGION_FOREST, 100);
@@ -208,6 +221,30 @@ contract BanditSpawnTest is Test {
 
         (, uint16 probabilityAccum) = world.getBanditSpawnState(ClanWorldConstants.REGION_FOREST);
         assertEq(probabilityAccum, increment, "first eligible tick increments accumulator");
+    }
+
+    function test_spawnResetsOnlySelectedRegionAccumulator() public {
+        _advancePastInitialCooldown(world);
+        world.mintClan(address(0xF0));
+        world.mintClan(address(0xB0));
+
+        uint16 oneStepBelowCap = 7000;
+        world.setBanditSpawnState(ClanWorldConstants.REGION_FOREST, 0, oneStepBelowCap);
+        world.setBanditSpawnState(ClanWorldConstants.REGION_MOUNTAINS, 0, oneStepBelowCap);
+
+        world.evaluateBanditSpawns(
+            _hitBothSeed(ClanWorldConstants.REGION_FOREST, ClanWorldConstants.REGION_MOUNTAINS, 8000)
+        );
+
+        uint8 selectedRegion = world.getBandit(1).region;
+        uint8 otherRegion = selectedRegion == ClanWorldConstants.REGION_FOREST
+            ? ClanWorldConstants.REGION_MOUNTAINS
+            : ClanWorldConstants.REGION_FOREST;
+        (, uint16 selectedAccum) = world.getBanditSpawnState(selectedRegion);
+        (, uint16 otherAccum) = world.getBanditSpawnState(otherRegion);
+
+        assertEq(selectedAccum, 0, "selected region reset");
+        assertEq(otherAccum, 8000, "unselected candidate retained accum");
     }
 
     function test_perRegionCapEnforced() public {

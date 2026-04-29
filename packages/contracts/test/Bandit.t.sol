@@ -3,7 +3,7 @@ pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {ClanWorld} from "../src/ClanWorld.sol";
-import {ClanWorldConstants, BanditState, BanditTroop, WorldState} from "../src/IClanWorld.sol";
+import {ActiveBanditView, ClanWorldConstants, BanditState, BanditTroop, WorldState} from "../src/IClanWorld.sol";
 
 contract BanditHarness is ClanWorld {
     function spawnBandit(uint8 region, uint32 strength) external returns (uint32) {
@@ -27,7 +27,7 @@ contract BanditTest is Test {
     }
 
     function _advanceTick() internal {
-        vm.warp(block.timestamp + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS);
+        vm.warp(world.getWorldState().nextHeartbeatAtTs);
         world.heartbeat();
     }
 
@@ -39,8 +39,7 @@ contract BanditTest is Test {
 
     function _spawnAndCamp() internal returns (uint32 id) {
         id = world.spawnBandit(ClanWorldConstants.REGION_FOREST, 100);
-        _advanceTick();
-        world.transitionBandit(id, BanditState.Camped);
+        _advanceTicks(2);
     }
 
     function _spawnCampAndAttack(uint32 targetClanId) internal returns (uint32 id) {
@@ -82,15 +81,24 @@ contract BanditTest is Test {
         assertEq(uint8(bandit.state), uint8(BanditState.None), "default state");
     }
 
-    function test_spawnedToCampedTransitionSucceedsAfterNextHeartbeat() public {
+    function test_spawnedToCampedTransitionAdvancesAfterSpawnDelay() public {
         uint32 id = world.spawnBandit(ClanWorldConstants.REGION_FOREST, 100);
 
-        _advanceTick();
-        world.transitionBandit(id, BanditState.Camped);
+        _advanceTicks(2);
 
         BanditTroop memory bandit = world.getBandit(id);
         assertEq(uint8(bandit.state), uint8(BanditState.Camped), "state");
-        assertEq(bandit.tickEnteredState, world.getWorldState().currentTick, "entered camp tick");
+        assertEq(bandit.tickEnteredState, world.getWorldState().currentTick - 1, "entered camp tick");
+    }
+
+    function test_spawnedActiveBanditViewReportsNextActionTick() public {
+        uint32 id = world.spawnBandit(ClanWorldConstants.REGION_FOREST, 100);
+
+        ActiveBanditView memory view_ = world.getActiveBanditView();
+
+        assertEq(view_.banditId, id, "active bandit");
+        assertEq(uint8(view_.state), uint8(BanditState.Spawned), "state");
+        assertEq(view_.nextActionTick, world.getWorldState().currentTick + 1, "spawn delay tick");
     }
 
     function test_campedToAttackingTransitionSucceedsWithTargetAfterCampDuration() public {
@@ -123,8 +131,7 @@ contract BanditTest is Test {
         uint32 id2 = world.spawnBandit(ClanWorldConstants.REGION_MOUNTAINS, 200);
         uint32 id3 = world.spawnBandit(ClanWorldConstants.REGION_WEST_FARMS, 300);
 
-        _advanceTick();
-        world.transitionBandit(id1, BanditState.Camped);
+        _advanceTicks(2);
         _advanceTicks(ClanWorldConstants.BANDIT_CAMP_TICKS);
         world.transitionBanditToAttacking(id1, 77);
         world.transitionBandit(id1, BanditState.Defeated);
@@ -146,8 +153,7 @@ contract BanditTest is Test {
         assertEq(uint8(resting.state), uint8(BanditState.Resting), "resting");
         assertEq(resting.tickEnteredState, world.getWorldState().currentTick, "resting tick");
 
-        _advanceTicks(ClanWorldConstants.BANDIT_REST_TICKS);
-        world.transitionBandit(id, BanditState.Camped);
+        _advanceTicks(ClanWorldConstants.BANDIT_REST_TICKS + 1);
 
         BanditTroop memory camped = world.getBandit(id);
         assertEq(uint8(camped.state), uint8(BanditState.Camped), "camped again");
@@ -160,8 +166,7 @@ contract BanditTest is Test {
         vm.expectRevert("ClanWorld: invalid bandit transition");
         world.transitionBandit(id, BanditState.Defeated);
 
-        _advanceTick();
-        world.transitionBandit(id, BanditState.Camped);
+        _advanceTicks(2);
         _advanceTicks(ClanWorldConstants.BANDIT_CAMP_TICKS);
 
         vm.expectRevert("ClanWorld: invalid bandit transition");
@@ -185,8 +190,7 @@ contract BanditTest is Test {
         assertEq(mountainBandits.length, 1, "mountain count");
         assertEq(mountainBandits[0], id3, "mountain bandit");
 
-        _advanceTick();
-        world.transitionBandit(id1, BanditState.Camped);
+        _advanceTicks(2);
         _advanceTicks(ClanWorldConstants.BANDIT_CAMP_TICKS);
         world.transitionBanditToAttacking(id1, 77);
         world.transitionBandit(id1, BanditState.Defeated);

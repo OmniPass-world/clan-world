@@ -90,15 +90,16 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     uint16 internal constant BANDIT_SPAWN_MAX_PROBABILITY_BPS = 8000;
     uint8 internal constant MAX_BANDITS_PER_REGION = 3;
     uint8 internal constant MAX_TOTAL_BANDITS = 8;
-    /// @dev Bandit spawn weights are a heartbeat-time heuristic. Bound the scan
-    ///      and rotate the starting clan by tick so larger worlds do not turn
-    ///      spawn preview/selection into an unbounded heartbeat cost.
+    uint8 internal constant MAX_CLANS = 12;
+    /// @dev Bandit spawn weights are a heartbeat-time heuristic. V1 has
+    ///      MAX_CLANS = 12, so scanning 8 clans per tick covers the live cap in
+    ///      at most two rotating heartbeats while keeping heartbeat gas bounded.
     uint256 internal constant MAX_BANDIT_SPAWN_SCAN_PER_REGION = 8;
     uint256 internal constant MAX_BANDIT_SPAWN_CLANSMEN_SCAN_PER_REGION = MAX_BANDIT_SPAWN_SCAN_PER_REGION * 4;
     /// @dev Eager settlement scans the clan-indexed bases in each spawn-candidate
-    ///      region, not every clan globally per region forever. The current world
-    ///      caps minting at 12 clans, so this settles all possible bases today
-    ///      while keeping the heartbeat loop explicitly bounded if that cap grows.
+    ///      region, not every clan globally per region forever. MAX_CLANS = 12,
+    ///      so this settles all possible bases today while keeping the heartbeat
+    ///      loop explicitly bounded if that cap grows.
     uint256 internal constant MAX_BANDIT_EAGER_SETTLE_BASE_SCAN_PER_REGION = 12;
     uint256 internal constant MAX_BANDIT_EAGER_SETTLE_DEFENDING_CLANS_PER_REGION = 12;
     uint256 internal constant MAX_BANDIT_EAGER_SETTLE_DEFENDER_SCAN_PER_REGION = 48;
@@ -134,8 +135,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         _world.nextHeartbeatAtTick = 1; // first heartbeat will open tick 1
         // First winter: last WINTER_DURATION_TICKS of first TICKS_PER_WINTER_CYCLE cycle
         // i.e. ticks [100, 110)
-        _world.winterStartsAtTick =
-            ClanWorldConstants.TICKS_PER_WINTER_CYCLE - ClanWorldConstants.WINTER_DURATION_TICKS; // = 100
+        _world.winterStartsAtTick = ClanWorldConstants.TICKS_PER_WINTER_CYCLE - ClanWorldConstants.WINTER_DURATION_TICKS; // = 100
         _world.winterEndsAtTick = ClanWorldConstants.TICKS_PER_WINTER_CYCLE; // = 110
         _world.winterActive = false;
         _treasury.treasuryOwner = msg.sender;
@@ -543,7 +543,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         }
 
         _releaseDefendersForDeadTarget(clanId, baseRegion);
-        _abortBanditAttacksForDeadTarget(clanId, tick, excludedBanditId);
+        _abortBanditAttacksForDeadTarget(clanId, excludedBanditId);
 
         emit ClanEliminated(clanId, tick);
     }
@@ -558,8 +558,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
                 uint32 clansmanId = csIds[j];
                 Mission storage mission = _missions[clansmanId];
                 if (
-                    mission.active && mission.action == ActionType.DefendBase
-                        && mission.targetClanId == deadClanId && _clansmanDefendingRegion[clansmanId] == baseRegion
+                    mission.active && mission.action == ActionType.DefendBase && mission.targetClanId == deadClanId
+                        && _clansmanDefendingRegion[clansmanId] == baseRegion
                 ) {
                     _clearDefender(clansmanId);
                     mission.active = false;
@@ -573,7 +573,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         }
     }
 
-    function _abortBanditAttacksForDeadTarget(uint32 deadClanId, uint64 tick, uint32 excludedBanditId) internal {
+    function _abortBanditAttacksForDeadTarget(uint32 deadClanId, uint32 excludedBanditId) internal {
+        // Match _transitionBanditState's event stamp; heartbeat keeps currentTick
+        // equal to the closed tick while aborting linked bandit attacks.
+        uint64 currentTick = _world.currentTick;
         for (uint8 region = ClanWorldConstants.REGION_FOREST; region <= ClanWorldConstants.REGION_DEEP_SEA; region++) {
             uint32[] storage regionBandits = _banditsByRegion[region];
             for (uint256 i = 0; i < regionBandits.length; i++) {
@@ -583,8 +586,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
                 BanditTroop storage bandit = _bandits[banditId];
                 if (bandit.state == BanditState.Attacking && bandit.targetClanId == deadClanId) {
                     _transitionBanditState(banditId, BanditState.Escaped);
-                    emit BanditEscaped(banditId, tick);
-                    emit BanditTargetDied(banditId, deadClanId, tick);
+                    emit BanditEscaped(banditId, currentTick);
+                    emit BanditTargetDied(banditId, deadClanId, currentTick);
                 }
             }
         }
@@ -1590,10 +1593,9 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
     function _canBanditLeaveCamped(BanditTroop storage bandit, BanditState newState) internal view returns (bool) {
         return newState == BanditState.Escaped
-            || (
-                newState == BanditState.Attacking && bandit.targetClanId != ClanWorldConstants.CLAN_ID_NULL
-                    && _world.currentTick >= bandit.tickEnteredState + ClanWorldConstants.BANDIT_CAMP_TICKS
-            );
+            || (newState == BanditState.Attacking
+                && bandit.targetClanId != ClanWorldConstants.CLAN_ID_NULL
+                && _world.currentTick >= bandit.tickEnteredState + ClanWorldConstants.BANDIT_CAMP_TICKS);
     }
 
     function _canBanditLeaveAttacking(BanditState newState) internal pure returns (bool) {
@@ -1606,10 +1608,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
     function _canBanditLeaveResting(BanditTroop storage bandit, BanditState newState) internal view returns (bool) {
         return newState == BanditState.Escaped
-            || (
-                newState == BanditState.Camped
-                    && _world.currentTick >= bandit.tickEnteredState + ClanWorldConstants.BANDIT_REST_TICKS
-            );
+            || (newState == BanditState.Camped
+                && _world.currentTick >= bandit.tickEnteredState + ClanWorldConstants.BANDIT_REST_TICKS);
     }
 
     function _deleteBandit(uint32 id) internal {
@@ -1634,6 +1634,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     }
 
     function _findOldestActiveBandit() internal view returns (uint32 oldestBanditId) {
+        // V1 caps live troops at MAX_TOTAL_BANDITS = 8, so scanning the region
+        // indexes is bounded even though storage mappings cannot be enumerated.
         for (uint8 region = ClanWorldConstants.REGION_FOREST; region <= ClanWorldConstants.REGION_DEEP_SEA; region++) {
             uint32[] storage regionBandits = _banditsByRegion[region];
             for (uint256 i = 0; i < regionBandits.length; i++) {
@@ -1644,6 +1646,25 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
                 }
                 if (oldestBanditId == ClanWorldConstants.BANDIT_ID_NULL || candidateId < oldestBanditId) {
                     oldestBanditId = candidateId;
+                }
+            }
+        }
+    }
+
+    function _advanceBanditStates(uint64 closedTick) internal {
+        require(_world.currentTick == closedTick, "ClanWorld: bandit advance tick mismatch");
+        for (uint8 region = ClanWorldConstants.REGION_FOREST; region <= ClanWorldConstants.REGION_DEEP_SEA; region++) {
+            uint32[] storage regionBandits = _banditsByRegion[region];
+            for (uint256 i = 0; i < regionBandits.length; i++) {
+                uint32 banditId = regionBandits[i];
+                BanditTroop storage bandit = _bandits[banditId];
+                if (bandit.state == BanditState.Spawned && closedTick > bandit.tickEnteredState) {
+                    _transitionBanditState(banditId, BanditState.Camped);
+                } else if (
+                    bandit.state == BanditState.Resting
+                        && closedTick >= bandit.tickEnteredState + ClanWorldConstants.BANDIT_REST_TICKS
+                ) {
+                    _transitionBanditState(banditId, BanditState.Camped);
                 }
             }
         }
@@ -1662,8 +1683,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             while (i < regionBandits.length) {
                 uint32 banditId = regionBandits[i];
                 BanditTroop storage bandit = _bandits[banditId];
-                bool shouldResolve =
-                    bandit.state == BanditState.Attacking && bandit.tickEnteredState == closedTick;
+                bool shouldResolve = bandit.state == BanditState.Attacking && bandit.tickEnteredState == closedTick;
                 if (shouldResolve) {
                     _resolveBanditAttack(banditId, closedTick);
                     if (_bandits[banditId].id == ClanWorldConstants.BANDIT_ID_NULL) {
@@ -1948,8 +1968,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             return 0;
         }
 
-        uint256 pick = uint256(keccak256(abi.encode("bandit_clansman_kill", tickSeed, banditId, clanId, killIndex)))
-            % livingCount;
+        uint256 pick =
+            uint256(keccak256(abi.encode("bandit_clansman_kill", tickSeed, banditId, clanId, killIndex))) % livingCount;
         uint256 seen;
         for (uint256 i = 0; i < clansmanIds.length; i++) {
             uint32 candidateId = clansmanIds[i];
@@ -2006,6 +2026,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         uint8 selectedRegion = _selectBanditSpawnRegion(tickSeed, candidateWeights);
         if (selectedRegion != ClanWorldConstants.REGION_NOOP) {
+            // _spawnBandit resets only the selected region's accumulator; other
+            // eligible regions retain their accumulated pressure for later ticks.
             _spawnBandit(selectedRegion, _banditSpawnStrength(tickSeed, selectedRegion));
         }
 
@@ -2133,8 +2155,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             return weights;
         }
 
-        uint256 scanCount =
-            clanCount < MAX_BANDIT_SPAWN_SCAN_PER_REGION ? clanCount : MAX_BANDIT_SPAWN_SCAN_PER_REGION;
+        uint256 scanCount = clanCount < MAX_BANDIT_SPAWN_SCAN_PER_REGION ? clanCount : MAX_BANDIT_SPAWN_SCAN_PER_REGION;
         uint256 startIndex = uint256(_world.currentTick) % clanCount;
         uint256 clansmenScanned;
         for (uint256 i = 0; i < scanCount; i++) {
@@ -2143,7 +2164,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
                 continue;
             }
 
-            if (clan.baseRegion >= ClanWorldConstants.REGION_FOREST && clan.baseRegion <= ClanWorldConstants.REGION_DEEP_SEA) {
+            if (
+                clan.baseRegion >= ClanWorldConstants.REGION_FOREST
+                    && clan.baseRegion <= ClanWorldConstants.REGION_DEEP_SEA
+            ) {
                 weights[clan.baseRegion - 1] += 100 + (_lootValueRaw(clan) / 1e18);
             }
 
@@ -2174,8 +2198,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             uint64 eligibleTick = spawnState.lastSpawnTick + MIN_SPAWN_COOLDOWN_TICKS;
             if (
                 _activeBanditCount < MAX_TOTAL_BANDITS && regionWeights[region - 1] > 0
-                    && _banditsByRegion[region].length < MAX_BANDITS_PER_REGION
-                    && eligibleTick < nextEligibleTick
+                    && _banditsByRegion[region].length < MAX_BANDITS_PER_REGION && eligibleTick < nextEligibleTick
             ) {
                 nextEligibleTick = eligibleTick;
             }
@@ -2198,7 +2221,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     ///         1. Settle missions completing this tick.
     ///         2. Execute scheduled market actions for closedTick (external calls).
     ///         3. Eager-settle clans touched by world events (Phase 9 stub).
-    ///         4. Resolve closed-tick bandit/world events.
+    ///         4. Advance bandit timers and resolve closed-tick bandit/world events.
     ///         5. Increment tick and publish the next tick seed atomically.
     function heartbeat() external override nonReentrant {
         require(block.timestamp >= _world.nextHeartbeatAtTs, "ClanWorld: heartbeat rate limited");
@@ -2219,16 +2242,19 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         // Step 3: Eager-settle bases and active defenders in bandit spawn-candidate regions.
         _eagerSettleForBandits(closedTick);
 
-        // Step 4: Resolve deterministic bandit attacks for the closed tick.
+        // Step 4: Advance deterministic bandit timers for the closed tick.
+        _advanceBanditStates(closedTick);
+
+        // Step 5: Resolve deterministic bandit attacks for the closed tick.
         _resolveAttackingBandits(closedTick);
 
-        // Step 5: Evaluate deterministic bandit spawns for the closed tick.
+        // Step 6: Evaluate deterministic bandit spawns for the closed tick.
         _evaluateBanditSpawns(closedTickSeed);
 
-        // Step 6: Resolve world events (season boundary, winter transitions).
+        // Step 7: Resolve world events (season boundary, winter transitions).
         _resolveWorldEvents(closedTick);
 
-        // Step 7: Increment tick and publish the opened tick seed as one visible state transition.
+        // Step 8: Increment tick and publish the opened tick seed as one visible state transition.
         uint64 newTick = closedTick + 1;
         bytes32 newSeed = keccak256(abi.encode(block.prevrandao, closedTickSeed, closedTick));
         _world.currentTick = newTick;
@@ -2333,7 +2359,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     /// @notice Mint a new clan and spawn its homebase.
     function mintClan(address to) external override nonReentrant returns (uint32 clanId, uint256 iftTokenId) {
         require(to != address(0), "ClanWorld: zero address");
-        require(_allClanIds.length < 12, "ClanWorld: max clans");
+        require(_allClanIds.length < MAX_CLANS, "ClanWorld: max clans");
         clanId = _nextClanId++;
         iftTokenId = uint256(clanId); // Phase 1 placeholder; real iNFT is Phase 7
 
@@ -3449,7 +3475,9 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         uint64 nextActionTick = 0;
         bool exists = bandit.id != ClanWorldConstants.BANDIT_ID_NULL && bandit.state != BanditState.None;
         if (exists) {
-            if (bandit.state == BanditState.Camped) {
+            if (bandit.state == BanditState.Spawned) {
+                nextActionTick = bandit.tickEnteredState + 1;
+            } else if (bandit.state == BanditState.Camped) {
                 nextActionTick = bandit.tickEnteredState + ClanWorldConstants.BANDIT_CAMP_TICKS;
             } else if (bandit.state == BanditState.Resting) {
                 nextActionTick = bandit.tickEnteredState + ClanWorldConstants.BANDIT_REST_TICKS;

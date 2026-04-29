@@ -284,12 +284,12 @@ contract BanditAttackResolutionTest is Test {
 
         Clan memory unaffectedBefore = world.getClan(unaffectedClanId);
         uint32 banditId = _forceAttack(targetClanId, 100);
-        uint64 expectedDeathTick = deathFromTick + 3;
+        uint64 expectedBanditAbortTick = world.getWorldState().currentTick;
 
         vm.recordLogs();
         world.settleClan(targetClanId);
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        _assertBanditTargetDiedLog(logs, banditId, targetClanId, expectedDeathTick);
+        _assertBanditTargetDiedLog(logs, banditId, targetClanId, expectedBanditAbortTick);
 
         Clan memory targetAfter = world.getClan(targetClanId);
         assertEq(uint8(targetAfter.clanState), uint8(ClanState.DEAD), "target clan dead");
