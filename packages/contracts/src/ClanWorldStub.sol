@@ -208,9 +208,7 @@ contract ClanWorldStub is IClanWorld {
 
     function getBandit(uint32) public pure override returns (BanditTroop memory) {
         return
-            BanditTroop({
-                id: 0, region: 0, state: BanditState.Spawned, targetClanId: 0, tickEnteredState: 0, strength: 0
-            });
+            BanditTroop({id: 0, region: 0, state: BanditState.None, targetClanId: 0, tickEnteredState: 0, strength: 0});
     }
 
     function getBanditTroop(uint32 banditId) external pure override returns (BanditTroop memory) {
@@ -328,7 +326,7 @@ contract ClanWorldStub is IClanWorld {
         return ActiveBanditView({
             exists: false,
             banditId: 0,
-            state: BanditState.Spawned,
+            state: BanditState.None,
             currentRegion: 0,
             attackAttemptsMade: 0,
             maxAttemptsRemaining: 0,

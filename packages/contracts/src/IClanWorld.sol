@@ -104,6 +104,7 @@ enum ClansmanState {
 }
 
 enum BanditState {
+    None,
     Spawned,
     Camped,
     Resting,

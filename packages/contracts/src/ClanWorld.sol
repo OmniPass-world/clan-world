@@ -893,6 +893,7 @@ contract ClanWorld is IClanWorld {
     function _transitionBanditState(uint32 id, BanditState newState) internal {
         BanditTroop storage bandit = _bandits[id];
         require(bandit.id != ClanWorldConstants.BANDIT_ID_NULL, "ClanWorld: bandit not found");
+        require(newState != BanditState.None, "ClanWorld: invalid bandit transition");
 
         BanditState oldState = bandit.state;
         require(_isValidBanditTransition(bandit, newState), "ClanWorld: invalid bandit transition");
@@ -1833,11 +1834,18 @@ contract ClanWorld is IClanWorld {
     }
 
     function getBandit(uint32 banditId) public view override returns (BanditTroop memory) {
-        return _bandits[banditId];
+        BanditTroop memory bandit = _bandits[banditId];
+        if (bandit.id == ClanWorldConstants.BANDIT_ID_NULL || bandit.state == BanditState.None) {
+            return
+                BanditTroop({
+                    id: 0, region: 0, state: BanditState.None, targetClanId: 0, tickEnteredState: 0, strength: 0
+                });
+        }
+        return bandit;
     }
 
     function getBanditTroop(uint32 banditId) external view override returns (BanditTroop memory) {
-        return _bandits[banditId];
+        return getBandit(banditId);
     }
 
     function getBanditsInRegion(uint8 region) external view override returns (uint32[] memory) {
@@ -2074,7 +2082,8 @@ contract ClanWorld is IClanWorld {
     function getActiveBanditView() external view override returns (ActiveBanditView memory) {
         BanditTroop memory bandit = _bandits[_world.activeBanditId];
         uint64 nextActionTick = 0;
-        if (bandit.id != ClanWorldConstants.BANDIT_ID_NULL) {
+        bool exists = bandit.id != ClanWorldConstants.BANDIT_ID_NULL && bandit.state != BanditState.None;
+        if (exists) {
             if (bandit.state == BanditState.Camped) {
                 nextActionTick = bandit.tickEnteredState + ClanWorldConstants.BANDIT_CAMP_TICKS;
             } else if (bandit.state == BanditState.Resting) {
@@ -2083,7 +2092,7 @@ contract ClanWorld is IClanWorld {
         }
 
         return ActiveBanditView({
-            exists: bandit.id != ClanWorldConstants.BANDIT_ID_NULL,
+            exists: exists,
             banditId: bandit.id,
             state: bandit.state,
             currentRegion: bandit.region,

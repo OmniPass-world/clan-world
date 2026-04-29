@@ -69,6 +69,19 @@ contract BanditTest is Test {
         assertEq(state.activeBanditId, id, "active bandit");
     }
 
+    function test_getBanditMissingIdReturnsNoneState() public view {
+        BanditTroop memory bandit = world.getBandit(999);
+
+        assertEq(bandit.id, 0, "missing id");
+        assertEq(uint8(bandit.state), uint8(BanditState.None), "missing state");
+    }
+
+    function test_defaultBanditTroopStateIsNone() public pure {
+        BanditTroop memory bandit;
+
+        assertEq(uint8(bandit.state), uint8(BanditState.None), "default state");
+    }
+
     function test_spawnedToCampedTransitionSucceedsAfterNextHeartbeat() public {
         uint32 id = world.spawnBandit(ClanWorldConstants.REGION_FOREST, 100);
 
@@ -100,6 +113,7 @@ contract BanditTest is Test {
         BanditTroop memory deletedBandit = world.getBandit(id);
         assertEq(deletedBandit.id, 0, "deleted id");
         assertEq(deletedBandit.region, 0, "deleted region");
+        assertEq(uint8(deletedBandit.state), uint8(BanditState.None), "deleted state");
         assertEq(world.getBanditsInRegion(ClanWorldConstants.REGION_FOREST).length, 0, "removed from region");
         assertEq(world.getWorldState().activeBanditId, 0, "active bandit cleared");
     }
@@ -137,6 +151,9 @@ contract BanditTest is Test {
 
         vm.expectRevert("ClanWorld: invalid bandit transition");
         world.transitionBandit(id, BanditState.Attacking);
+
+        vm.expectRevert("ClanWorld: invalid bandit transition");
+        world.transitionBandit(id, BanditState.None);
     }
 
     function test_getBanditsInRegionReturnsListAndUpdatesAfterDelete() public {
