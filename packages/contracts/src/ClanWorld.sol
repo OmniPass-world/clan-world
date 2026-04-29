@@ -78,6 +78,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     uint256 private constant WHEAT_HARVEST_RATE = 20e18;
     /// @dev Caps market queue work per heartbeat; overflow is deferred to the next tick.
     uint256 public constant MAX_MARKET_ACTIONS_PER_TICK = 32;
+    /// @dev Caps winter crop boundary work: 24 clans x 2 wheat plots = 48 plot writes.
+    uint256 public constant MAX_CROP_TRANSITION_PER_TICK = 48;
 
     // =========================================================================
     // CONSTRUCTOR
@@ -738,6 +740,11 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         }
 
         WheatPlot storage plot = _wheatPlots[clanId][plotIdx];
+        if (plot.state == WheatPlotState.WinterLocked) {
+            // Winter-locked plots cannot be harvested; queued missions end with no yield.
+            _completeMission(cs, m);
+            return;
+        }
         if (plot.state != WheatPlotState.Harvestable || plot.remainingWheat == 0) {
             // Plot not ready — worker waits
             _completeMission(cs, m);
@@ -1048,11 +1055,42 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         bool wasWinter = _isWinterActiveAt(closedTick);
         bool nowWinter = _isWinterActiveAt(newTick);
         if (!wasWinter && nowWinter) {
+            _lockWheatPlotsForWinter();
             emit WinterStarted(_winterEventTick(newTick));
         }
         if (wasWinter && !nowWinter) {
             _resetColdDamageForAllClans();
+            _restartWheatPlotsAfterWinter(newTick);
             emit WinterEnded(_winterEventTick(newTick));
+        }
+    }
+
+    function _lockWheatPlotsForWinter() internal {
+        uint256 transitions;
+        for (uint256 i = 0; i < _allClanIds.length; i++) {
+            uint32 clanId = _allClanIds[i];
+            for (uint256 pi = 0; pi < 2; pi++) {
+                require(transitions < MAX_CROP_TRANSITION_PER_TICK, "ClanWorld: crop transition cap");
+                _wheatPlots[clanId][pi].state = WheatPlotState.WinterLocked;
+                transitions++;
+            }
+        }
+    }
+
+    function _restartWheatPlotsAfterWinter(uint64 currentTick) internal {
+        uint256 transitions;
+        for (uint256 i = 0; i < _allClanIds.length; i++) {
+            uint32 clanId = _allClanIds[i];
+            for (uint256 pi = 0; pi < 2; pi++) {
+                require(transitions < MAX_CROP_TRANSITION_PER_TICK, "ClanWorld: crop transition cap");
+                WheatPlot storage plot = _wheatPlots[clanId][pi];
+                if (plot.state == WheatPlotState.WinterLocked) {
+                    plot.state = WheatPlotState.Regrowing;
+                    plot.remainingWheat = 0;
+                    plot.regrowUntilTick = currentTick + ClanWorldConstants.WHEAT_PLOT_REGROW_TICKS;
+                }
+                transitions++;
+            }
         }
     }
 
@@ -1168,15 +1206,18 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         clan.vaultWheat = 20e18;
         clan.vaultFish = 2e18;
 
+        WheatPlotState startingPlotState =
+            _isWinterActiveAt(_world.currentTick) ? WheatPlotState.WinterLocked : WheatPlotState.Harvestable;
+
         // Wheat plots
         _wheatPlots[clanId][0] = WheatPlot({
-            state: WheatPlotState.Harvestable,
+            state: startingPlotState,
             region: ClanWorldConstants.REGION_WEST_FARMS,
             remainingWheat: ClanWorldConstants.WHEAT_PLOT_STARTING_WHEAT,
             regrowUntilTick: 0
         });
         _wheatPlots[clanId][1] = WheatPlot({
-            state: WheatPlotState.Harvestable,
+            state: startingPlotState,
             region: ClanWorldConstants.REGION_EAST_FARMS,
             remainingWheat: ClanWorldConstants.WHEAT_PLOT_STARTING_WHEAT,
             regrowUntilTick: 0
@@ -1774,6 +1815,9 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
                 gotoRegion != ClanWorldConstants.REGION_WEST_FARMS && gotoRegion != ClanWorldConstants.REGION_EAST_FARMS
             ) {
                 return StatusCode.ERR_INVALID_REGION;
+            }
+            if (_isWinterActiveAt(_world.currentTick)) {
+                return StatusCode.ERR_WINTER_LOCKED;
             }
         }
 
