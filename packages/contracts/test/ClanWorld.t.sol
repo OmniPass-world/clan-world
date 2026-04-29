@@ -496,8 +496,11 @@ contract ClanWorldTest is Test {
         ClanFullView memory view_ = world.getClanFullView(clanId);
         uint32 csId = view_.clansmen[0].clansman.clansman.clansmanId;
 
-        // Advance 201 ticks — clan is now 201 ticks behind its lastSettledTick
-        for (uint256 i = 0; i < 201; i++) {
+        // Advance until the clan is truly >200 ticks behind. Phase 9 bandit
+        // eager-settle may settle candidate-region bases on spawn ticks, so
+        // this test follows the invariant instead of assuming no heartbeat
+        // settlement ever touches the clan.
+        while (world.getWorldState().currentTick <= world.getClan(clanId).lastSettledTick + 200) {
             _advanceTick();
         }
 

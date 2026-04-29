@@ -3,7 +3,19 @@ pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {ClanWorld} from "../src/ClanWorld.sol";
-import {BanditState, BanditTroop, ClanWorldConstants, WorldState} from "../src/IClanWorld.sol";
+import {
+    ActionType,
+    BanditState,
+    BanditTroop,
+    Clan,
+    ClanOrder,
+    ClanWorldConstants,
+    ClansmanState,
+    Mission,
+    OrderResult,
+    StatusCode,
+    WorldState
+} from "../src/IClanWorld.sol";
 
 contract BanditSpawnHarness is ClanWorld {
     function spawnBandit(uint8 region, uint32 strength) external returns (uint32) {
@@ -48,12 +60,19 @@ contract BanditSpawnHarness is ClanWorld {
         return MAX_BANDIT_SPAWN_SCAN_PER_REGION;
     }
 
+    function maxBanditEagerSettleBaseScanPerRegion() external pure returns (uint256) {
+        return MAX_BANDIT_EAGER_SETTLE_BASE_SCAN_PER_REGION;
+    }
+
     function banditSpawnRoll(bytes32 tickSeed, uint8 region) external pure returns (uint256) {
         return _banditSpawnRoll(tickSeed, region);
     }
 }
 
 contract BanditSpawnTest is Test {
+    event ClanSettled(uint32 indexed clanId, uint64 settledToTick);
+    event BanditSpawned(uint32 indexed banditId, uint8 region, uint8 tier, uint16 attackPower);
+
     BanditSpawnHarness world;
 
     function setUp() public {
@@ -77,6 +96,86 @@ contract BanditSpawnTest is Test {
 
     function _mintForestClan(BanditSpawnHarness target) internal {
         target.mintClan(address(this));
+    }
+
+    function _mintUntilTwoForestClans(BanditSpawnHarness target) internal returns (uint32 first, uint32 second) {
+        for (uint256 i = 0; i < target.maxBanditEagerSettleBaseScanPerRegion(); i++) {
+            (uint32 clanId,) = target.mintClan(address(this));
+            if (target.getClan(clanId).baseRegion == ClanWorldConstants.REGION_FOREST) {
+                if (first == 0) {
+                    first = clanId;
+                } else {
+                    second = clanId;
+                    return (first, second);
+                }
+            }
+        }
+        revert("missing second forest clan");
+    }
+
+    function _csId(BanditSpawnHarness target, uint32 clanId, uint256 index) internal view returns (uint32) {
+        return target.getClanFullView(clanId).clansmen[index].clansman.clansman.clansmanId;
+    }
+
+    function _ordersForPendingWorkerAndDefender(uint32 workerId, uint32 defenderId, uint8 baseRegion)
+        internal
+        pure
+        returns (ClanOrder[] memory orders)
+    {
+        orders = new ClanOrder[](2);
+        orders[0] = ClanOrder({
+            clansmanId: workerId,
+            gotoRegion: ClanWorldConstants.REGION_FOREST,
+            action: ActionType.ChopWood,
+            targetClanId: 0,
+            marketToken: address(0),
+            marketAmount: 0,
+            maxGoldIn: 0
+        });
+        orders[1] = ClanOrder({
+            clansmanId: defenderId,
+            gotoRegion: baseRegion,
+            action: ActionType.DefendBase,
+            targetClanId: 0,
+            marketToken: address(0),
+            marketAmount: 0,
+            maxGoldIn: 0
+        });
+    }
+
+    function _submitPendingWorkerAndDefender(BanditSpawnHarness target, uint32 clanId)
+        internal
+        returns (uint32 workerId, uint32 defenderId)
+    {
+        Clan memory clan = target.getClan(clanId);
+        workerId = _csId(target, clanId, 0);
+        defenderId = _csId(target, clanId, 1);
+
+        OrderResult[] memory results =
+            target.submitClanOrders(clanId, _ordersForPendingWorkerAndDefender(workerId, defenderId, clan.baseRegion));
+        assertEq(uint8(results[0].status), uint8(StatusCode.OK), "worker order accepted");
+        assertEq(uint8(results[1].status), uint8(StatusCode.OK), "defender order accepted");
+    }
+
+    function _blockNonForestSpawnRegions(BanditSpawnHarness target) internal {
+        uint64 currentTick = target.getWorldState().currentTick;
+        for (uint8 region = ClanWorldConstants.REGION_FOREST; region <= ClanWorldConstants.REGION_DEEP_SEA; region++) {
+            if (region != ClanWorldConstants.REGION_FOREST) {
+                target.setBanditSpawnState(region, currentTick, 0);
+            }
+        }
+    }
+
+    function _prevrandaoForNextForestSpawn(BanditSpawnHarness target) internal view returns (bytes32) {
+        WorldState memory state = target.getWorldState();
+        for (uint256 i = 1; i < 256; i++) {
+            bytes32 nextRandao = keccak256(abi.encodePacked("forest-spawn-randao", i));
+            bytes32 nextSeed = keccak256(abi.encode(nextRandao, state.currentTickSeed, state.currentTick));
+            if (target.banditSpawnRoll(nextSeed, ClanWorldConstants.REGION_FOREST) < 8000) {
+                return nextRandao;
+            }
+        }
+        revert("missing forest spawn randao");
     }
 
     function _missSeed(uint8 region, uint16 probability) internal view returns (bytes32) {
@@ -169,6 +268,56 @@ contract BanditSpawnTest is Test {
         _advanceTick(world);
 
         assertEq(world.getWorldState().currentTick, 1, "heartbeat advanced");
+    }
+
+    function test_heartbeatEagerSettlesCandidateRegionBasesAndDefendersBeforeBanditSpawn() public {
+        _advancePastInitialCooldown(world);
+        (uint32 clanId1, uint32 clanId2) = _mintUntilTwoForestClans(world);
+
+        (uint32 workerId1, uint32 defenderId1) = _submitPendingWorkerAndDefender(world, clanId1);
+        (uint32 workerId2, uint32 defenderId2) = _submitPendingWorkerAndDefender(world, clanId2);
+
+        _blockNonForestSpawnRegions(world);
+        world.setBanditSpawnState(ClanWorldConstants.REGION_FOREST, world.getWorldState().currentTick, 0);
+        vm.prevrandao(_prevrandaoForNextForestSpawn(world));
+        _advanceTick(world);
+
+        uint64 closedTick = world.getWorldState().currentTick;
+        assertEq(world.getClan(clanId1).lastSettledTick, closedTick - 1, "clan 1 setup: unsettled");
+        assertEq(world.getClan(clanId2).lastSettledTick, closedTick - 1, "clan 2 setup: unsettled");
+        assertTrue(world.getActiveMission(workerId1).active, "clan 1 worker has pending mission");
+        assertTrue(world.getActiveMission(workerId2).active, "clan 2 worker has pending mission");
+        assertEq(world.getActiveDefenders(clanId1)[0], defenderId1, "clan 1 defender registered");
+        assertEq(world.getActiveDefenders(clanId2)[0], defenderId2, "clan 2 defender registered");
+
+        _blockNonForestSpawnRegions(world);
+        world.setBanditSpawnState(ClanWorldConstants.REGION_FOREST, 0, 10000);
+
+        vm.expectEmit(true, false, false, true);
+        emit ClanSettled(clanId1, closedTick);
+        vm.expectEmit(true, false, false, true);
+        emit ClanSettled(clanId2, closedTick);
+        vm.expectEmit(true, false, false, false);
+        emit BanditSpawned(1, 0, 0, 0);
+
+        _advanceTick(world);
+
+        assertEq(world.getClan(clanId1).lastSettledTick, closedTick, "clan 1 eager-settled");
+        assertEq(world.getClan(clanId2).lastSettledTick, closedTick, "clan 2 eager-settled");
+
+        Mission memory defenderMission1 = world.getActiveMission(defenderId1);
+        Mission memory defenderMission2 = world.getActiveMission(defenderId2);
+        assertTrue(defenderMission1.active, "clan 1 defender remains active");
+        assertTrue(defenderMission2.active, "clan 2 defender remains active");
+        assertEq(uint8(defenderMission1.action), uint8(ActionType.DefendBase), "clan 1 defender action");
+        assertEq(uint8(defenderMission2.action), uint8(ActionType.DefendBase), "clan 2 defender action");
+        assertEq(uint8(world.getClansman(defenderId1).state), uint8(ClansmanState.ACTING), "clan 1 defender settled");
+        assertEq(uint8(world.getClansman(defenderId2).state), uint8(ClansmanState.ACTING), "clan 2 defender settled");
+
+        BanditTroop memory bandit = world.getBandit(1);
+        assertEq(uint8(bandit.state), uint8(BanditState.Spawned), "bandit spawned");
+        assertEq(bandit.region, ClanWorldConstants.REGION_FOREST, "forest selected after eager settle");
+        assertEq(bandit.tickEnteredState, closedTick, "spawn used closed tick");
     }
 
     function test_regionSelectionDeterministicForSameSeed() public {

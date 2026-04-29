@@ -94,6 +94,13 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     ///      spawn preview/selection into an unbounded heartbeat cost.
     uint256 internal constant MAX_BANDIT_SPAWN_SCAN_PER_REGION = 8;
     uint256 internal constant MAX_BANDIT_SPAWN_CLANSMEN_SCAN_PER_REGION = MAX_BANDIT_SPAWN_SCAN_PER_REGION * 4;
+    /// @dev Eager settlement scans the clan-indexed bases in each spawn-candidate
+    ///      region, not every clan globally per region forever. The current world
+    ///      caps minting at 12 clans, so this settles all possible bases today
+    ///      while keeping the heartbeat loop explicitly bounded if that cap grows.
+    uint256 internal constant MAX_BANDIT_EAGER_SETTLE_BASE_SCAN_PER_REGION = 12;
+    uint256 internal constant MAX_BANDIT_EAGER_SETTLE_DEFENDING_CLANS_PER_REGION = 12;
+    uint256 internal constant MAX_BANDIT_EAGER_SETTLE_DEFENDER_SCAN_PER_REGION = 48;
     uint32 internal constant MIN_BANDIT_SPAWN_STRENGTH = 100;
     uint32 internal constant BANDIT_SPAWN_STRENGTH_SPREAD = 151;
 
@@ -1095,6 +1102,80 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         return MIN_BANDIT_SPAWN_STRENGTH + uint32(roll);
     }
 
+    function _eagerSettleForBandits(uint64 closedTick) internal {
+        require(_world.currentTick == closedTick, "ClanWorld: eager settle tick mismatch");
+        if (_activeBanditCount >= MAX_TOTAL_BANDITS) return;
+
+        uint256[] memory regionWeights = _banditSpawnRegionWeights();
+        for (uint8 region = ClanWorldConstants.REGION_FOREST; region <= ClanWorldConstants.REGION_DEEP_SEA; region++) {
+            if (!_isBanditSpawnRegionCandidate(regionWeights, region)) {
+                continue;
+            }
+            _eagerSettleBanditCandidateRegion(region);
+        }
+    }
+
+    function _isBanditSpawnRegionCandidate(uint256[] memory regionWeights, uint8 region) internal view returns (bool) {
+        if (regionWeights[region - 1] == 0 || _banditsByRegion[region].length >= MAX_BANDITS_PER_REGION) {
+            return false;
+        }
+
+        BanditSpawnState storage spawnState = _banditSpawnByRegion[region];
+        if (_world.currentTick < spawnState.lastSpawnTick + MIN_SPAWN_COOLDOWN_TICKS) {
+            return false;
+        }
+
+        uint16 nextProbability = _incrementBanditSpawnProbability(spawnState.probabilityAccum);
+        return _banditSpawnRollPasses(_world.currentTickSeed, region, nextProbability);
+    }
+
+    function _eagerSettleBanditCandidateRegion(uint8 region) internal {
+        uint256 clanScanCount = _allClanIds.length < MAX_BANDIT_EAGER_SETTLE_BASE_SCAN_PER_REGION
+            ? _allClanIds.length
+            : MAX_BANDIT_EAGER_SETTLE_BASE_SCAN_PER_REGION;
+
+        for (uint256 i = 0; i < clanScanCount; i++) {
+            uint32 clanId = _allClanIds[i];
+            Clan storage clan = _clans[clanId];
+            if (clan.clanState == ClanState.DEAD || clan.baseRegion != region) {
+                continue;
+            }
+
+            _settleClan(clanId);
+            _eagerSettleActiveDefendersForBase(clanId, region);
+        }
+    }
+
+    function _eagerSettleActiveDefendersForBase(uint32 targetClanId, uint8 region) internal {
+        uint32[] storage defendingClans = _defendingClansByRegion[region];
+        uint256 defendingClanScanCount = defendingClans.length < MAX_BANDIT_EAGER_SETTLE_DEFENDING_CLANS_PER_REGION
+            ? defendingClans.length
+            : MAX_BANDIT_EAGER_SETTLE_DEFENDING_CLANS_PER_REGION;
+        uint256 defendersScanned;
+
+        for (uint256 i = 0; i < defendingClanScanCount; i++) {
+            uint32 defenderClanId = defendingClans[i];
+            uint32[] storage clansmanIds = _clanClansmanIds[defenderClanId];
+
+            for (
+                uint256 j = 0;
+                j < clansmanIds.length && defendersScanned < MAX_BANDIT_EAGER_SETTLE_DEFENDER_SCAN_PER_REGION;
+                j++
+            ) {
+                defendersScanned += 1;
+                Mission storage mission = _missions[clansmanIds[j]];
+                if (mission.active && mission.action == ActionType.DefendBase && mission.targetClanId == targetClanId) {
+                    _settleClan(defenderClanId);
+                    break;
+                }
+            }
+
+            if (defendersScanned >= MAX_BANDIT_EAGER_SETTLE_DEFENDER_SCAN_PER_REGION) {
+                break;
+            }
+        }
+    }
+
     function _banditSpawnRegionWeights() internal view returns (uint256[] memory weights) {
         weights = new uint256[](8);
         uint256 clanCount = _allClanIds.length;
@@ -1185,8 +1266,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         // Step 2: Execute scheduled market actions for closedTick (may make external calls).
         _executeScheduledMarketActions(closedTick);
 
-        // Step 3: Eager-settle clans touched by world events (Phase 9 bandit — stub).
-        // TODO Phase 9: _settleClansNearBandit(closedTick);
+        // Step 3: Eager-settle bases and active defenders in bandit spawn-candidate regions.
+        _eagerSettleForBandits(closedTick);
 
         // Step 4: Evaluate deterministic bandit spawns for the closed tick.
         _evaluateBanditSpawns(closedTickSeed);
