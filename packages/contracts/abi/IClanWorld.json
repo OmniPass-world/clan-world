@@ -1698,6 +1698,11 @@
               "name": "missionNonce",
               "type": "uint64",
               "internalType": "uint64"
+            },
+            {
+              "name": "marketMode",
+              "type": "uint8",
+              "internalType": "enum MarketExecutionMode"
             }
           ]
         }

@@ -379,6 +379,7 @@ struct OrderResult {
     StatusCode status;
     uint64 cooldownEndsAtTs;
     uint64 missionNonce;
+    MarketExecutionMode marketMode;
 }
 
 struct PoolSeedConfig {

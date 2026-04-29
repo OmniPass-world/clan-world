@@ -55,6 +55,12 @@ contract ClanWorldTestHarness is ClanWorld {
         _clansmen[csId].carryWheat = wheat;
         _clansmen[csId].carryFish = fish;
     }
+
+    function setClansmanForTest(uint32 csId, ClansmanState state, uint8 region, uint64 cooldownEndsAtTs) external {
+        _clansmen[csId].state = state;
+        _clansmen[csId].currentRegion = region;
+        _clansmen[csId].cooldownEndsAtTs = cooldownEndsAtTs;
+    }
 }
 
 contract ClanWorldTest is Test {
@@ -734,6 +740,148 @@ contract ClanWorldTest is Test {
     // Helper: get the first clansman id for a clan
     function _firstCs(uint32 clanId) internal view returns (uint32) {
         return world.getClanFullView(clanId).clansmen[0].clansman.clansman.clansmanId;
+    }
+
+    function _setupHarnessClanAt(
+        ClansmanState state,
+        uint8 region,
+        uint64 cooldownEndsAtTs
+    ) internal returns (ClanWorldTestHarness harness, address woodAddr, uint32 clanId, uint32 csId) {
+        harness = new ClanWorldTestHarness();
+        world = harness;
+        woodAddr = _setupMarket();
+        clanId = _mintClan();
+        csId = _firstCs(clanId);
+        harness.setClansmanForTest(csId, state, region, cooldownEndsAtTs);
+    }
+
+    function test_immediateMarketSell_executesInSubmitTx() public {
+        (, address woodAddr, uint32 clanId, uint32 csId) =
+            _setupHarnessClanAt(ClansmanState.WAITING, ClanWorldConstants.REGION_UNICORN_TOWN, 0);
+
+        Clan memory beforeClan = world.getClan(clanId);
+
+        vm.expectEmit(true, true, false, false);
+        emit IClanWorldEvents.ImmediateMarketActionExecuted(clanId, csId, woodAddr, address(goldToken), 5e18, 0, 0);
+        OrderResult[] memory r = _submitMarketOrder(clanId, csId, ActionType.MarketSell, woodAddr, 5e18, 0);
+
+        Clan memory afterClan = world.getClan(clanId);
+        Clansman memory cs = world.getClansman(csId);
+
+        assertEq(uint8(r[0].status), uint8(StatusCode.OK), "immediate sell should be accepted");
+        assertEq(uint8(r[0].marketMode), uint8(MarketExecutionMode.Immediate), "sell should be immediate");
+        assertEq(afterClan.vaultWood, beforeClan.vaultWood - 5e18, "vault wood should be sold immediately");
+        assertGt(afterClan.goldBalance, beforeClan.goldBalance, "gold should be credited immediately");
+        assertEq(uint8(cs.state), uint8(ClansmanState.WAITING), "worker should remain waiting");
+        assertEq(cs.currentRegion, ClanWorldConstants.REGION_UNICORN_TOWN, "worker should stay in town");
+        assertGt(cs.cooldownEndsAtTs, block.timestamp, "immediate action should consume cooldown");
+        assertFalse(world.getActiveMission(csId).active, "immediate action should not install a mission");
+        assertEq(world.getScheduledMarketActionsForTick(world.getWorldState().currentTick).length, 0, "no queue entry");
+    }
+
+    function test_immediateMarket_townOnCooldown_fallsBackToScheduled() public {
+        uint64 cooldownEndsAt = uint64(block.timestamp + 30);
+        (, address woodAddr, uint32 clanId, uint32 csId) =
+            _setupHarnessClanAt(ClansmanState.WAITING, ClanWorldConstants.REGION_UNICORN_TOWN, cooldownEndsAt);
+
+        uint256 goldBefore = world.getClan(clanId).goldBalance;
+        OrderResult[] memory r = _submitMarketOrder(clanId, csId, ActionType.MarketSell, woodAddr, 1e18, 0);
+        Mission memory m = world.getActiveMission(csId);
+
+        assertEq(uint8(r[0].status), uint8(StatusCode.OK), "market order should schedule while cooling down");
+        assertEq(uint8(r[0].marketMode), uint8(MarketExecutionMode.Scheduled), "cooldown should force scheduled mode");
+        assertTrue(m.active, "scheduled fallback should install a mission");
+        assertEq(uint8(m.marketMode), uint8(MarketExecutionMode.Scheduled), "mission should be scheduled");
+        assertEq(world.getScheduledMarketActionsForTick(m.actionStartTick).length, 1, "scheduled action should enqueue");
+        assertEq(world.getClan(clanId).goldBalance, goldBefore, "scheduled fallback should not trade immediately");
+    }
+
+    function test_immediateMarket_notInTown_fallsBackToScheduled() public {
+        (, address woodAddr, uint32 clanId, uint32 csId) =
+            _setupHarnessClanAt(ClansmanState.WAITING, ClanWorldConstants.REGION_FOREST, 0);
+
+        OrderResult[] memory r = _submitMarketOrder(clanId, csId, ActionType.MarketSell, woodAddr, 1e18, 0);
+        Mission memory m = world.getActiveMission(csId);
+
+        assertEq(uint8(r[0].status), uint8(StatusCode.OK), "out-of-town market order should schedule");
+        assertEq(uint8(r[0].marketMode), uint8(MarketExecutionMode.Scheduled), "out-of-town should be scheduled");
+        assertTrue(m.active, "scheduled fallback should install a mission");
+        assertEq(world.getScheduledMarketActionsForTick(m.actionStartTick).length, 1, "scheduled action should enqueue");
+    }
+
+    function test_immediateMarket_busyWorker_fallsBackToScheduled() public {
+        (, address woodAddr, uint32 clanId, uint32 csId) =
+            _setupHarnessClanAt(ClansmanState.ACTING, ClanWorldConstants.REGION_UNICORN_TOWN, 0);
+
+        OrderResult[] memory r = _submitMarketOrder(clanId, csId, ActionType.MarketSell, woodAddr, 1e18, 0);
+        Mission memory m = world.getActiveMission(csId);
+
+        assertEq(uint8(r[0].status), uint8(StatusCode.OK), "busy market worker should schedule");
+        assertEq(uint8(r[0].marketMode), uint8(MarketExecutionMode.Scheduled), "busy worker should be scheduled");
+        assertTrue(m.active, "scheduled fallback should install a mission");
+        assertEq(world.getScheduledMarketActionsForTick(m.actionStartTick).length, 1, "scheduled action should enqueue");
+    }
+
+    function test_immediateMarketBuy_executesWhenMaxGoldSatisfied() public {
+        (, address woodAddr, uint32 clanId, uint32 csId) =
+            _setupHarnessClanAt(ClansmanState.WAITING, ClanWorldConstants.REGION_UNICORN_TOWN, 0);
+
+        Clan memory beforeClan = world.getClan(clanId);
+
+        OrderResult[] memory r = _submitMarketOrder(clanId, csId, ActionType.MarketBuy, woodAddr, 1e18, 2e18);
+
+        Clan memory afterClan = world.getClan(clanId);
+        assertEq(uint8(r[0].status), uint8(StatusCode.OK), "immediate buy should be accepted");
+        assertEq(uint8(r[0].marketMode), uint8(MarketExecutionMode.Immediate), "buy should be immediate");
+        assertGt(afterClan.vaultWood, beforeClan.vaultWood, "vault wood should increase immediately");
+        assertLt(afterClan.goldBalance, beforeClan.goldBalance, "gold should be debited immediately");
+        assertFalse(world.getActiveMission(csId).active, "immediate buy should not install a mission");
+    }
+
+    function test_immediateMarket_insufficientLiquidityFailsAndConsumesCooldown() public {
+        (, address woodAddr, uint32 clanId, uint32 csId) =
+            _setupHarnessClanAt(ClansmanState.WAITING, ClanWorldConstants.REGION_UNICORN_TOWN, 0);
+
+        Clan memory beforeClan = world.getClan(clanId);
+
+        vm.expectEmit(true, true, false, true);
+        emit IClanWorldEvents.MarketActionFailed(clanId, csId, ActionType.MarketBuy, StatusCode.ERR_INVALID_ACTION);
+        OrderResult[] memory r = _submitMarketOrder(
+            clanId, csId, ActionType.MarketBuy, woodAddr, world.INITIAL_RESOURCE_POOL_SEED() + 1, type(uint256).max
+        );
+
+        Clan memory afterClan = world.getClan(clanId);
+        Clansman memory cs = world.getClansman(csId);
+
+        assertEq(uint8(r[0].status), uint8(StatusCode.OK), "failed immediate action is still accepted");
+        assertEq(uint8(r[0].marketMode), uint8(MarketExecutionMode.Immediate), "failed immediate action stays immediate");
+        assertEq(afterClan.vaultWood, beforeClan.vaultWood, "failed buy should not credit resources");
+        assertEq(afterClan.goldBalance, beforeClan.goldBalance, "failed buy should not debit gold");
+        assertGt(cs.cooldownEndsAtTs, block.timestamp, "failed immediate action should consume cooldown");
+        assertFalse(world.getActiveMission(csId).active, "failed immediate action should not schedule fallback");
+    }
+
+    function test_immediateMarketBuy_maxGoldExceededFailsAndConsumesCooldown() public {
+        (, address woodAddr, uint32 clanId, uint32 csId) =
+            _setupHarnessClanAt(ClansmanState.WAITING, ClanWorldConstants.REGION_UNICORN_TOWN, 0);
+
+        Clan memory beforeClan = world.getClan(clanId);
+
+        vm.expectEmit(true, true, false, true);
+        emit IClanWorldEvents.MarketActionFailed(
+            clanId, csId, ActionType.MarketBuy, StatusCode.ERR_MARKET_BUY_MAX_GOLD_EXCEEDED
+        );
+        OrderResult[] memory r = _submitMarketOrder(clanId, csId, ActionType.MarketBuy, woodAddr, 1e18, 0);
+
+        Clan memory afterClan = world.getClan(clanId);
+        Clansman memory cs = world.getClansman(csId);
+
+        assertEq(uint8(r[0].status), uint8(StatusCode.OK), "failed immediate action is still accepted");
+        assertEq(uint8(r[0].marketMode), uint8(MarketExecutionMode.Immediate), "failed buy should report immediate");
+        assertEq(afterClan.vaultWood, beforeClan.vaultWood, "failed buy should not credit resources");
+        assertEq(afterClan.goldBalance, beforeClan.goldBalance, "failed buy should not debit gold");
+        assertGt(cs.cooldownEndsAtTs, block.timestamp, "failed immediate action should consume cooldown");
+        assertFalse(world.getActiveMission(csId).active, "failed immediate action should not schedule fallback");
     }
 
     // -------------------------------------------------------------------------

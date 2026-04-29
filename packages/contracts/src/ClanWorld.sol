@@ -1106,7 +1106,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
                         clansmanId: orders[i].clansmanId,
                         status: StatusCode.ERR_INVALID_ACTION,
                         cooldownEndsAtTs: 0,
-                        missionNonce: 0
+                        missionNonce: 0,
+                        marketMode: MarketExecutionMode.None
                     });
                 }
                 return results;
@@ -1174,8 +1175,11 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             }
         }
 
-        // Cooldown check
-        if (block.timestamp < cs.cooldownEndsAtTs) {
+        bool isMarketAction = order.action == ActionType.MarketBuy || order.action == ActionType.MarketSell;
+
+        // Cooldown check. Market orders may still fall back to the scheduled path;
+        // only the immediate path requires the worker to be off cooldown.
+        if (!isMarketAction && block.timestamp < cs.cooldownEndsAtTs) {
             result.status = StatusCode.ERR_COOLDOWN_ACTIVE;
             result.cooldownEndsAtTs = cs.cooldownEndsAtTs;
             result.missionNonce = cs.lastMissionNonce;
@@ -1205,6 +1209,25 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         StatusCode actionErr = _validateAction(clan, cs, order, ctx.gotoRegion);
         if (actionErr != StatusCode.OK) {
             result.status = actionErr;
+            return result;
+        }
+
+        if (
+            isMarketAction && ctx.fromRegion == ClanWorldConstants.REGION_UNICORN_TOWN
+                && cs.state == ClansmanState.WAITING && block.timestamp >= cs.cooldownEndsAtTs
+        ) {
+            ctx.newNonce = cs.lastMissionNonce + 1;
+            cs.lastMissionNonce = ctx.newNonce;
+
+            _executeImmediateMarket(clanId, order, cs.clansmanId);
+
+            cs.cooldownEndsAtTs = uint64(block.timestamp) + ClanWorldConstants.CLANSMAN_COOLDOWN_SECONDS;
+            _clearDefender(cs.clansmanId);
+
+            result.status = StatusCode.OK;
+            result.cooldownEndsAtTs = cs.cooldownEndsAtTs;
+            result.missionNonce = ctx.newNonce;
+            result.marketMode = MarketExecutionMode.Immediate;
             return result;
         }
 
@@ -1240,7 +1263,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         // v4.2 §8 L758: "executes at heartbeat closing tick T" where T = arrivalTick.
         // executeAtTick = arrivalTick (not arrivalTick+1).
-        if (order.action == ActionType.MarketBuy || order.action == ActionType.MarketSell) {
+        if (isMarketAction) {
             _enqueueScheduledMarketAction(clanId, order, cs.clansmanId, ctx.arrivalTick, ctx.newNonce);
         }
 
@@ -1266,6 +1289,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         result.status = StatusCode.OK;
         result.cooldownEndsAtTs = cs.cooldownEndsAtTs;
         result.missionNonce = ctx.newNonce;
+        result.marketMode = isMarketAction ? MarketExecutionMode.Scheduled : MarketExecutionMode.None;
         return result;
     }
 
@@ -1526,6 +1550,99 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         return false;
     }
 
+    /// @dev Check a clan vault balance without mutating storage.
+    function _hasVaultBalance(Clan storage clan, address token, uint256 amount) internal view returns (bool) {
+        if (token == _treasury.woodToken) return clan.vaultWood >= amount;
+        if (token == _treasury.ironToken) return clan.vaultIron >= amount;
+        if (token == _treasury.wheatToken) return clan.vaultWheat >= amount;
+        if (token == _treasury.fishToken) return clan.vaultFish >= amount;
+        return false;
+    }
+
+    function _executeImmediateMarket(uint32 clanId, ClanOrder calldata order, uint32 clansmanId) internal {
+        if (order.action == ActionType.MarketSell) {
+            _executeImmediateMarketSell(clanId, clansmanId, order.marketToken, order.marketAmount);
+        } else {
+            _executeImmediateMarketBuy(clanId, clansmanId, order.marketToken, order.marketAmount, order.maxGoldIn);
+        }
+    }
+
+    function _executeImmediateMarketSell(uint32 clanId, uint32 clansmanId, address token, uint256 amount) internal {
+        if (!_treasury.poolsSeeded) {
+            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketSell, StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN);
+            return;
+        }
+        address poolAddr = _poolFor(token);
+        if (poolAddr == address(0)) {
+            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketSell, StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN);
+            return;
+        }
+
+        Clan storage clan = _clans[clanId];
+        if (!_hasVaultBalance(clan, token, amount)) {
+            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketSell, StatusCode.ERR_MISSING_RESOURCES);
+            return;
+        }
+
+        try StubPool(poolAddr).swapExactInForOut(amount, 1) returns (uint256 goldOut) {
+            _deductFromVault(clan, token, amount);
+            clan.goldBalance += goldOut;
+            emit ImmediateMarketActionExecuted(
+                clanId, clansmanId, token, _treasury.goldToken, amount, goldOut, _world.currentTick
+            );
+        } catch {
+            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketSell, StatusCode.ERR_INVALID_ACTION);
+        }
+    }
+
+    function _executeImmediateMarketBuy(
+        uint32 clanId,
+        uint32 clansmanId,
+        address token,
+        uint256 amountOut,
+        uint256 maxGoldIn
+    ) internal {
+        if (!_treasury.poolsSeeded) {
+            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketBuy, StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN);
+            return;
+        }
+        address poolAddr = _poolFor(token);
+        if (poolAddr == address(0)) {
+            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketBuy, StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN);
+            return;
+        }
+
+        uint256 goldIn;
+        try StubPool(poolAddr).getAmountInForExactOut(amountOut) returns (uint256 quotedGoldIn) {
+            goldIn = quotedGoldIn;
+        } catch {
+            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketBuy, StatusCode.ERR_INVALID_ACTION);
+            return;
+        }
+
+        Clan storage clan = _clans[clanId];
+        if (goldIn > maxGoldIn) {
+            emit MarketActionFailed(
+                clanId, clansmanId, ActionType.MarketBuy, StatusCode.ERR_MARKET_BUY_MAX_GOLD_EXCEEDED
+            );
+            return;
+        }
+        if (clan.goldBalance < goldIn) {
+            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketBuy, StatusCode.ERR_NOT_ENOUGH_GOLD);
+            return;
+        }
+
+        try StubPool(poolAddr).swapExactOutForInWithMaxIn(amountOut, maxGoldIn) returns (uint256 actualGoldIn) {
+            clan.goldBalance -= actualGoldIn;
+            _addToVault(clan, token, amountOut);
+            emit ImmediateMarketActionExecuted(
+                clanId, clansmanId, _treasury.goldToken, token, actualGoldIn, amountOut, _world.currentTick
+            );
+        } catch {
+            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketBuy, StatusCode.ERR_INVALID_ACTION);
+        }
+    }
+
     /// @dev Execute a scheduled market sell: deduct resource from vault, credit gold.
     function _executeMarketSell(
         uint64 closedTick,
@@ -1676,10 +1793,11 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             ) {
                 return StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN;
             }
-            // Market orders are always enqueued for the arrivalTick FIFO queue.
-            // _resolveAction records mission completion but does not execute any swap.
+            // Immediate market orders execute during submitClanOrders when the
+            // worker is waiting in Unicorn Town and off cooldown. All other
+            // valid market orders are enqueued for the arrivalTick FIFO queue.
             if (cs.currentRegion == ClanWorldConstants.REGION_UNICORN_TOWN && cs.state == ClansmanState.WAITING) {
-                // Already at Unicorn Town — arrivalTick == currentTick, queued for next heartbeat.
+                // Already at Unicorn Town — immediate if off cooldown, scheduled otherwise.
             }
         }
 
