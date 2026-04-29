@@ -503,6 +503,7 @@ interface IClanWorldEvents {
     );
     event ClanSettled(uint32 indexed clanId, uint64 settledToTick);
     event ClanEliminated(uint32 indexed clanId, uint64 indexed tick);
+    event ClanDied(uint32 indexed clanId, uint64 tick, string reason);
     event ClanStarvationChanged(uint32 indexed clanId, bool isStarving, uint64 atTick);
     event ClanColdShortage(uint32 indexed clanId, uint32 tick, uint256 woodShort);
     event WallDegradedByCold(uint32 indexed clanId, uint8 newWallLevel, uint32 tick);
