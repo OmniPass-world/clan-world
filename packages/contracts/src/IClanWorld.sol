@@ -578,6 +578,8 @@ interface IClanWorldEvents {
         uint256 maxGoldIn
     );
     event MarketActionFailed(uint32 indexed clanId, uint32 indexed clansmanId, ActionType action, StatusCode reason);
+    event ResourceMinted(uint8 indexed resourceType, address indexed to, uint256 amount);
+    event ResourceBurned(uint8 indexed resourceType, address indexed from, uint256 amount);
 
     // ----- bandits -----
     event BanditSpawned(uint32 indexed banditId, uint8 region, uint8 tier, uint16 attackPower);
@@ -700,6 +702,8 @@ interface IClanWorld is IClanWorldEvents {
     function getWorldState() external view returns (WorldState memory);
 
     function getTreasuryState() external view returns (TreasuryState memory);
+
+    function getResourceToken(uint8 resourceType) external view returns (address);
 
     function getClan(uint32 clanId) external view returns (Clan memory);
 
