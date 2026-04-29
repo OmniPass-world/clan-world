@@ -979,34 +979,26 @@ contract ClanWorldTest is Test {
         assertFalse(world.getActiveMission(csId).active, "failed immediate action should not schedule fallback");
     }
 
-    function test_immediateMarketBuy_carryFullFailsAndConsumesCooldown() public {
+    function test_immediateMarketBuy_overCapacityRejectsAtSubmit() public {
         (ClanWorldTestHarness harness, address woodAddr, uint32 clanId, uint32 csId) =
             _setupHarnessClanAt(ClansmanState.WAITING, ClanWorldConstants.REGION_UNICORN_TOWN, 0);
-        harness.setCarry(csId, ClanWorldConstants.WOOD_CAP, 0, 0, 0);
+        harness.setCarry(csId, ClanWorldConstants.WOOD_CAP - 5e17, 0, 0, 0);
 
         Clan memory beforeClan = world.getClan(clanId);
+        Clansman memory beforeCs = world.getClansman(csId);
 
-        vm.expectEmit(true, false, false, true);
-        emit IClanWorldEvents.MarketActionFailed(
-            clanId,
-            csId,
-            ActionType.MarketBuy,
-            MarketExecutionMode.Immediate,
-            StatusCode.ERR_CARRY_FULL,
-            world.getWorldState().currentTick
-        );
         OrderResult[] memory r = _submitMarketOrder(clanId, csId, ActionType.MarketBuy, woodAddr, 1e18, 10e18);
 
         Clan memory afterClan = world.getClan(clanId);
         Clansman memory cs = world.getClansman(csId);
 
-        assertEq(uint8(r[0].status), uint8(StatusCode.OK), "failed immediate action is still accepted");
-        assertEq(uint8(r[0].marketMode), uint8(MarketExecutionMode.Immediate), "failed buy should report immediate");
+        assertEq(uint8(r[0].status), uint8(StatusCode.ERR_CARRY_FULL), "over-capacity buy should be rejected");
+        assertEq(uint8(r[0].marketMode), uint8(MarketExecutionMode.None), "rejected buy has no mode");
         assertEq(afterClan.vaultWood, beforeClan.vaultWood, "failed buy should not credit resources");
         assertEq(afterClan.goldBalance, beforeClan.goldBalance, "failed buy should not debit gold");
-        assertGt(cs.cooldownEndsAtTs, block.timestamp, "failed immediate action should consume cooldown");
-        assertEq(uint8(cs.state), uint8(ClansmanState.WAITING), "failed immediate worker waits");
-        assertFalse(world.getActiveMission(csId).active, "failed immediate action should not schedule fallback");
+        assertEq(cs.cooldownEndsAtTs, beforeCs.cooldownEndsAtTs, "rejected buy should not consume cooldown");
+        assertEq(uint8(cs.state), uint8(beforeCs.state), "rejected buy should not change worker state");
+        assertFalse(world.getActiveMission(csId).active, "rejected buy should not install a mission");
     }
 
     // -------------------------------------------------------------------------
@@ -1172,35 +1164,28 @@ contract ClanWorldTest is Test {
         assertEq(world.getScheduledMarketActionsForTick(executeAtTick).length, 0, "queue should be deleted");
     }
 
-    function test_scheduledMarketBuy_carryFullFailsAndConsumesCooldown() public {
+    function test_scheduledMarketBuy_overCapacityRejectsAtSubmit() public {
         ClanWorldTestHarness harness = new ClanWorldTestHarness();
         world = harness;
         address woodAddr = _setupMarket();
         uint32 clanId = _mintClan();
         uint32 csId = _firstCs(clanId);
-        harness.setCarry(csId, ClanWorldConstants.WOOD_CAP, 0, 0, 0);
+        harness.setCarry(csId, ClanWorldConstants.WOOD_CAP - 5e17, 0, 0, 0);
 
-        OrderResult[] memory r = _submitMarketOrder(clanId, csId, ActionType.MarketBuy, woodAddr, 1e18, 10e18);
-        assertEq(uint8(r[0].status), uint8(StatusCode.OK), "buy order should be accepted");
-
-        Mission memory m = world.getActiveMission(csId);
-        uint64 executeAtTick = m.settlesAtTick;
         Clan memory beforeClan = world.getClan(clanId);
-
-        _advanceUntilNextHeartbeatCloses(executeAtTick);
-        vm.expectEmit(true, false, false, true);
-        emit IClanWorldEvents.MarketActionFailed(
-            clanId, csId, ActionType.MarketBuy, MarketExecutionMode.Scheduled, StatusCode.ERR_CARRY_FULL, executeAtTick
-        );
-        _advanceTick();
+        Clansman memory beforeCs = world.getClansman(csId);
+        OrderResult[] memory r = _submitMarketOrder(clanId, csId, ActionType.MarketBuy, woodAddr, 1e18, 10e18);
 
         Clan memory afterClan = world.getClan(clanId);
         Clansman memory cs = world.getClansman(csId);
-        assertEq(afterClan.vaultWood, beforeClan.vaultWood, "failed buy should not credit resources");
-        assertEq(afterClan.goldBalance, beforeClan.goldBalance, "failed buy should not debit gold");
-        assertGt(cs.cooldownEndsAtTs, block.timestamp, "failed scheduled buy should consume cooldown");
-        assertEq(uint8(cs.state), uint8(ClansmanState.WAITING), "failed scheduled worker waits");
-        assertEq(world.getScheduledMarketActionsForTick(executeAtTick).length, 0, "queue should be deleted");
+
+        assertEq(uint8(r[0].status), uint8(StatusCode.ERR_CARRY_FULL), "over-capacity buy should be rejected");
+        assertEq(uint8(r[0].marketMode), uint8(MarketExecutionMode.None), "rejected buy has no mode");
+        assertEq(afterClan.vaultWood, beforeClan.vaultWood, "rejected buy should not credit resources");
+        assertEq(afterClan.goldBalance, beforeClan.goldBalance, "rejected buy should not debit gold");
+        assertEq(cs.cooldownEndsAtTs, beforeCs.cooldownEndsAtTs, "rejected buy should not consume cooldown");
+        assertEq(uint8(cs.state), uint8(beforeCs.state), "rejected buy should not change worker state");
+        assertFalse(world.getActiveMission(csId).active, "rejected buy should not install a mission");
     }
 
     function test_scheduledMarketBuy_insufficientLiquidityFailsAndConsumesCooldown() public {

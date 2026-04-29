@@ -80,9 +80,6 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     uint256 private constant WHEAT_HARVEST_RATE = 20e18;
     uint256 public constant INITIAL_RESOURCE_POOL_SEED = 100_000e18;
     uint256 public constant INITIAL_GOLD_POOL_SEED = 50_000e18;
-    /// @dev Caps market queue work per heartbeat; overflow is deferred to the next tick.
-    uint256 public constant MAX_MARKET_ACTIONS_PER_TICK = 32;
-
     // =========================================================================
     // CONSTRUCTOR
     // =========================================================================
@@ -488,12 +485,12 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         bool starving,
         bytes32 tickSeed
     ) internal {
-        if (cs.carryWood >= ClanWorldConstants.CLANSMAN_CARRY_CAP) {
+        if (cs.carryWood >= ClanWorldConstants.WOOD_CARRY_CAP) {
             _completeMission(cs, m);
             return;
         }
 
-        uint256 remaining = ClanWorldConstants.CLANSMAN_CARRY_CAP - cs.carryWood;
+        uint256 remaining = ClanWorldConstants.WOOD_CARRY_CAP - cs.carryWood;
         uint256 yield = ClanWorldConstants.WOOD_YIELD_PER_TICK * uint256(getActionDuration(ActionType.ChopWood));
         bytes32 woodRng = keccak256(abi.encode("wood_crit", tickSeed, cs.clansmanId, m.nonce, tick));
         if (uint256(woodRng) % 10000 < ClanWorldConstants.WOOD_CRIT_BPS) {
@@ -506,7 +503,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         emit ResourcesGathered(clanId, cs.clansmanId, ActionType.ChopWood, yield, 0, 0, 0, 0, tick);
 
-        if (cs.carryWood >= ClanWorldConstants.CLANSMAN_CARRY_CAP) {
+        if (cs.carryWood >= ClanWorldConstants.WOOD_CARRY_CAP) {
             _completeMission(cs, m);
         }
     }
@@ -1378,7 +1375,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     // MARKET EXECUTION (Phase 2)
     // =========================================================================
 
-    /// @dev Execute all scheduled market actions for the given tick, then delete the queue.
+    /// @dev Execute the full scheduled market queue for the given tick, then delete it.
     function _executeScheduledMarketActions(uint64 tick) internal {
         ScheduledMarketAction[] storage actions = _scheduledMarketActions[tick];
         uint256 len = actions.length;
@@ -1421,7 +1418,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
             if (sma.action == ActionType.MarketSell) {
                 try this._executeMarketSellExternal(
-                    tick, sma.clanId, sma.clansmanId, sma.marketToken, sma.marketAmount, sma.commitSequence
+                    tick, sma.clanId, sma.clansmanId, sma.marketToken, sma.marketAmount
                 ) returns (
                     StatusCode marketStatus
                 ) {
@@ -1438,13 +1435,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
                 }
             } else if (sma.action == ActionType.MarketBuy) {
                 try this._executeMarketBuyExternal(
-                    tick,
-                    sma.clanId,
-                    sma.clansmanId,
-                    sma.marketToken,
-                    sma.marketAmount,
-                    sma.maxGoldIn,
-                    sma.commitSequence
+                    tick, sma.clanId, sma.clansmanId, sma.marketToken, sma.marketAmount, sma.maxGoldIn
                 ) returns (
                     StatusCode marketStatus
                 ) {
@@ -1483,11 +1474,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         uint32 clanId,
         uint32 clansmanId,
         address token,
-        uint256 amount,
-        uint64 commitSequence
+        uint256 amount
     ) external returns (StatusCode) {
         require(msg.sender == address(this), "ClanWorld: internal only");
-        return _executeMarketSell(closedTick, clanId, clansmanId, token, amount, commitSequence);
+        return _executeMarketSell(closedTick, clanId, clansmanId, token, amount);
     }
 
     /// @dev External wrapper for _executeMarketBuy — enables try/catch from heartbeat loop.
@@ -1497,11 +1487,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         uint32 clansmanId,
         address token,
         uint256 amountOut,
-        uint256 maxGoldIn,
-        uint64 commitSequence
+        uint256 maxGoldIn
     ) external returns (StatusCode) {
         require(msg.sender == address(this), "ClanWorld: internal only");
-        return _executeMarketBuy(closedTick, clanId, clansmanId, token, amountOut, maxGoldIn, commitSequence);
+        return _executeMarketBuy(closedTick, clanId, clansmanId, token, amountOut, maxGoldIn);
     }
 
     /// @dev Map a resource token address to its pool address.
@@ -1806,14 +1795,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     }
 
     /// @dev Execute a scheduled market sell: deduct resource from vault, credit gold.
-    function _executeMarketSell(
-        uint64 closedTick,
-        uint32 clanId,
-        uint32 clansmanId,
-        address token,
-        uint256 amount,
-        uint64
-    ) internal returns (StatusCode) {
+    function _executeMarketSell(uint64 closedTick, uint32 clanId, uint32 clansmanId, address token, uint256 amount)
+        internal
+        returns (StatusCode)
+    {
         if (!_treasury.poolsSeeded) {
             return _handleMarketFailure(
                 clanId,
@@ -1871,8 +1856,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         uint32 clansmanId,
         address token,
         uint256 amountOut,
-        uint256 maxGoldIn,
-        uint64
+        uint256 maxGoldIn
     ) internal returns (StatusCode) {
         if (!_treasury.poolsSeeded) {
             return _handleMarketFailure(
@@ -2045,6 +2029,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
                     && tok != _treasury.fishToken
             ) {
                 return StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN;
+            }
+            // Over-capacity buys are rejected at submission; no partial fills or overflow refunds.
+            if (action == ActionType.MarketBuy && order.marketAmount > _remainingCarryForToken(cs, tok)) {
+                return StatusCode.ERR_CARRY_FULL;
             }
             // Immediate market orders execute during submitClanOrders when the
             // worker is waiting in Unicorn Town and off cooldown. Other valid

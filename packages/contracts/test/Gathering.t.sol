@@ -114,11 +114,11 @@ contract GatheringTest is Test {
     function test_chopWoodClampsToCarryCap() public {
         uint32 clanId = _mintClan();
         uint32 csId = _firstCs(clanId);
-        world.setCarryWood(csId, ClanWorldConstants.CLANSMAN_CARRY_CAP - 1e18);
+        world.setCarryWood(csId, ClanWorldConstants.WOOD_CARRY_CAP - 1e18);
 
         Clansman memory cs = _settleChopWood(clanId, csId);
 
-        assertEq(cs.carryWood, ClanWorldConstants.CLANSMAN_CARRY_CAP, "wood carry cap");
+        assertEq(cs.carryWood, ClanWorldConstants.WOOD_CARRY_CAP, "wood carry cap");
     }
 
     function test_chopWoodAppliesCooldownPostSettle() public {

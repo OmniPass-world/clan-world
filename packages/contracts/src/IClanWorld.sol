@@ -40,8 +40,8 @@ library ClanWorldConstants {
     uint64 internal constant CLANSMAN_COOLDOWN_SECONDS = 60;
 
     // Carry caps (per clansman)
-    uint256 internal constant CLANSMAN_CARRY_CAP = 10e18;
-    uint256 internal constant WOOD_CAP = CLANSMAN_CARRY_CAP;
+    uint256 internal constant WOOD_CARRY_CAP = 10e18;
+    uint256 internal constant WOOD_CAP = WOOD_CARRY_CAP;
     uint256 internal constant IRON_CAP = 5e18;
     uint256 internal constant WHEAT_CAP = 40e18;
     uint256 internal constant FISH_CAP = 8e18;
@@ -177,13 +177,11 @@ enum StatusCode {
     ERR_MARKET_UNSUPPORTED_TOKEN,
     ERR_IMMEDIATE_MARKET_NOT_ELIGIBLE,
     ERR_MARKET_BUY_OVER_CAPACITY,
-    ERR_MARKET_BUY_MAX_GOLD_EXCEEDED,
     ERR_WORLD_TICK_MISMATCH,
     ERR_NO_ACTIVE_BANDIT,
     ERR_SEASON_ENDED,
     ERR_NOT_ENOUGH_GOLD,
     ERR_CARRY_FULL,
-    ERR_MARKET_INSUFFICIENT_LIQUIDITY,
     ERR_LIQUIDITY_INSUFFICIENT,
     ERR_MAX_GOLD_IN_EXCEEDED
 }
