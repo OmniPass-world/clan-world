@@ -63,21 +63,21 @@ help:
 
 install:
 	@echo "=== installing elder harness to $(DEST) ==="
-	@mkdir -p $(DEST)/.claude/skills
-	@mkdir -p $(DEST)/bin
-	@cp -p $(REPO_DIR)/parent/AGENTS.md $(DEST)/AGENTS.md
+	@mkdir -p "$(DEST)"/.claude/skills
+	@mkdir -p "$(DEST)"/bin
+	@cp -p "$(REPO_DIR)"/parent/AGENTS.md "$(DEST)"/AGENTS.md
 	@ln -sf AGENTS.md $(DEST)/CLAUDE.md
-	@cp -p $(REPO_DIR)/parent/.claude/settings.json $(DEST)/.claude/settings.json
+	@cp -p "$(REPO_DIR)"/parent/.claude/settings.json "$(DEST)"/.claude/settings.json
 	@for skill in cleared-context-start elder-base-context final-tick-continuity \
 	              uniswap-arb-camping uniswap-market-overview \
 	              uniswap-sell-immediate uniswap-sell-scheduled; do \
 	    mkdir -p $(DEST)/.claude/skills/$$skill; \
-	    cp -p $(REPO_DIR)/parent/.claude/skills/$$skill/SKILL.md \
-	          $(DEST)/.claude/skills/$$skill/SKILL.md; \
+	    cp -p "$(REPO_DIR)"/parent/.claude/skills/$$skill/SKILL.md \
+	          "$(DEST)"/.claude/skills/$$skill/SKILL.md; \
 	done
-	@cp -p $(REPO_DIR)/Makefile $(DEST)/Makefile
-	@cp -p $(REPO_DIR)/aliases.sh $(DEST)/aliases.sh
-	@cp -p $(REPO_DIR)/bin/* $(DEST)/bin/
+	@cp -p "$(REPO_DIR)"/Makefile "$(DEST)"/Makefile
+	@cp -p "$(REPO_DIR)"/aliases.sh "$(DEST)"/aliases.sh
+	@cp -p "$(REPO_DIR)"/bin/* "$(DEST)"/bin/
 	@for n in $(ELDER_NUMBERS); do \
 	    mkdir -p $(DEST)/elder-$$n/.claude; \
 	    mkdir -p $(DEST)/elder-$$n/state/plugin-cache; \
@@ -146,12 +146,12 @@ elders-up: $(addprefix elder-,$(ELDER_NUMBERS))
 # Slash commands are processed by the CC input layer, not by env or model — they
 # have to be physically typed into the running REPL. Helper at bin/elder-inject-startup.sh.
 elders-greet:
-	@$(ELDER_DIR)/bin/elder-inject-startup.sh all
+	@"$(ELDER_DIR)"/bin/elder-inject-startup.sh all
 
-elder-greet-1: ; @$(ELDER_DIR)/bin/elder-inject-startup.sh 1
-elder-greet-2: ; @$(ELDER_DIR)/bin/elder-inject-startup.sh 2
-elder-greet-3: ; @$(ELDER_DIR)/bin/elder-inject-startup.sh 3
-elder-greet-4: ; @$(ELDER_DIR)/bin/elder-inject-startup.sh 4
+elder-greet-1: ; @"$(ELDER_DIR)"/bin/elder-inject-startup.sh 1
+elder-greet-2: ; @"$(ELDER_DIR)"/bin/elder-inject-startup.sh 2
+elder-greet-3: ; @"$(ELDER_DIR)"/bin/elder-inject-startup.sh 3
+elder-greet-4: ; @"$(ELDER_DIR)"/bin/elder-inject-startup.sh 4
 
 elder-%:
 	@if tmux has-session -t elder-$* 2>/dev/null; then \
