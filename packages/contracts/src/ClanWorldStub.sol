@@ -236,6 +236,10 @@ contract ClanWorldStub is IClanWorld {
         return new uint32[](0);
     }
 
+    function getDefendingClans(uint8) external pure override returns (uint32[] memory) {
+        return new uint32[](0);
+    }
+
     // -------------------------------------------------------------------------
     // Derived read getters
     // -------------------------------------------------------------------------

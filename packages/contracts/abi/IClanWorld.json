@@ -1,11 +1,6 @@
 {
   "abi": [
     {
-      "type": "constructor",
-      "inputs": [],
-      "stateMutability": "nonpayable"
-    },
-    {
       "type": "function",
       "name": "finalizeSeason",
       "inputs": [],
@@ -105,7 +100,7 @@
           ]
         }
       ],
-      "stateMutability": "pure"
+      "stateMutability": "view"
     },
     {
       "type": "function",
@@ -119,7 +114,7 @@
       ],
       "outputs": [
         {
-          "name": "",
+          "name": "clanIds",
           "type": "uint32[]",
           "internalType": "uint32[]"
         }
@@ -319,26 +314,26 @@
       "name": "getBanditTargetPreview",
       "inputs": [
         {
-          "name": "",
+          "name": "banditId",
           "type": "uint32",
           "internalType": "uint32"
         }
       ],
       "outputs": [
         {
-          "name": "",
+          "name": "previewClanId",
           "type": "uint32",
           "internalType": "uint32"
         }
       ],
-      "stateMutability": "pure"
+      "stateMutability": "view"
     },
     {
       "type": "function",
       "name": "getBanditTroop",
       "inputs": [
         {
-          "name": "",
+          "name": "banditId",
           "type": "uint32",
           "internalType": "uint32"
         }
@@ -412,7 +407,7 @@
           ]
         }
       ],
-      "stateMutability": "pure"
+      "stateMutability": "view"
     },
     {
       "type": "function",
@@ -1077,6 +1072,25 @@
     },
     {
       "type": "function",
+      "name": "getDefendingClans",
+      "inputs": [
+        {
+          "name": "region",
+          "type": "uint8",
+          "internalType": "uint8"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "clanIds",
+          "type": "uint32[]",
+          "internalType": "uint32[]"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "getDerivedClanState",
       "inputs": [
         {
@@ -1532,6 +1546,11 @@
                   "internalType": "uint64"
                 },
                 {
+                  "name": "missionNonce",
+                  "type": "uint64",
+                  "internalType": "uint64"
+                },
+                {
                   "name": "clanId",
                   "type": "uint32",
                   "internalType": "uint32"
@@ -1575,6 +1594,11 @@
                 },
                 {
                   "name": "commitSequence",
+                  "type": "uint64",
+                  "internalType": "uint64"
+                },
+                {
+                  "name": "missionNonce",
                   "type": "uint64",
                   "internalType": "uint64"
                 },
@@ -1684,6 +1708,11 @@
             },
             {
               "name": "commitSequence",
+              "type": "uint64",
+              "internalType": "uint64"
+            },
+            {
+              "name": "missionNonce",
               "type": "uint64",
               "internalType": "uint64"
             },
@@ -2066,6 +2095,24 @@
     },
     {
       "type": "function",
+      "name": "initTreasury",
+      "inputs": [
+        {
+          "name": "tokens",
+          "type": "address[6]",
+          "internalType": "address[6]"
+        },
+        {
+          "name": "pools",
+          "type": "address[4]",
+          "internalType": "address[4]"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
       "name": "mintClan",
       "inputs": [
         {
@@ -2100,7 +2147,7 @@
       ],
       "outputs": [
         {
-          "name": "",
+          "name": "lootValue",
           "type": "uint256",
           "internalType": "uint256"
         }
@@ -2119,7 +2166,7 @@
       ],
       "outputs": [
         {
-          "name": "",
+          "name": "lootValue",
           "type": "uint256",
           "internalType": "uint256"
         }
@@ -2160,7 +2207,7 @@
       "name": "seedPools",
       "inputs": [
         {
-          "name": "",
+          "name": "cfg",
           "type": "tuple",
           "internalType": "struct PoolSeedConfig",
           "components": [
@@ -2277,7 +2324,7 @@
       ],
       "outputs": [
         {
-          "name": "results",
+          "name": "",
           "type": "tuple[]",
           "internalType": "struct OrderResult[]",
           "components": [
@@ -2311,17 +2358,17 @@
       "name": "transferBlueprint",
       "inputs": [
         {
-          "name": "",
+          "name": "fromClanId",
           "type": "uint32",
           "internalType": "uint32"
         },
         {
-          "name": "",
+          "name": "toClanId",
           "type": "uint32",
           "internalType": "uint32"
         },
         {
-          "name": "",
+          "name": "amount",
           "type": "uint256",
           "internalType": "uint256"
         }
@@ -2334,42 +2381,42 @@
       "name": "transferBundle",
       "inputs": [
         {
-          "name": "",
+          "name": "fromClanId",
           "type": "uint32",
           "internalType": "uint32"
         },
         {
-          "name": "",
+          "name": "toClanId",
           "type": "uint32",
           "internalType": "uint32"
         },
         {
-          "name": "",
+          "name": "gold",
           "type": "uint256",
           "internalType": "uint256"
         },
         {
-          "name": "",
+          "name": "blueprint",
           "type": "uint256",
           "internalType": "uint256"
         },
         {
-          "name": "",
+          "name": "wood",
           "type": "uint256",
           "internalType": "uint256"
         },
         {
-          "name": "",
+          "name": "iron",
           "type": "uint256",
           "internalType": "uint256"
         },
         {
-          "name": "",
+          "name": "wheat",
           "type": "uint256",
           "internalType": "uint256"
         },
         {
-          "name": "",
+          "name": "fish",
           "type": "uint256",
           "internalType": "uint256"
         }
@@ -2382,17 +2429,17 @@
       "name": "transferGold",
       "inputs": [
         {
-          "name": "",
+          "name": "fromClanId",
           "type": "uint32",
           "internalType": "uint32"
         },
         {
-          "name": "",
+          "name": "toClanId",
           "type": "uint32",
           "internalType": "uint32"
         },
         {
-          "name": "",
+          "name": "amount",
           "type": "uint256",
           "internalType": "uint256"
         }
@@ -2405,22 +2452,22 @@
       "name": "transferVaultResource",
       "inputs": [
         {
-          "name": "",
+          "name": "fromClanId",
           "type": "uint32",
           "internalType": "uint32"
         },
         {
-          "name": "",
+          "name": "toClanId",
           "type": "uint32",
           "internalType": "uint32"
         },
         {
-          "name": "",
+          "name": "resource",
           "type": "uint8",
           "internalType": "enum ResourceType"
         },
         {
-          "name": "",
+          "name": "amount",
           "type": "uint256",
           "internalType": "uint256"
         }

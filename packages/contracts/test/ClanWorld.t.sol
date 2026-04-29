@@ -1101,9 +1101,9 @@ contract ClanWorldTest is Test {
         vm.warp(block.timestamp + ClanWorldConstants.CLANSMAN_COOLDOWN_SECONDS + 1);
         _advanceTick();
 
-        uint32[] memory defs = world.getActiveDefenders(clanId);
+        uint32[] memory defs = world.getDefendingClans(baseRegion);
         assertEq(defs.length, 1, "one defender registered");
-        assertEq(defs[0], csId, "csId is the defender");
+        assertEq(defs[0], clanId, "clanId is the defender");
 
         // Second DefendBase to same target: zero-travel re-task — the regression case.
         vm.prank(elder);
@@ -1111,9 +1111,9 @@ contract ClanWorldTest is Test {
         assertEq(uint8(r2[0].status), uint8(StatusCode.OK), "re-task DefendBase OK");
 
         // Defender must NOT be dropped — fix must register synchronously.
-        defs = world.getActiveDefenders(clanId);
+        defs = world.getDefendingClans(baseRegion);
         assertEq(defs.length, 1, "defender count must not drop after re-task");
-        assertEq(defs[0], csId, "csId must still be defending after re-task");
+        assertEq(defs[0], clanId, "clanId must still be defending after re-task");
     }
 
     // =========================================================================

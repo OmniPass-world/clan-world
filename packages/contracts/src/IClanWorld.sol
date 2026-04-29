@@ -427,8 +427,8 @@ struct ClanFullView {
     ClansmanFullView[] clansmen;
     WheatPlot westPlot;
     WheatPlot eastPlot;
-    uint32[] incomingDefenderIds; // workers from other clans defending us
-    uint32 thisClanDefendingBaseId; // 0 if none
+    uint32[] incomingDefenderIds; // legacy UI field; clanIds defending this clan's home region
+    uint32 thisClanDefendingBaseId; // defended home region, or 0 if none
 }
 
 struct PoolReserves {
@@ -716,7 +716,9 @@ interface IClanWorld is IClanWorldEvents {
 
     function getScheduledMarketActionsForTick(uint64 tick) external view returns (ScheduledMarketAction[] memory);
 
-    function getActiveDefenders(uint32 targetClanId) external view returns (uint32[] memory clansmanIds);
+    function getActiveDefenders(uint32 targetClanId) external view returns (uint32[] memory clanIds);
+
+    function getDefendingClans(uint8 region) external view returns (uint32[] memory clanIds);
 
     // -------------------------------------------------------------------------
     // Derived read getters (read-only simulation forward to current tick)
