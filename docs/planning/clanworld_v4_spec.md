@@ -832,7 +832,7 @@ Winter lasts `10` ticks.
 During winter, each clan consumes:
 - wheat consumption = `2×` normal
 - fish consumption = `2×` normal
-- wood burn = `1e18` wood per base per tick
+- wood burn = `1e18` wood per base per tick, plus `0.5e18` wood per living clansman per tick
 
 ## 7.4 Winter farming rule
 During winter:
@@ -1211,4 +1211,3 @@ The following values are intentionally tunable without changing the core mechani
 - bandit spawn probability ramp
 - bandit reward magnitudes
 - season reward pot percentages in later versions
-

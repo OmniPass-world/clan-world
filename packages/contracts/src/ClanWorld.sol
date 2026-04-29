@@ -437,14 +437,14 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             emit ClanStarvationChanged(clan.clanId, false, tick);
         }
 
-        (, uint64 winterStartsAtTick,) = _winterWindowForTick(tick);
-        if (winter && starving && clan.starvationStartsAtTick >= winterStartsAtTick) {
+        if (winter && starving && clan.starvationStartsAtTick < tick) {
             _killNextClansmanFromStarvation(clan, tick);
         }
         if (clan.clanState == ClanState.DEAD) return;
 
         if (winter) {
-            uint256 woodNeeded = uint256(clan.livingClansmen) * ClanWorldConstants.WINTER_WOOD_BURN_PER_CLANSMAN;
+            uint256 woodNeeded = ClanWorldConstants.WINTER_WOOD_BURN_PER_BASE
+                + uint256(clan.livingClansmen) * ClanWorldConstants.WINTER_WOOD_BURN_PER_CLANSMAN;
             if (clan.vaultWood >= woodNeeded) {
                 clan.vaultWood -= woodNeeded;
             } else {
@@ -1135,7 +1135,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             uint32 clanId = _allClanIds[i];
             for (uint256 pi = 0; pi < 2; pi++) {
                 require(transitions < MAX_CROP_TRANSITION_PER_TICK, "ClanWorld: crop transition cap");
-                _wheatPlots[clanId][pi].state = WheatPlotState.WinterLocked;
+                WheatPlot storage plot = _wheatPlots[clanId][pi];
+                plot.state = WheatPlotState.WinterLocked;
+                plot.remainingWheat = 0;
+                plot.regrowUntilTick = 0;
                 transitions++;
             }
         }
@@ -1164,8 +1167,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         }
     }
 
-    function _winterEventTick(uint64 tick) internal pure returns (uint32) {
-        return _eventTick(tick);
+    function _winterEventTick(uint64 tick) internal pure returns (uint64) {
+        return tick;
     }
 
     function _eventTick(uint64 tick) internal pure returns (uint32) {

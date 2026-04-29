@@ -3751,9 +3751,9 @@
       "inputs": [
         {
           "name": "tick",
-          "type": "uint32",
+          "type": "uint64",
           "indexed": true,
-          "internalType": "uint32"
+          "internalType": "uint64"
         }
       ],
       "anonymous": false
@@ -3764,9 +3764,9 @@
       "inputs": [
         {
           "name": "tick",
-          "type": "uint32",
+          "type": "uint64",
           "indexed": true,
-          "internalType": "uint32"
+          "internalType": "uint64"
         }
       ],
       "anonymous": false

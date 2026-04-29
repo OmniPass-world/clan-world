@@ -62,6 +62,7 @@ library ClanWorldConstants {
     uint256 internal constant WHEAT_UPKEEP_PER_CLANSMAN = 1e18;
     uint256 internal constant FISH_UPKEEP_PER_CLANSMAN = 1e17; // 0.1
     uint256 internal constant WINTER_WOOD_BURN_PER_CLANSMAN = 5e17; // 0.5
+    uint256 internal constant WINTER_WOOD_BURN_PER_BASE = 1e18;
     uint16 internal constant WINTER_UPKEEP_MULTIPLIER_BPS = 20000; // 2x
     uint16 internal constant COLD_DAMAGE_PER_WALL_DEGRADATION = 2;
     uint16 internal constant COLD_DAMAGE_PER_CLANSMAN_DEATH = 2;
@@ -494,8 +495,8 @@ struct RegionOccupant {
 interface IClanWorldEvents {
     // ----- world clock -----
     event TickAdvanced(uint64 closedTick, uint64 openedTick, bytes32 tickSeed);
-    event WinterStarted(uint32 indexed tick);
-    event WinterEnded(uint32 indexed tick);
+    event WinterStarted(uint64 indexed tick);
+    event WinterEnded(uint64 indexed tick);
     event SeasonFinalized(uint64 indexed tick, uint32[] rankedClanIds);
 
     // ----- clan lifecycle -----

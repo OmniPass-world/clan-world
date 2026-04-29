@@ -382,10 +382,8 @@ contract ClanWorldStub is IClanWorld {
         return elapsed % ClanWorldConstants.WINTER_PERIOD_TICKS < ClanWorldConstants.WINTER_DURATION_TICKS;
     }
 
-    function _winterEventTick(uint64 tick) internal pure returns (uint32) {
-        require(tick <= type(uint32).max, "ClanWorldStub: winter tick overflow");
-        // forge-lint: disable-next-line(unsafe-typecast)
-        return uint32(tick);
+    function _winterEventTick(uint64 tick) internal pure returns (uint64) {
+        return tick;
     }
 
     function _winterWindowForTick(uint64 tick)
