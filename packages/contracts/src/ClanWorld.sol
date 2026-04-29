@@ -68,6 +68,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     mapping(uint32 => uint8) private _pendingBaseUpgradesByClan; // clanId => queued, unsettled base upgrades
     mapping(uint32 => MonumentUpgradeReservation) private _monumentUpgradeReservations; // clansmanId => reserved upgrade
     mapping(uint32 => uint8) private _pendingMonumentUpgradesByClan; // clanId => queued, unsettled monument upgrades
+    mapping(uint32 => mapping(uint8 => uint64)) private _monumentLevelReachedAt; // clanId => level => first reached tick
 
     uint32 private _nextClanId;
     uint32 private _nextClansmanId;
@@ -113,6 +114,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     uint8 private constant WALL_MAX_LEVEL = 5;
     uint8 private constant BASE_MAX_LEVEL = 5;
     uint8 private constant MONUMENT_MAX_LEVEL = 10;
+    uint256 public constant MAX_CLAN_SCAN_FOR_RANKING = 24;
     uint256 private constant WHEAT_HARVEST_RATE = 20e18;
     /// @dev Caps market queue work per heartbeat; overflow is deferred to the next tick.
     uint256 public constant MAX_MARKET_ACTIONS_PER_TICK = 32;
@@ -869,11 +871,19 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         uint8 old = clan.monumentLevel;
         clan.monumentLevel = old + 1;
+        recordMonumentReachTick(clanId, clan.monumentLevel, tick);
         emit MonumentLevelChanged(clanId, old, clan.monumentLevel, tick);
         // Phase 8 event ABI uses uint32; season tick horizons are far below this cap.
         // forge-lint: disable-next-line(unsafe-typecast)
         emit MonumentUpgraded(clanId, clan.monumentLevel, uint32(tick));
         return true;
+    }
+
+    function recordMonumentReachTick(uint32 clanId, uint8 newLevel, uint64 tick) internal {
+        if (newLevel == 0) return;
+        if (_monumentLevelReachedAt[clanId][newLevel] == 0) {
+            _monumentLevelReachedAt[clanId][newLevel] = tick;
+        }
     }
 
     /// @dev Complete a mission: set worker to WAITING, set cooldown, mark mission inactive, emit event.
@@ -2266,9 +2276,107 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         return _lootValueRaw(_clans[clanId]);
     }
 
+    /// @notice Score preview used by season-end ranking.
+    /// @dev Formula packs three descending priorities into one uint256:
+    ///      (monumentLevel << 248) | ((type(uint64).max - monumentReachedAtTick) << 184)
+    ///      | (min(committedVaultLootValue, 2^176 - 1) << 8) | wallLevel.
+    ///      Monument level dominates; for the same level, the earlier first-reached tick wins;
+    ///      for the same level and tick, committed vault loot value wins; wall level is the final
+    ///      score tiebreaker before getRankings falls back to clanId ascending for exact ties.
+    ///      The loot component matches quoteLootValueSettled's current committed-vault basis and
+    ///      does not simulate pending lazy settlement until derived settlement getters are fixed in #230.
+    function getClanScore(uint32 clanId)
+        external
+        view
+        override
+        returns (uint256 score, uint64 monumentReachedAtTick, uint8 monumentLevel)
+    {
+        return _getClanScore(clanId);
+    }
+
+    /// @notice Return live clan rankings sorted by score descending, with clanId ascending for exact ties.
+    /// @dev Scans at most MAX_CLAN_SCAN_FOR_RANKING clan ids to keep gas bounded. The current mint cap is 12,
+    ///      so the 24-clan scan cap covers all live clans plus headroom for Phase 11.
+    function getRankings() external view override returns (uint32[] memory clanIdsRanked, uint256[] memory scores) {
+        uint256 scanCount = _allClanIds.length;
+        if (scanCount > MAX_CLAN_SCAN_FOR_RANKING) {
+            scanCount = MAX_CLAN_SCAN_FOR_RANKING;
+        }
+
+        uint32[] memory tempClanIds = new uint32[](scanCount);
+        uint256[] memory tempScores = new uint256[](scanCount);
+        uint256 liveCount;
+
+        for (uint256 i = 0; i < scanCount; i++) {
+            uint32 clanId = _allClanIds[i];
+            if (_clans[clanId].clanState != ClanState.ACTIVE) continue;
+
+            (uint256 score,,) = _getClanScore(clanId);
+            tempClanIds[liveCount] = clanId;
+            tempScores[liveCount] = score;
+            liveCount++;
+        }
+
+        for (uint256 i = 1; i < liveCount; i++) {
+            uint32 keyClanId = tempClanIds[i];
+            uint256 keyScore = tempScores[i];
+            uint256 j = i;
+            while (j > 0 && _rankingComesAfter(tempClanIds[j - 1], tempScores[j - 1], keyClanId, keyScore)) {
+                tempClanIds[j] = tempClanIds[j - 1];
+                tempScores[j] = tempScores[j - 1];
+                j--;
+            }
+            tempClanIds[j] = keyClanId;
+            tempScores[j] = keyScore;
+        }
+
+        clanIdsRanked = new uint32[](liveCount);
+        scores = new uint256[](liveCount);
+        for (uint256 i = 0; i < liveCount; i++) {
+            clanIdsRanked[i] = tempClanIds[i];
+            scores[i] = tempScores[i];
+        }
+    }
+
     /// @dev Compute loot value per v4 spec §6.9: wood=1, wheat=1, fish=2, iron=4 points.
     function _lootValueRaw(Clan memory clan) internal pure returns (uint256) {
         return clan.vaultWood + clan.vaultWheat + clan.vaultFish * 2 + clan.vaultIron * 4;
+    }
+
+    function _getClanScore(uint32 clanId)
+        internal
+        view
+        returns (uint256 score, uint64 monumentReachedAtTick, uint8 monumentLevel)
+    {
+        Clan memory clan = _clans[clanId];
+        monumentLevel = clan.monumentLevel;
+        if (monumentLevel > 0) {
+            monumentReachedAtTick = _monumentLevelReachedAt[clanId][monumentLevel];
+        }
+
+        uint256 lootValue = _lootValueRaw(clan);
+        uint256 maxLootComponent = (uint256(1) << 176) - 1;
+        if (lootValue > maxLootComponent) {
+            lootValue = maxLootComponent;
+        }
+
+        uint256 timeComponent;
+        if (monumentLevel > 0) {
+            timeComponent = uint256(type(uint64).max) - uint256(monumentReachedAtTick);
+        }
+
+        score = (uint256(monumentLevel) << 248) | (timeComponent << 184) | (lootValue << 8) | clan.wallLevel;
+    }
+
+    function _rankingComesAfter(uint32 leftClanId, uint256 leftScore, uint32 rightClanId, uint256 rightScore)
+        internal
+        pure
+        returns (bool)
+    {
+        if (leftScore != rightScore) {
+            return leftScore < rightScore;
+        }
+        return leftClanId > rightClanId;
     }
 
     // =========================================================================

@@ -2175,6 +2175,53 @@
     },
     {
       "type": "function",
+      "name": "getClanScore",
+      "inputs": [
+        {
+          "name": "clanId",
+          "type": "uint32",
+          "internalType": "uint32"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "score",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "monumentReachedAtTick",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "monumentLevel",
+          "type": "uint8",
+          "internalType": "uint8"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "getRankings",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "clanIdsRanked",
+          "type": "uint32[]",
+          "internalType": "uint32[]"
+        },
+        {
+          "name": "scores",
+          "type": "uint256[]",
+          "internalType": "uint256[]"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "quoteTravel",
       "inputs": [
         {

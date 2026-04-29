@@ -321,6 +321,14 @@ contract ClanWorldStub is IClanWorld {
         return 0;
     }
 
+    function getClanScore(uint32) external pure override returns (uint256, uint64, uint8) {
+        return (0, 0, 0);
+    }
+
+    function getRankings() external pure override returns (uint32[] memory, uint256[] memory) {
+        return (new uint32[](0), new uint256[](0));
+    }
+
     // -------------------------------------------------------------------------
     // UI indexer aggregator getters
     // -------------------------------------------------------------------------

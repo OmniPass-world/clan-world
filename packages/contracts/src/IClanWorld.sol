@@ -760,6 +760,19 @@ interface IClanWorld is IClanWorldEvents {
 
     function quoteLootValueSettled(uint32 clanId) external view returns (uint256 lootValue);
 
+    /// @notice Ranking score preview for a clan.
+    /// @dev Score is ordered by monument level, then earliest first-reached tick for that level,
+    ///      then committed vault loot value, then wall level. The loot component matches
+    ///      quoteLootValueSettled's current committed-vault basis and does not simulate pending
+    ///      lazy settlement.
+    function getClanScore(uint32 clanId)
+        external
+        view
+        returns (uint256 score, uint64 monumentReachedAtTick, uint8 monumentLevel);
+
+    /// @notice Live clans sorted by score descending, with clanId ascending for exact ties.
+    function getRankings() external view returns (uint32[] memory clanIdsRanked, uint256[] memory scores);
+
     // -------------------------------------------------------------------------
     // UI indexer aggregator getters (v4.4 additions)
     //
