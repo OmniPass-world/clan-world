@@ -258,6 +258,8 @@ contract ClanWorldStub is IClanWorld {
             seasonStartTick: _world.seasonStartTick,
             seasonEndTick: _world.seasonEndTick,
             seasonFinalized: false,
+            currentSeasonNumber: _world.currentSeasonNumber,
+            nextHeartbeatAtTick: _world.nextHeartbeatAtTick,
             winterActive: false,
             winterStartsAtTick: 0,
             winterEndsAtTick: 0,

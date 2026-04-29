@@ -1108,4 +1108,91 @@ contract ClanWorldTest is Test {
         assertEq(defs.length, 1, "defender count must not drop after re-task");
         assertEq(defs[0], csId, "csId must still be defending after re-task");
     }
+
+    // =====================================================================
+    // Phase 4.4 — season + winter timer tests
+    // =====================================================================
+
+    function test_season_initialState() public {
+        WorldState memory ws = world.getWorldState();
+        assertEq(ws.currentSeasonNumber, 1, "season starts at 1");
+        assertEq(ws.seasonStartTick, 0);
+        assertEq(ws.seasonEndTick, ClanWorldConstants.SEASON_DURATION_TICKS);
+        assertEq(
+            ws.winterStartsAtTick,
+            ClanWorldConstants.TICKS_PER_WINTER_CYCLE - ClanWorldConstants.WINTER_DURATION_TICKS
+        );
+        assertFalse(ws.winterActive);
+    }
+
+    function test_winter_onset() public {
+        // winterStartsAtTick = 100; WinterStarted fires on the heartbeat that opens tick 100
+        // i.e. when closedTick=99, newTick=100 >= winterStartsAtTick=100.
+        // Advance 99 heartbeats so currentTick=99, then one more heartbeat fires WinterStarted at tick 100.
+        uint64 winterStart =
+            ClanWorldConstants.TICKS_PER_WINTER_CYCLE - ClanWorldConstants.WINTER_DURATION_TICKS; // = 100
+        for (uint64 i = 0; i < winterStart - 1; i++) {
+            vm.warp(block.timestamp + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS);
+            world.heartbeat();
+        }
+        // currentTick == 99; next heartbeat opens tick 100 and should emit WinterStarted(100)
+        vm.recordLogs();
+        vm.warp(block.timestamp + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS);
+        world.heartbeat();
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        bytes32 winterSig = keccak256("WinterStarted(uint64)");
+        bool foundWinterStarted = false;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].topics.length > 0 && logs[i].topics[0] == winterSig) {
+                foundWinterStarted = true;
+                break;
+            }
+        }
+        assertTrue(foundWinterStarted, "WinterStarted event should have been emitted at tick 100");
+        assertTrue(world.getWorldState().winterActive, "winter should be active");
+        assertEq(world.getWorldState().currentTick, winterStart, "currentTick should be 100");
+    }
+
+    function test_winter_end_and_next_cycle() public {
+        // Advance past first winter end tick (= 110)
+        uint64 winterEnd = ClanWorldConstants.TICKS_PER_WINTER_CYCLE; // = 110
+        for (uint64 i = 0; i <= winterEnd; i++) {
+            vm.warp(block.timestamp + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS);
+            world.heartbeat();
+        }
+        WorldState memory ws = world.getWorldState();
+        assertFalse(ws.winterActive, "winter should be over");
+        // next winter at [210, 220)
+        assertEq(
+            ws.winterStartsAtTick,
+            ClanWorldConstants.TICKS_PER_WINTER_CYCLE * 2 - ClanWorldConstants.WINTER_DURATION_TICKS
+        );
+    }
+
+    function test_season_transition() public {
+        // Advance SEASON_DURATION_TICKS heartbeats to cross season boundary
+        for (uint256 i = 0; i < ClanWorldConstants.SEASON_DURATION_TICKS; i++) {
+            vm.warp(block.timestamp + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS);
+            world.heartbeat();
+        }
+        WorldState memory ws = world.getWorldState();
+        assertEq(ws.currentSeasonNumber, 2, "season number should increment");
+        assertEq(ws.seasonStartTick, ClanWorldConstants.SEASON_DURATION_TICKS);
+        assertEq(ws.seasonEndTick, ClanWorldConstants.SEASON_DURATION_TICKS * 2);
+        // winter reset for new season
+        uint64 expectedWinterStart = ClanWorldConstants.SEASON_DURATION_TICKS
+            + ClanWorldConstants.TICKS_PER_WINTER_CYCLE - ClanWorldConstants.WINTER_DURATION_TICKS;
+        assertEq(ws.winterStartsAtTick, expectedWinterStart);
+    }
+
+    function test_nextHeartbeatAtTick_tracks_tick() public {
+        WorldState memory ws0 = world.getWorldState();
+        assertEq(ws0.nextHeartbeatAtTick, 1, "before first heartbeat, next = tick 1");
+        vm.warp(block.timestamp + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS);
+        world.heartbeat();
+        WorldState memory ws1 = world.getWorldState();
+        assertEq(ws1.currentTick, 1);
+        assertEq(ws1.nextHeartbeatAtTick, 2, "after tick 1, next = tick 2");
+    }
 }

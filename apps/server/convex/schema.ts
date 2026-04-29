@@ -6,6 +6,14 @@ export default defineSchema({
     tick: v.number(),
     tickEpochStartedAt: v.number(),
     tickEpochDurationMs: v.number(),
+    // Season + winter timers (Phase 4.4)
+    currentSeasonNumber: v.optional(v.number()),
+    seasonStartTick: v.optional(v.number()),
+    seasonEndTick: v.optional(v.number()),
+    winterActive: v.optional(v.boolean()),
+    winterStartsAtTick: v.optional(v.number()),
+    winterEndsAtTick: v.optional(v.number()),
+    nextHeartbeatAtTick: v.optional(v.number()),
     regions: v.array(
       v.object({
         id: v.string(),

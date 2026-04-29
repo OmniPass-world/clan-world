@@ -85,6 +85,14 @@ contract ClanWorld is IClanWorld {
         _world.nextHeartbeatAtTs = uint64(block.timestamp);
         _world.seasonStartTick = 0;
         _world.seasonEndTick = ClanWorldConstants.SEASON_DURATION_TICKS;
+        _world.currentSeasonNumber = 1;
+        _world.nextHeartbeatAtTick = 1; // first heartbeat will open tick 1
+        // First winter: last WINTER_DURATION_TICKS of first TICKS_PER_WINTER_CYCLE cycle
+        // i.e. ticks [100, 110)
+        _world.winterStartsAtTick =
+            ClanWorldConstants.TICKS_PER_WINTER_CYCLE - ClanWorldConstants.WINTER_DURATION_TICKS; // = 100
+        _world.winterEndsAtTick = ClanWorldConstants.TICKS_PER_WINTER_CYCLE; // = 110
+        _world.winterActive = false;
         _treasury.treasuryOwner = msg.sender;
         _nextClanId = 1;
         _nextClansmanId = 1;
@@ -833,6 +841,48 @@ contract ClanWorld is IClanWorld {
         // Phase 2: execute scheduled market actions for closedTick
         _executeScheduledMarketActions(closedTick);
         // TODO Phase 3: bandit state transitions and attacks
+
+        uint64 newTick = _world.currentTick;
+
+        // update next-heartbeat tick estimate
+        _world.nextHeartbeatAtTick = newTick + 1;
+
+        // --- season boundary ---
+        if (newTick >= _world.seasonEndTick) {
+            _world.currentSeasonNumber += 1;
+            _world.seasonStartTick = _world.seasonEndTick;
+            _world.seasonEndTick = _world.seasonStartTick + ClanWorldConstants.SEASON_DURATION_TICKS;
+            // reset winter timers for new season
+            _world.winterActive = false;
+            _world.winterStartsAtTick = _world.seasonStartTick + ClanWorldConstants.TICKS_PER_WINTER_CYCLE
+                - ClanWorldConstants.WINTER_DURATION_TICKS;
+            _world.winterEndsAtTick = _world.seasonStartTick + ClanWorldConstants.TICKS_PER_WINTER_CYCLE;
+        }
+
+        // --- winter transitions (timer only; mechanics = Phase 10) ---
+        if (
+            !_world.winterActive && newTick >= _world.winterStartsAtTick
+                && _world.winterStartsAtTick < _world.seasonEndTick
+        ) {
+            _world.winterActive = true;
+            emit WinterStarted(newTick);
+        }
+        if (_world.winterActive && newTick >= _world.winterEndsAtTick) {
+            _world.winterActive = false;
+            emit WinterEnded(newTick);
+            // schedule next winter cycle within this season
+            uint64 nextWinterStart = _world.winterEndsAtTick + ClanWorldConstants.TICKS_PER_WINTER_CYCLE
+                - ClanWorldConstants.WINTER_DURATION_TICKS;
+            uint64 nextWinterEnd = _world.winterEndsAtTick + ClanWorldConstants.TICKS_PER_WINTER_CYCLE;
+            if (nextWinterStart < _world.seasonEndTick) {
+                _world.winterStartsAtTick = nextWinterStart;
+                _world.winterEndsAtTick = nextWinterEnd;
+            } else {
+                // no more winters this season; sentinel = seasonEndTick so guard never fires
+                _world.winterStartsAtTick = _world.seasonEndTick;
+                _world.winterEndsAtTick = _world.seasonEndTick;
+            }
+        }
 
         emit TickAdvanced(closedTick, _world.currentTick, _world.currentTickSeed);
     }
@@ -1726,6 +1776,8 @@ contract ClanWorld is IClanWorld {
             seasonStartTick: _world.seasonStartTick,
             seasonEndTick: _world.seasonEndTick,
             seasonFinalized: _world.seasonFinalized,
+            currentSeasonNumber: _world.currentSeasonNumber,
+            nextHeartbeatAtTick: _world.nextHeartbeatAtTick,
             winterActive: _world.winterActive,
             winterStartsAtTick: _world.winterStartsAtTick,
             winterEndsAtTick: _world.winterEndsAtTick,
