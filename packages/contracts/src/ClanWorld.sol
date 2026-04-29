@@ -52,7 +52,7 @@ contract ClanWorld is IClanWorld {
     WorldState private _world;
     TreasuryState private _treasury;
 
-    mapping(uint32 => Clan) private _clans;
+    mapping(uint32 => Clan) internal _clans;
     mapping(uint32 => Clansman) internal _clansmen;
     mapping(uint32 => Mission) private _missions; // keyed by clansmanId
     mapping(uint32 => WheatPlot[2]) private _wheatPlots; // [0]=west [1]=east
@@ -864,26 +864,70 @@ contract ClanWorld is IClanWorld {
     // =========================================================================
 
     /// @notice Permissionless heartbeat. Closes the current tick, advances tick counter.
+    ///         Execution order per spec §4.2:
+    ///         1. Settle missions completing this tick.
+    ///         2. Execute scheduled market actions for closedTick.
+    ///         3. Eager-settle clans touched by world events (Phase 3 stub).
+    ///         4. Resolve world events (season boundary, winter transitions).
+    ///         5. Atomic tick+seed publish.
     function heartbeat() external override {
         require(block.timestamp >= _world.nextHeartbeatAtTs, "ClanWorld: heartbeat rate limited");
 
         uint64 closedTick = _world.currentTick;
-        bytes32 newSeed = keccak256(abi.encode(block.prevrandao, _world.currentTickSeed, closedTick));
 
+        // Step 1: Settle missions that complete this tick (settlesAtTick == closedTick).
+        // Bounded by 12-clan cap x 4 clansmen = 48 max iterations.
+        _settleCompletingMissions(closedTick);
+
+        // Step 2: Execute scheduled market actions for closedTick.
+        _executeScheduledMarketActions(closedTick);
+
+        // Step 3: Eager-settle clans touched by world events (Phase 3 bandit — stub).
+        // TODO Phase 3: _settleClansNearBandit(closedTick);
+
+        // Step 4: Resolve world events (season boundary, winter transitions).
+        _resolveWorldEvents(closedTick);
+
+        // Step 5: Atomic tick+seed publish.
+        uint64 newTick = closedTick + 1;
+        bytes32 newSeed = keccak256(abi.encode(block.prevrandao, _world.currentTickSeed, closedTick));
         _tickSeeds[closedTick] = newSeed;
         _world.currentTickSeed = newSeed;
-        _world.currentTick = closedTick + 1;
-
+        _world.currentTick = newTick;
         _world.nextHeartbeatAtTs = uint64(block.timestamp) + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS;
-
-        // Phase 2: execute scheduled market actions for closedTick
-        _executeScheduledMarketActions(closedTick);
-        // TODO Phase 3: bandit state transitions and attacks
-
-        uint64 newTick = _world.currentTick;
-
-        // update next-heartbeat tick estimate
         _world.nextHeartbeatAtTick = newTick + 1;
+
+        emit TickAdvanced(closedTick, newTick, newSeed);
+    }
+
+    /// @dev Settle missions that complete exactly at `tick` (settlesAtTick == tick).
+    ///      Called from heartbeat before market execution and tick increment.
+    ///      Bounded by 12-clan cap x 4 clansmen = 48 max iterations.
+    function _settleCompletingMissions(uint64 tick) internal {
+        for (uint256 i = 0; i < _allClanIds.length; i++) {
+            uint32 clanId = _allClanIds[i];
+            Clan storage clan = _clans[clanId];
+            if (clan.clanState == ClanState.DEAD) continue;
+
+            uint32[] storage csIds = _clanClansmanIds[clanId];
+            for (uint256 j = 0; j < csIds.length; j++) {
+                Clansman storage cs = _clansmen[csIds[j]];
+                if (cs.state == ClansmanState.DEAD) continue;
+
+                Mission storage m = _missions[cs.clansmanId];
+                if (!m.active) continue;
+                if (m.settlesAtTick != tick) continue; // not due this tick
+
+                // Settle this mission using the single-tick range [tick, tick+1).
+                _settleMissionForClansman(clan, cs, clanId, tick, tick + 1);
+            }
+        }
+    }
+
+    /// @dev Resolve world events for the tick that was just closed.
+    ///      Uses closedTick+1 as the equivalent of the old `newTick` for transition checks.
+    function _resolveWorldEvents(uint64 closedTick) internal {
+        uint64 newTick = closedTick + 1;
 
         // --- season boundary ---
         if (newTick >= _world.seasonEndTick) {
@@ -921,8 +965,6 @@ contract ClanWorld is IClanWorld {
                 _world.winterEndsAtTick = _world.seasonEndTick;
             }
         }
-
-        emit TickAdvanced(closedTick, _world.currentTick, _world.currentTickSeed);
     }
 
     /// @notice Public settlement trigger — lazily settle a clan.

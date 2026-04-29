@@ -1807,14 +1807,14 @@ contract ClanWorldTest is Test {
             _advanceTick();
         }
 
-        // Verify: raw storage not yet updated (settleClan not called)
-        assertEq(world.getClansman(csId).carryIron, 0, "onDemand: carryIron must be 0 before settleClansman");
+        // Phase 4.2: heartbeat eagerly settles missions at settlesAtTick (step 1 of heartbeat).
+        // carryIron is already > 0 after tick advancement — no manual settleClansman required.
+        assertGt(world.getClansman(csId).carryIron, 0, "onDemand: heartbeat settled mission at settlesAtTick");
 
-        // Call settleClansman on-demand — only this clansman's mission should resolve
+        // Call settleClansman on-demand — must be idempotent (no crash, no double-credit).
+        uint256 ironBefore = world.getClansman(csId).carryIron;
         world.settleClansman(csId);
-
-        // Verify: clansman now has iron (settled on demand)
-        assertGt(world.getClansman(csId).carryIron, 0, "onDemand: carryIron must be > 0 after settleClansman");
+        assertEq(world.getClansman(csId).carryIron, ironBefore, "onDemand: settleClansman is idempotent after heartbeat settle");
     }
 
     // -------------------------------------------------------------------------
