@@ -64,6 +64,10 @@ contract ClanWorldTestHarness is ClanWorld {
         clan.vaultFish = vaultFish;
         clan.coldDamage = coldDamage;
     }
+
+    function setClanWallLevel(uint32 clanId, uint8 wallLevel) external {
+        _clans[clanId].wallLevel = wallLevel;
+    }
 }
 
 contract ClanWorldTest is Test {
@@ -2020,6 +2024,7 @@ contract ClanWorldTest is Test {
         uint64 winterStart = ClanWorldConstants.WINTER_START_TICK;
         _advanceToTick(winterStart + 1);
 
+        harness.setClanWallLevel(clanId, 2);
         harness.setClanUpkeepState(clanId, winterStart, 100e18, 100e18, 100e18, 0);
 
         world.settleClan(clanId);
@@ -2029,6 +2034,8 @@ contract ClanWorldTest is Test {
         assertEq(clan.vaultFish, 100e18 - 8e17, "winter fish upkeep should be 2x");
         assertEq(clan.vaultWood, 98e18, "winter wood burn should be per clansman");
         assertEq(clan.coldDamage, 0, "sufficient wood should avoid cold damage");
+        assertEq(clan.wallLevel, 2, "sufficient wood should not degrade wall");
+        assertEq(clan.livingClansmen, 4, "sufficient wood should not kill clansmen");
     }
 
     function test_winter_upkeep_insufficientWood_emitsColdShortage() public {
@@ -2047,6 +2054,55 @@ contract ClanWorldTest is Test {
         Clan memory clan = world.getClan(clanId);
         assertEq(clan.vaultWood, 0, "short winter burn should consume remaining wood");
         assertEq(clan.coldDamage, 1, "short winter burn should mark cold damage");
+    }
+
+    function test_coldDamage_degradesWallEveryTwoShortages() public {
+        ClanWorldTestHarness harness = new ClanWorldTestHarness();
+        world = harness;
+        uint32 clanId = _mintClan();
+        uint64 winterStart = ClanWorldConstants.WINTER_START_TICK;
+        _advanceToTick(winterStart + 1);
+
+        harness.setClanWallLevel(clanId, 2);
+        harness.setClanUpkeepState(clanId, winterStart, 0, 100e18, 100e18, 1);
+
+        vm.expectEmit(true, false, false, true);
+        emit IClanWorldEvents.WallDegradedByCold(clanId, 1, uint32(winterStart));
+        world.settleClan(clanId);
+
+        Clan memory clan = world.getClan(clanId);
+        assertEq(clan.coldDamage, 2, "cold damage should increment");
+        assertEq(clan.wallLevel, 1, "second cold damage should degrade wall by one");
+        assertEq(clan.livingClansmen, 4, "wall should absorb cold before clansmen die");
+    }
+
+    function test_coldDamage_zeroWallKillsOneClansmanEveryTwoShortages() public {
+        ClanWorldTestHarness harness = new ClanWorldTestHarness();
+        world = harness;
+        uint32 clanId = _mintClan();
+        uint64 winterStart = ClanWorldConstants.WINTER_START_TICK;
+        _advanceToTick(winterStart + 1);
+
+        harness.setClanUpkeepState(clanId, winterStart, 0, 100e18, 100e18, 1);
+
+        vm.recordLogs();
+        world.settleClan(clanId);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        Clan memory clan = world.getClan(clanId);
+        assertEq(clan.coldDamage, 2, "cold damage should hit death threshold");
+        assertEq(clan.wallLevel, 0, "wall should remain clamped at zero");
+        assertEq(clan.livingClansmen, 3, "one clansman should die from cold");
+        assertEq(_countLogs(logs, keccak256("ClansmanColdDeath(uint32,uint32,uint32)")), 1, "cold death should emit");
+
+        ClanFullView memory view_ = world.getClanFullView(clanId);
+        uint256 deadCount = 0;
+        for (uint256 i = 0; i < view_.clansmen.length; i++) {
+            if (view_.clansmen[i].clansman.clansman.state == ClansmanState.DEAD) {
+                deadCount++;
+            }
+        }
+        assertEq(deadCount, 1, "exactly one stored clansman should be dead");
     }
 
     function test_winter_upkeep_returnsToNormalAfterWinter() public {

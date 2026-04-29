@@ -63,6 +63,8 @@ library ClanWorldConstants {
     uint256 internal constant FISH_UPKEEP_PER_CLANSMAN = 1e17; // 0.1
     uint256 internal constant WINTER_WOOD_BURN_PER_CLANSMAN = 5e17; // 0.5
     uint16 internal constant WINTER_UPKEEP_MULTIPLIER_BPS = 20000; // 2x
+    uint16 internal constant COLD_DAMAGE_PER_WALL_DEGRADATION = 2;
+    uint16 internal constant COLD_DAMAGE_PER_CLANSMAN_DEATH = 2;
 
     // Wheat plots
     uint64 internal constant WHEAT_PLOT_REGROW_TICKS = 4;
@@ -502,6 +504,8 @@ interface IClanWorldEvents {
     event ClanEliminated(uint32 indexed clanId, uint64 indexed tick);
     event ClanStarvationChanged(uint32 indexed clanId, bool isStarving, uint64 atTick);
     event ClanColdShortage(uint32 indexed clanId, uint32 tick, uint256 woodShort);
+    event WallDegradedByCold(uint32 indexed clanId, uint8 newWallLevel, uint32 tick);
+    event ClansmanColdDeath(uint32 indexed clanId, uint32 csId, uint32 tick);
 
     // ----- missions -----
     event MissionAssigned(
