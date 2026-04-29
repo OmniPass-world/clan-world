@@ -48,17 +48,17 @@ contract ClanWorldStub is IClanWorld {
         _world.currentTick = 1;
         _world.nextHeartbeatAtTs = uint64(block.timestamp);
 
-        _treasury.woodToken      = tokens[0];
-        _treasury.ironToken      = tokens[1];
-        _treasury.wheatToken     = tokens[2];
-        _treasury.fishToken      = tokens[3];
-        _treasury.goldToken      = tokens[4];
+        _treasury.woodToken = tokens[0];
+        _treasury.ironToken = tokens[1];
+        _treasury.wheatToken = tokens[2];
+        _treasury.fishToken = tokens[3];
+        _treasury.goldToken = tokens[4];
         _treasury.blueprintToken = tokens[5];
 
-        _treasury.woodGoldPool   = pools[0];
-        _treasury.wheatGoldPool  = pools[1];
-        _treasury.fishGoldPool   = pools[2];
-        _treasury.ironGoldPool   = pools[3];
+        _treasury.woodGoldPool = pools[0];
+        _treasury.wheatGoldPool = pools[1];
+        _treasury.fishGoldPool = pools[2];
+        _treasury.ironGoldPool = pools[3];
 
         _treasury.treasuryOwner = msg.sender;
     }
@@ -98,6 +98,8 @@ contract ClanWorldStub is IClanWorld {
     // Treasury
     // -------------------------------------------------------------------------
 
+    function initTreasury(address[6] calldata, address[4] calldata) external override {}
+
     function seedPools(PoolSeedConfig calldata) external override {}
 
     // -------------------------------------------------------------------------
@@ -110,10 +112,7 @@ contract ClanWorldStub is IClanWorld {
 
     function transferBlueprint(uint32, uint32, uint256) external override {}
 
-    function transferBundle(uint32, uint32, uint256, uint256, uint256, uint256, uint256, uint256)
-        external
-        override
-    {}
+    function transferBundle(uint32, uint32, uint256, uint256, uint256, uint256, uint256, uint256) external override {}
 
     // -------------------------------------------------------------------------
     // Raw read getters
@@ -202,31 +201,16 @@ contract ClanWorldStub is IClanWorld {
         });
     }
 
-    function getWheatPlots(uint32)
-        external
-        pure
-        override
-        returns (WheatPlot memory west, WheatPlot memory east)
-    {
-        west = WheatPlot({ state: WheatPlotState.Harvestable, region: 0, remainingWheat: 0, regrowUntilTick: 0 });
-        east = WheatPlot({ state: WheatPlotState.Harvestable, region: 0, remainingWheat: 0, regrowUntilTick: 0 });
+    function getWheatPlots(uint32) external pure override returns (WheatPlot memory west, WheatPlot memory east) {
+        west = WheatPlot({state: WheatPlotState.Harvestable, region: 0, remainingWheat: 0, regrowUntilTick: 0});
+        east = WheatPlot({state: WheatPlotState.Harvestable, region: 0, remainingWheat: 0, regrowUntilTick: 0});
     }
 
-    function getScheduledMarketActionsForTick(uint64)
-        external
-        pure
-        override
-        returns (ScheduledMarketAction[] memory)
-    {
+    function getScheduledMarketActionsForTick(uint64) external pure override returns (ScheduledMarketAction[] memory) {
         return new ScheduledMarketAction[](0);
     }
 
-    function getActiveDefenders(uint32)
-        external
-        pure
-        override
-        returns (uint32[] memory)
-    {
+    function getActiveDefenders(uint32) external pure override returns (uint32[] memory) {
         return new uint32[](0);
     }
 
@@ -236,13 +220,16 @@ contract ClanWorldStub is IClanWorld {
 
     function getDerivedClanState(uint32) external view override returns (DerivedClanState memory) {
         Clan memory c = this.getClan(0);
-        return DerivedClanState({ clan: c, isStarving: false, lootValue: 0, derivedAtTick: _world.currentTick });
+        return DerivedClanState({clan: c, isStarving: false, lootValue: 0, derivedAtTick: _world.currentTick});
     }
 
     function getDerivedClansmanState(uint32) external view override returns (DerivedClansmanState memory) {
         Clansman memory cm = this.getClansman(0);
         Mission memory m = this.getActiveMission(0);
-        return DerivedClansmanState({ clansman: cm, activeMission: m, effectiveRegion: 0, derivedAtTick: _world.currentTick });
+        return
+            DerivedClansmanState({
+                clansman: cm, activeMission: m, effectiveRegion: 0, derivedAtTick: _world.currentTick
+            });
     }
 
     function getBanditTargetPreview(uint32) external pure override returns (uint32) {
@@ -283,14 +270,11 @@ contract ClanWorldStub is IClanWorld {
     function getClanFullView(uint32) external view override returns (ClanFullView memory) {
         return ClanFullView({
             clan: DerivedClanState({
-                clan: this.getClan(0),
-                isStarving: false,
-                lootValue: 0,
-                derivedAtTick: _world.currentTick
+                clan: this.getClan(0), isStarving: false, lootValue: 0, derivedAtTick: _world.currentTick
             }),
             clansmen: new ClansmanFullView[](0),
-            westPlot: WheatPlot({ state: WheatPlotState.Harvestable, region: 0, remainingWheat: 0, regrowUntilTick: 0 }),
-            eastPlot: WheatPlot({ state: WheatPlotState.Harvestable, region: 0, remainingWheat: 0, regrowUntilTick: 0 }),
+            westPlot: WheatPlot({state: WheatPlotState.Harvestable, region: 0, remainingWheat: 0, regrowUntilTick: 0}),
+            eastPlot: WheatPlot({state: WheatPlotState.Harvestable, region: 0, remainingWheat: 0, regrowUntilTick: 0}),
             incomingDefenderIds: new uint32[](0),
             thisClanDefendingBaseId: 0
         });
@@ -298,10 +282,18 @@ contract ClanWorldStub is IClanWorld {
 
     function getMarketState() external view override returns (MarketState memory) {
         return MarketState({
-            wood: PoolReserves({ resourceToken: _treasury.woodToken, resourceReserve: 0, goldReserve: 0, spotPriceGoldPerResource: 0 }),
-            wheat: PoolReserves({ resourceToken: _treasury.wheatToken, resourceReserve: 0, goldReserve: 0, spotPriceGoldPerResource: 0 }),
-            fish: PoolReserves({ resourceToken: _treasury.fishToken, resourceReserve: 0, goldReserve: 0, spotPriceGoldPerResource: 0 }),
-            iron: PoolReserves({ resourceToken: _treasury.ironToken, resourceReserve: 0, goldReserve: 0, spotPriceGoldPerResource: 0 }),
+            wood: PoolReserves({
+                resourceToken: _treasury.woodToken, resourceReserve: 0, goldReserve: 0, spotPriceGoldPerResource: 0
+            }),
+            wheat: PoolReserves({
+                resourceToken: _treasury.wheatToken, resourceReserve: 0, goldReserve: 0, spotPriceGoldPerResource: 0
+            }),
+            fish: PoolReserves({
+                resourceToken: _treasury.fishToken, resourceReserve: 0, goldReserve: 0, spotPriceGoldPerResource: 0
+            }),
+            iron: PoolReserves({
+                resourceToken: _treasury.ironToken, resourceReserve: 0, goldReserve: 0, spotPriceGoldPerResource: 0
+            }),
             currentTick: _world.currentTick,
             currentTickQueue: new ScheduledMarketAction[](0),
             nextTickQueue: new ScheduledMarketAction[](0)

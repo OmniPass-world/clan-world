@@ -44,7 +44,7 @@ import {
 
 contract ClanWorldTest is Test {
     ClanWorld world;
-    address elder  = address(0xA1);
+    address elder = address(0xA1);
     address elder2 = address(0xA2);
 
     // Phase 2 market infrastructure
@@ -65,18 +65,18 @@ contract ClanWorldTest is Test {
 
     /// @dev Deploy tokens + pools, call initTreasury + seedPools. Returns wood token address.
     function _setupMarket() internal returns (address woodAddr) {
-        woodToken      = new MinimalERC20("Wood",  "WOOD");
-        ironToken      = new MinimalERC20("Iron",  "IRON");
-        wheatToken     = new MinimalERC20("Wheat", "WHEAT");
-        fishToken      = new MinimalERC20("Fish",  "FISH");
-        goldToken      = new MinimalERC20("Gold",  "GOLD");
-        blueprintToken = new MinimalERC20("BPRT",  "BPRT");
+        woodToken = new MinimalERC20("Wood", "WOOD");
+        ironToken = new MinimalERC20("Iron", "IRON");
+        wheatToken = new MinimalERC20("Wheat", "WHEAT");
+        fishToken = new MinimalERC20("Fish", "FISH");
+        goldToken = new MinimalERC20("Gold", "GOLD");
+        blueprintToken = new MinimalERC20("BPRT", "BPRT");
 
         address wAddr = address(world);
-        woodPool  = new StubPool(address(woodToken),  address(goldToken), wAddr);
-        ironPool  = new StubPool(address(ironToken),  address(goldToken), wAddr);
+        woodPool = new StubPool(address(woodToken), address(goldToken), wAddr);
+        ironPool = new StubPool(address(ironToken), address(goldToken), wAddr);
         wheatPool = new StubPool(address(wheatToken), address(goldToken), wAddr);
-        fishPool  = new StubPool(address(fishToken),  address(goldToken), wAddr);
+        fishPool = new StubPool(address(fishToken), address(goldToken), wAddr);
 
         address[6] memory tokens = [
             address(woodToken),
@@ -86,27 +86,22 @@ contract ClanWorldTest is Test {
             address(goldToken),
             address(blueprintToken)
         ];
-        address[4] memory pools = [
-            address(woodPool),
-            address(ironPool),
-            address(wheatPool),
-            address(fishPool)
-        ];
+        address[4] memory pools = [address(woodPool), address(wheatPool), address(fishPool), address(ironPool)];
 
         world.initTreasury(tokens, pools);
 
         // Seed: 1000 wood + 1000 gold per pool (spot price 1 gold / 1 wood)
-        uint256 resSeed  = 1000e18;
+        uint256 resSeed = 1000e18;
         uint256 goldSeed = 1000e18;
         PoolSeedConfig memory cfg = PoolSeedConfig({
-            woodSeed:        resSeed,
-            wheatSeed:       resSeed,
-            fishSeed:        resSeed,
-            ironSeed:        resSeed,
-            goldSeedForWood:  goldSeed,
+            woodSeed: resSeed,
+            wheatSeed: resSeed,
+            fishSeed: resSeed,
+            ironSeed: resSeed,
+            goldSeedForWood: goldSeed,
             goldSeedForWheat: goldSeed,
-            goldSeedForFish:  goldSeed,
-            goldSeedForIron:  goldSeed
+            goldSeedForFish: goldSeed,
+            goldSeedForIron: goldSeed
         });
         world.seedPools(cfg);
 
@@ -522,6 +517,28 @@ contract ClanWorldTest is Test {
         return world.submitClanOrders(clanId, orders);
     }
 
+    function _submitAllClanMarketSells(uint32 clanId, address token) internal returns (uint256 count) {
+        ClanFullView memory view_ = world.getClanFullView(clanId);
+        count = view_.clansmen.length;
+        ClanOrder[] memory orders = new ClanOrder[](count);
+        for (uint256 i = 0; i < count; i++) {
+            orders[i] = ClanOrder({
+                clansmanId: view_.clansmen[i].clansman.clansman.clansmanId,
+                gotoRegion: ClanWorldConstants.REGION_UNICORN_TOWN,
+                action: ActionType.MarketSell,
+                targetClanId: 0,
+                marketToken: token,
+                marketAmount: 1e18,
+                maxGoldIn: 0
+            });
+        }
+        vm.prank(elder);
+        OrderResult[] memory results = world.submitClanOrders(clanId, orders);
+        for (uint256 i = 0; i < results.length; i++) {
+            assertEq(uint8(results[i].status), uint8(StatusCode.OK), "market sell should enqueue");
+        }
+    }
+
     // Helper: get the first clansman id for a clan
     function _firstCs(uint32 clanId) internal view returns (uint32) {
         return world.getClanFullView(clanId).clansmen[0].clansman.clansman.clansmanId;
@@ -534,7 +551,7 @@ contract ClanWorldTest is Test {
     function test_sell_creditsGold() public {
         address woodAddr = _setupMarket();
         uint32 clanId = _mintClan();
-        uint32 csId   = _firstCs(clanId);
+        uint32 csId = _firstCs(clanId);
 
         // Clan starts with 20 wood in vault (starter pack)
         uint256 goldBefore = world.getClan(clanId).goldBalance;
@@ -574,7 +591,7 @@ contract ClanWorldTest is Test {
         ClanFullView memory view_ = world.getClanFullView(clanId);
         uint32 csId = view_.clansmen[0].clansman.clansman.clansmanId;
 
-        uint256 goldBefore   = world.getClan(clanId).goldBalance;
+        uint256 goldBefore = world.getClan(clanId).goldBalance;
         uint256 vaultWoodBefore = world.getClan(clanId).vaultWood;
 
         // Submit buy order for 1e18 wood, maxGoldIn = generous 500e18
@@ -592,7 +609,7 @@ contract ClanWorldTest is Test {
 
         world.settleClan(clanId);
 
-        uint256 goldAfter   = world.getClan(clanId).goldBalance;
+        uint256 goldAfter = world.getClan(clanId).goldBalance;
         uint256 vaultWoodAfter = world.getClan(clanId).vaultWood;
         assertLt(goldAfter, goldBefore, "gold should decrease after buy");
         assertGt(vaultWoodAfter, vaultWoodBefore, "vault wood should increase after buy");
@@ -605,7 +622,7 @@ contract ClanWorldTest is Test {
     function test_buy_maxGoldIn() public {
         address woodAddr = _setupMarket();
         uint32 clanId = _mintClan();
-        uint32 csId   = _firstCs(clanId);
+        uint32 csId = _firstCs(clanId);
 
         // maxGoldIn = 0 (will always be exceeded for any nonzero buy)
         OrderResult[] memory r = _submitMarketOrder(clanId, csId, ActionType.MarketBuy, woodAddr, 1e18, 0);
@@ -641,7 +658,7 @@ contract ClanWorldTest is Test {
     function test_scheduledMarket_deletedAfterHeartbeat() public {
         address woodAddr = _setupMarket();
         uint32 clanId = _mintClan();
-        uint32 csId   = _firstCs(clanId);
+        uint32 csId = _firstCs(clanId);
 
         OrderResult[] memory r = _submitMarketOrder(clanId, csId, ActionType.MarketSell, woodAddr, 1e18, 0);
         assertEq(uint8(r[0].status), uint8(StatusCode.OK));
@@ -659,7 +676,98 @@ contract ClanWorldTest is Test {
         }
 
         // Queue should be empty after heartbeat processes it
-        assertEq(world.getScheduledMarketActionsForTick(executeAtTick).length, 0, "queue should be empty after heartbeat");
+        assertEq(
+            world.getScheduledMarketActionsForTick(executeAtTick).length, 0, "queue should be empty after heartbeat"
+        );
+    }
+
+    function test_scheduledMarket_sameTypeRetask_skipsStaleNonce() public {
+        address woodAddr = _setupMarket();
+        uint32 clanId = _mintClan();
+        uint32 csId = _firstCs(clanId);
+
+        OrderResult[] memory r1 = _submitMarketOrder(clanId, csId, ActionType.MarketSell, woodAddr, 1e18, 0);
+        assertEq(uint8(r1[0].status), uint8(StatusCode.OK), "first sell order should be accepted");
+        Mission memory oldMission = world.getActiveMission(csId);
+        uint64 oldExecuteAtTick = oldMission.actionStartTick;
+
+        vm.warp(block.timestamp + ClanWorldConstants.CLANSMAN_COOLDOWN_SECONDS + 1);
+        _advanceTick();
+
+        OrderResult[] memory r2 = _submitMarketOrder(clanId, csId, ActionType.MarketSell, woodAddr, 2e18, 0);
+        assertEq(uint8(r2[0].status), uint8(StatusCode.OK), "replacement sell order should be accepted");
+        Mission memory newMission = world.getActiveMission(csId);
+        uint64 newExecuteAtTick = newMission.actionStartTick;
+        assertGt(newMission.nonce, oldMission.nonce, "replacement should bump nonce");
+
+        ScheduledMarketAction[] memory oldQueue = world.getScheduledMarketActionsForTick(oldExecuteAtTick);
+        ScheduledMarketAction[] memory newQueue = world.getScheduledMarketActionsForTick(newExecuteAtTick);
+        assertEq(oldQueue[0].missionNonce, oldMission.nonce, "old queue captures old nonce");
+        assertEq(newQueue[0].missionNonce, newMission.nonce, "new queue captures new nonce");
+
+        uint256 goldBefore = world.getClan(clanId).goldBalance;
+
+        _advanceTick(); // close tick before the stale entry
+
+        vm.expectEmit(true, true, false, true);
+        emit IClanWorldEvents.MarketActionFailed(clanId, csId, ActionType.MarketSell, StatusCode.ERR_INVALID_ACTION);
+        _advanceTick(); // close stale entry tick
+        assertEq(world.getClan(clanId).goldBalance, goldBefore, "stale sell must not execute");
+
+        _advanceTick(); // close replacement entry tick
+        assertGt(world.getClan(clanId).goldBalance, goldBefore, "replacement sell should execute");
+    }
+
+    function test_scheduledMarket_defersActionsAbovePerTickCap() public {
+        address woodAddr = _setupMarket();
+        uint32[] memory distOneClans = new uint32[](12);
+        uint32[] memory distTwoClans = new uint32[](12);
+        uint256 distOneCount;
+        uint256 distTwoCount;
+
+        for (uint256 i = 0; i < 12; i++) {
+            uint32 clanId = _mintClan();
+            ClanFullView memory view_ = world.getClanFullView(clanId);
+            (uint8 travelTicks,) = world.quoteTravel(view_.clan.clan.baseRegion, ClanWorldConstants.REGION_UNICORN_TOWN);
+            if (travelTicks == 1) {
+                distOneClans[distOneCount++] = clanId;
+            } else if (travelTicks == 2) {
+                distTwoClans[distTwoCount++] = clanId;
+            }
+        }
+
+        uint256 totalQueued;
+        for (uint256 i = 0; i < distTwoCount; i++) {
+            totalQueued += _submitAllClanMarketSells(distTwoClans[i], woodAddr);
+        }
+
+        _advanceTick();
+
+        for (uint256 i = 0; i < distOneCount; i++) {
+            totalQueued += _submitAllClanMarketSells(distOneClans[i], woodAddr);
+        }
+
+        uint64 executeAtTick = 2;
+        uint256 cap = world.MAX_MARKET_ACTIONS_PER_TICK();
+        assertGt(totalQueued, cap, "test setup must exceed cap");
+        assertEq(
+            world.getScheduledMarketActionsForTick(executeAtTick).length,
+            totalQueued,
+            "all aligned actions should share tick 2"
+        );
+
+        _advanceTick(); // close tick 1
+        _advanceTick(); // close tick 2, process cap and defer remainder
+
+        assertEq(world.getScheduledMarketActionsForTick(executeAtTick).length, 0, "original tick queue cleared");
+        assertEq(
+            world.getScheduledMarketActionsForTick(executeAtTick + 1).length,
+            totalQueued - cap,
+            "overflow actions deferred to next tick"
+        );
+
+        _advanceTick(); // close tick 3, process deferred actions
+        assertEq(world.getScheduledMarketActionsForTick(executeAtTick + 1).length, 0, "deferred queue cleared");
     }
 
     // -------------------------------------------------------------------------
@@ -808,7 +916,7 @@ contract ClanWorldTest is Test {
     function test_marketOrder_rejectsInvalidRegion() public {
         address woodAddr = _setupMarket();
         uint32 clanId = _mintClan();
-        uint32 csId   = _firstCs(clanId);
+        uint32 csId = _firstCs(clanId);
 
         // Try to submit market sell to Forest (wrong region)
         ClanOrder[] memory orders = new ClanOrder[](1);
@@ -824,6 +932,26 @@ contract ClanWorldTest is Test {
         vm.prank(elder);
         OrderResult[] memory results = world.submitClanOrders(clanId, orders);
         assertEq(uint8(results[0].status), uint8(StatusCode.ERR_INVALID_REGION), "market sell to Forest should fail");
+    }
+
+    function test_marketOrder_revertsWhenTreasuryUninitialized() public {
+        uint32 clanId = _mintClan();
+        uint32 csId = _firstCs(clanId);
+
+        ClanOrder[] memory orders = new ClanOrder[](1);
+        orders[0] = ClanOrder({
+            clansmanId: csId,
+            gotoRegion: ClanWorldConstants.REGION_UNICORN_TOWN,
+            action: ActionType.MarketSell,
+            targetClanId: 0,
+            marketToken: address(0xBEEF),
+            marketAmount: 1e18,
+            maxGoldIn: 0
+        });
+
+        vm.expectRevert("Treasury not initialized");
+        vm.prank(elder);
+        world.submitClanOrders(clanId, orders);
     }
 
     // -------------------------------------------------------------------------

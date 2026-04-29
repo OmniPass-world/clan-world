@@ -42,10 +42,9 @@ import {StubPool} from "./StubPool.sol";
 /// @title ClanWorld
 /// @notice Phase 1+2 real engine implementation of IClanWorld v4.
 ///         Implements: world clock, clan lifecycle, lazy settlement, resource gathering,
-///         deposit, wheat harvest, travel, NOOP bypass, order validation.
-///         Phase 2 (market execution) and Phase 3 (bandits, winter damage) are stubbed.
+///         deposit, wheat harvest, travel, NOOP bypass, order validation, and market execution.
+///         Phase 2 is implemented; Phase 3 (bandits, winter damage) remains stubbed.
 contract ClanWorld is IClanWorld {
-
     // =========================================================================
     // STORAGE
     // =========================================================================
@@ -55,12 +54,12 @@ contract ClanWorld is IClanWorld {
 
     mapping(uint32 => Clan) private _clans;
     mapping(uint32 => Clansman) private _clansmen;
-    mapping(uint32 => Mission) private _missions;              // keyed by clansmanId
-    mapping(uint32 => WheatPlot[2]) private _wheatPlots;       // [0]=west [1]=east
+    mapping(uint32 => Mission) private _missions; // keyed by clansmanId
+    mapping(uint32 => WheatPlot[2]) private _wheatPlots; // [0]=west [1]=east
     mapping(uint64 => ScheduledMarketAction[]) private _scheduledMarketActions; // keyed by tick
-    mapping(uint32 => uint32[]) private _incomingDefenders;    // targetClanId => clansmanIds
-    mapping(uint32 => uint32) private _clanDefendingBase;      // clansmanId => targetClanId
-    mapping(uint64 => bytes32) private _tickSeeds;              // tick => seed
+    mapping(uint32 => uint32[]) private _incomingDefenders; // targetClanId => clansmanIds
+    mapping(uint32 => uint32) private _clanDefendingBase; // clansmanId => targetClanId
+    mapping(uint64 => bytes32) private _tickSeeds; // tick => seed
 
     uint32 private _nextClanId;
     uint32 private _nextClansmanId;
@@ -74,6 +73,8 @@ contract ClanWorld is IClanWorld {
     // =========================================================================
 
     uint256 private constant WHEAT_HARVEST_RATE = 20e18;
+    /// @dev Caps market queue work per heartbeat; overflow is deferred to the next tick.
+    uint256 public constant MAX_MARKET_ACTIONS_PER_TICK = 32;
 
     // =========================================================================
     // CONSTRUCTOR
@@ -123,21 +124,77 @@ contract ClanWorld is IClanWorld {
         // Encode as (src-1)*8 + (dst-1), values from BFS
         uint8[64] memory d = [
             // src=1: to 1,2,3,4,5,6,7,8
-            0, 1, 2, 1, 3, 2, 4, 3,
+            0,
+            1,
+            2,
+            1,
+            3,
+            2,
+            4,
+            3,
             // src=2: to 1,2,3,4,5,6,7,8
-            1, 0, 1, 2, 2, 3, 3, 4,
+            1,
+            0,
+            1,
+            2,
+            2,
+            3,
+            3,
+            4,
             // src=3: to 1,2,3,4,5,6,7,8
-            2, 1, 0, 1, 1, 2, 2, 3,
+            2,
+            1,
+            0,
+            1,
+            1,
+            2,
+            2,
+            3,
             // src=4: to 1,2,3,4,5,6,7,8
-            1, 2, 1, 0, 2, 1, 3, 2,
+            1,
+            2,
+            1,
+            0,
+            2,
+            1,
+            3,
+            2,
             // src=5: to 1,2,3,4,5,6,7,8
-            3, 2, 1, 2, 0, 3, 1, 2,
+            3,
+            2,
+            1,
+            2,
+            0,
+            3,
+            1,
+            2,
             // src=6: to 1,2,3,4,5,6,7,8
-            2, 3, 2, 1, 3, 0, 2, 1,
+            2,
+            3,
+            2,
+            1,
+            3,
+            0,
+            2,
+            1,
             // src=7: to 1,2,3,4,5,6,7,8
-            4, 3, 2, 3, 1, 2, 0, 1,
+            4,
+            3,
+            2,
+            3,
+            1,
+            2,
+            0,
+            1,
             // src=8: to 1,2,3,4,5,6,7,8
-            3, 4, 3, 2, 2, 1, 1, 0
+            3,
+            4,
+            3,
+            2,
+            2,
+            1,
+            1,
+            0
         ];
         return d[uint8(src - 1) * 8 + uint8(dst - 1)];
     }
@@ -151,15 +208,15 @@ contract ClanWorld is IClanWorld {
         // Adjacency list (1-indexed, 0 = end sentinel)
         // adj[r] = neighbors of region r (up to 3)
         uint8[3][9] memory adj = [
-            [0, 0, 0],       // 0: unused
-            [2, 4, 0],       // 1: Forest
-            [1, 3, 0],       // 2: Mountains
-            [2, 4, 5],       // 3: UnicornTown
-            [1, 3, 6],       // 4: WestFarms
-            [3, 7, 0],       // 5: EastFarms
-            [4, 8, 0],       // 6: WestDocks
-            [5, 8, 0],       // 7: EastDocks
-            [6, 7, 0]        // 8: DeepSea
+            [0, 0, 0], // 0: unused
+            [2, 4, 0], // 1: Forest
+            [1, 3, 0], // 2: Mountains
+            [2, 4, 5], // 3: UnicornTown
+            [1, 3, 6], // 4: WestFarms
+            [3, 7, 0], // 5: EastFarms
+            [4, 8, 0], // 6: WestDocks
+            [5, 8, 0], // 7: EastDocks
+            [6, 7, 0] // 8: DeepSea
         ];
 
         // BFS with parent tracking (max 8 nodes)
@@ -289,10 +346,10 @@ contract ClanWorld is IClanWorld {
         if (clan.livingClansmen == 0) return;
 
         uint256 wheatNeeded = uint256(clan.livingClansmen) * ClanWorldConstants.WHEAT_UPKEEP_PER_CLANSMAN;
-        uint256 fishNeeded  = uint256(clan.livingClansmen) * ClanWorldConstants.FISH_UPKEEP_PER_CLANSMAN;
+        uint256 fishNeeded = uint256(clan.livingClansmen) * ClanWorldConstants.FISH_UPKEEP_PER_CLANSMAN;
 
         bool hadEnoughWheat = clan.vaultWheat >= wheatNeeded;
-        bool hadEnoughFish  = clan.vaultFish  >= fishNeeded;
+        bool hadEnoughFish = clan.vaultFish >= fishNeeded;
 
         if (hadEnoughWheat) {
             clan.vaultWheat -= wheatNeeded;
@@ -355,9 +412,7 @@ contract ClanWorld is IClanWorld {
                 _clanDefendingBase[cs.clansmanId] = m.targetClanId;
             }
         } else if (
-            action == ActionType.BuildWall ||
-            action == ActionType.UpgradeBase ||
-            action == ActionType.UpgradeMonument
+            action == ActionType.BuildWall || action == ActionType.UpgradeBase || action == ActionType.UpgradeMonument
         ) {
             // Phase 1 stub: check homebase, check resources; if ok, stub success
             _doBuilding(clan, cs, m, clanId, tick, action);
@@ -435,13 +490,10 @@ contract ClanWorld is IClanWorld {
         }
     }
 
-    function _rollIronGoldBonus(
-        Clan storage clan,
-        uint32 clansmanId,
-        uint64 nonce,
-        uint64 tick,
-        bytes32 tickSeed
-    ) internal returns (uint256 goldBonus) {
+    function _rollIronGoldBonus(Clan storage clan, uint32 clansmanId, uint64 nonce, uint64 tick, bytes32 tickSeed)
+        internal
+        returns (uint256 goldBonus)
+    {
         bytes32 goldRng = keccak256(abi.encode("iron_gold_bonus", tickSeed, clansmanId, nonce, tick));
         if (uint256(goldRng) % 10000 < ClanWorldConstants.GOLD_FROM_IRON_BPS) {
             goldBonus = ClanWorldConstants.GOLD_FROM_IRON_AMOUNT;
@@ -512,7 +564,8 @@ contract ClanWorld is IClanWorld {
     }
 
     function _gatherWheat(
-        Clan storage /* clan — unused but kept positional for callsite parity */,
+        Clan storage,
+        /* clan — unused but kept positional for callsite parity */
         Clansman storage cs,
         Mission storage m,
         uint32 clanId,
@@ -565,13 +618,9 @@ contract ClanWorld is IClanWorld {
         // else continuous
     }
 
-    function _doDeposit(
-        Clan storage clan,
-        Clansman storage cs,
-        Mission storage m,
-        uint32 clanId,
-        uint64 tick
-    ) internal {
+    function _doDeposit(Clan storage clan, Clansman storage cs, Mission storage m, uint32 clanId, uint64 tick)
+        internal
+    {
         // Must be at homebase region
         if (cs.currentRegion != clan.baseRegion) {
             _completeMission(cs, m);
@@ -588,15 +637,15 @@ contract ClanWorld is IClanWorld {
         uint256 wh = cs.carryWheat;
         uint256 fi = cs.carryFish;
 
-        clan.vaultWood  += w;
-        clan.vaultIron  += ir;
+        clan.vaultWood += w;
+        clan.vaultIron += ir;
         clan.vaultWheat += wh;
-        clan.vaultFish  += fi;
+        clan.vaultFish += fi;
 
-        cs.carryWood  = 0;
-        cs.carryIron  = 0;
+        cs.carryWood = 0;
+        cs.carryIron = 0;
         cs.carryWheat = 0;
-        cs.carryFish  = 0;
+        cs.carryFish = 0;
 
         emit ResourcesDeposited(clanId, cs.clansmanId, w, ir, wh, fi, tick);
         _completeMission(cs, m);
@@ -638,11 +687,22 @@ contract ClanWorld is IClanWorld {
         uint256 woodCost;
         uint256 ironCost;
 
-        if (nextLevel == 1) { woodCost = 20e18; ironCost = 0; }
-        else if (nextLevel == 2) { woodCost = 35e18; ironCost = 0; }
-        else if (nextLevel == 3) { woodCost = 30e18; ironCost = 5e18; }
-        else if (nextLevel == 4) { woodCost = 40e18; ironCost = 10e18; }
-        else { woodCost = 50e18; ironCost = 15e18; }
+        if (nextLevel == 1) {
+            woodCost = 20e18;
+            ironCost = 0;
+        } else if (nextLevel == 2) {
+            woodCost = 35e18;
+            ironCost = 0;
+        } else if (nextLevel == 3) {
+            woodCost = 30e18;
+            ironCost = 5e18;
+        } else if (nextLevel == 4) {
+            woodCost = 40e18;
+            ironCost = 10e18;
+        } else {
+            woodCost = 50e18;
+            ironCost = 15e18;
+        }
 
         if (clan.vaultWood < woodCost || clan.vaultIron < ironCost) return false;
 
@@ -662,15 +722,28 @@ contract ClanWorld is IClanWorld {
         uint256 ironCost;
         uint256 wheatCost;
 
-        if (nextLevel == 2) { woodCost = 40e18; ironCost = 0; wheatCost = 20e18; }
-        else if (nextLevel == 3) { woodCost = 60e18; ironCost = 5e18; wheatCost = 30e18; }
-        else if (nextLevel == 4) { woodCost = 80e18; ironCost = 10e18; wheatCost = 40e18; }
-        else { woodCost = 100e18; ironCost = 15e18; wheatCost = 50e18; }
+        if (nextLevel == 2) {
+            woodCost = 40e18;
+            ironCost = 0;
+            wheatCost = 20e18;
+        } else if (nextLevel == 3) {
+            woodCost = 60e18;
+            ironCost = 5e18;
+            wheatCost = 30e18;
+        } else if (nextLevel == 4) {
+            woodCost = 80e18;
+            ironCost = 10e18;
+            wheatCost = 40e18;
+        } else {
+            woodCost = 100e18;
+            ironCost = 15e18;
+            wheatCost = 50e18;
+        }
 
         if (clan.vaultWood < woodCost || clan.vaultIron < ironCost || clan.vaultWheat < wheatCost) return false;
 
-        clan.vaultWood  -= woodCost;
-        clan.vaultIron  -= ironCost;
+        clan.vaultWood -= woodCost;
+        clan.vaultIron -= ironCost;
         clan.vaultWheat -= wheatCost;
         uint8 old = clan.baseLevel;
         clan.baseLevel = nextLevel;
@@ -687,20 +760,43 @@ contract ClanWorld is IClanWorld {
         uint256 ironCost;
         uint256 blueprintCost;
 
-        if (nextLevel == 1)  { woodCost = 30e18;  wheatCost = 20e18; }
-        else if (nextLevel == 2)  { woodCost = 50e18;  wheatCost = 30e18; }
-        else if (nextLevel == 3)  { woodCost = 70e18;  wheatCost = 40e18; ironCost = 5e18; }
-        else if (nextLevel == 4)  { woodCost = 90e18;  wheatCost = 50e18; ironCost = 10e18; }
-        else if (nextLevel == 5)  { woodCost = 120e18; wheatCost = 60e18; ironCost = 15e18; }
-        else if (nextLevel == 6)  { woodCost = 150e18; wheatCost = 80e18; ironCost = 20e18; }
-        else if (nextLevel <= 10) { woodCost = 200e18; wheatCost = 100e18; ironCost = 25e18; blueprintCost = 1e18; }
+        if (nextLevel == 1) {
+            woodCost = 30e18;
+            wheatCost = 20e18;
+        } else if (nextLevel == 2) {
+            woodCost = 50e18;
+            wheatCost = 30e18;
+        } else if (nextLevel == 3) {
+            woodCost = 70e18;
+            wheatCost = 40e18;
+            ironCost = 5e18;
+        } else if (nextLevel == 4) {
+            woodCost = 90e18;
+            wheatCost = 50e18;
+            ironCost = 10e18;
+        } else if (nextLevel == 5) {
+            woodCost = 120e18;
+            wheatCost = 60e18;
+            ironCost = 15e18;
+        } else if (nextLevel == 6) {
+            woodCost = 150e18;
+            wheatCost = 80e18;
+            ironCost = 20e18;
+        } else if (nextLevel <= 10) {
+            woodCost = 200e18;
+            wheatCost = 100e18;
+            ironCost = 25e18;
+            blueprintCost = 1e18;
+        }
 
-        if (clan.vaultWood < woodCost || clan.vaultWheat < wheatCost ||
-            clan.vaultIron < ironCost || clan.blueprintBalance < blueprintCost) return false;
+        if (
+            clan.vaultWood < woodCost || clan.vaultWheat < wheatCost || clan.vaultIron < ironCost
+                || clan.blueprintBalance < blueprintCost
+        ) return false;
 
-        clan.vaultWood        -= woodCost;
-        clan.vaultWheat       -= wheatCost;
-        clan.vaultIron        -= ironCost;
+        clan.vaultWood -= woodCost;
+        clan.vaultWheat -= wheatCost;
+        clan.vaultIron -= ironCost;
         clan.blueprintBalance -= blueprintCost;
 
         uint8 old = clan.monumentLevel;
@@ -725,11 +821,11 @@ contract ClanWorld is IClanWorld {
         require(block.timestamp >= _world.nextHeartbeatAtTs, "ClanWorld: heartbeat rate limited");
 
         uint64 closedTick = _world.currentTick;
-        _world.currentTick = closedTick + 1;                                    // increment first
+        _world.currentTick = closedTick + 1; // increment first
 
         // Derive tick seed: domain-separated from block randomness; stored under NEW tick
         bytes32 newSeed = keccak256(abi.encode(block.prevrandao, closedTick, block.timestamp));
-        _tickSeeds[_world.currentTick] = newSeed;                               // store under new tick
+        _tickSeeds[_world.currentTick] = newSeed; // store under new tick
         _world.currentTickSeed = newSeed;
 
         _world.nextHeartbeatAtTs = uint64(block.timestamp) + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS;
@@ -787,13 +883,13 @@ contract ClanWorld is IClanWorld {
         clan.lastSettledTick = _world.currentTick;
         clan.starvationStartsAtTick = 0;
         clan.coldDamage = 0;
-        clan.goldBalance = 3e18;  // starter gold per v4 spec §12.5
+        clan.goldBalance = 3e18; // starter gold per v4 spec §12.5
         clan.blueprintBalance = 0;
         // Starting vault per v4 spec §12.4
-        clan.vaultWood  = 20e18;
-        clan.vaultIron  = 0;
+        clan.vaultWood = 20e18;
+        clan.vaultIron = 0;
         clan.vaultWheat = 20e18;
-        clan.vaultFish  = 2e18;
+        clan.vaultFish = 2e18;
 
         // Wheat plots
         _wheatPlots[clanId][0] = WheatPlot({
@@ -819,10 +915,10 @@ contract ClanWorld is IClanWorld {
             cs.currentRegion = baseRegion;
             cs.cooldownEndsAtTs = 0;
             cs.lastMissionNonce = 0;
-            cs.carryWood  = 0;
-            cs.carryIron  = 0;
+            cs.carryWood = 0;
+            cs.carryIron = 0;
             cs.carryWheat = 0;
-            cs.carryFish  = 0;
+            cs.carryFish = 0;
             _clanClansmanIds[clanId].push(csId);
         }
 
@@ -973,7 +1069,7 @@ contract ClanWorld is IClanWorld {
         // v4.2 §8 L758: "executes at heartbeat closing tick T" where T = arrivalTick.
         // executeAtTick = arrivalTick (not arrivalTick+1).
         if (order.action == ActionType.MarketBuy || order.action == ActionType.MarketSell) {
-            _enqueueScheduledMarketAction(clanId, order, cs.clansmanId, ctx.arrivalTick);
+            _enqueueScheduledMarketAction(clanId, order, cs.clansmanId, ctx.arrivalTick, ctx.newNonce);
         }
 
         // DefendBase zero-travel: register synchronously so getActiveDefenders() has no drop window.
@@ -1005,12 +1101,9 @@ contract ClanWorld is IClanWorld {
         return result;
     }
 
-    function _installMission(
-        Mission storage m,
-        ClanOrder calldata order,
-        Clansman storage cs,
-        OrderCtx memory ctx
-    ) internal {
+    function _installMission(Mission storage m, ClanOrder calldata order, Clansman storage cs, OrderCtx memory ctx)
+        internal
+    {
         m.active = true;
         m.nonce = ctx.newNonce;
         m.clansmanId = cs.clansmanId;
@@ -1034,11 +1127,13 @@ contract ClanWorld is IClanWorld {
         uint32 clanId,
         ClanOrder calldata order,
         uint32 clansmanId,
-        uint64 executeAtTick
+        uint64 executeAtTick,
+        uint64 missionNonce
     ) internal {
         ScheduledMarketAction memory sma = ScheduledMarketAction({
             executeAtTick: executeAtTick,
             commitSequence: _world.nextCommitSequence++,
+            missionNonce: missionNonce,
             clanId: clanId,
             clansmanId: clansmanId,
             action: order.action,
@@ -1074,13 +1169,16 @@ contract ClanWorld is IClanWorld {
     // MARKET EXECUTION (Phase 2)
     // =========================================================================
 
-    /// @dev Execute all scheduled market actions for the given tick. Called from heartbeat.
+    /// @dev Execute up to MAX_MARKET_ACTIONS_PER_TICK scheduled market actions for the given tick.
+    ///      Overflow is appended to the next tick to keep heartbeat gas bounded.
     function _executeScheduledMarketActions(uint64 tick) internal {
         ScheduledMarketAction[] storage actions = _scheduledMarketActions[tick];
         uint256 len = actions.length;
         if (len == 0) return;
 
-        for (uint256 i = 0; i < len; i++) {
+        uint256 processCount = len > MAX_MARKET_ACTIONS_PER_TICK ? MAX_MARKET_ACTIONS_PER_TICK : len;
+
+        for (uint256 i = 0; i < processCount; i++) {
             ScheduledMarketAction storage sma = actions[i];
 
             // Validate clansman still belongs to the clan
@@ -1092,25 +1190,44 @@ contract ClanWorld is IClanWorld {
 
             // Guard: clansman was re-tasked if mission action no longer matches the queued type.
             // Note: _completeMission sets m.active=false during settlement (by design), so we
-            // cannot use m.active as a validity signal here — check action type only.
+            // cannot use m.active as a validity signal here — check action type and nonce.
             Mission storage m = _missions[sma.clansmanId];
-            if (m.action != sma.action) {
+            if (m.action != sma.action || m.nonce != sma.missionNonce) {
                 emit MarketActionFailed(sma.clanId, sma.clansmanId, sma.action, StatusCode.ERR_INVALID_ACTION);
                 continue;
             }
 
             if (sma.action == ActionType.MarketSell) {
-                try this._executeMarketSellExternal(tick, sma.clanId, sma.clansmanId, sma.marketToken, sma.marketAmount, sma.commitSequence) {
-                    // success
-                } catch {
+                try this._executeMarketSellExternal(
+                    tick, sma.clanId, sma.clansmanId, sma.marketToken, sma.marketAmount, sma.commitSequence
+                ) {
+                // success
+                }
+                catch {
                     emit MarketActionFailed(sma.clanId, sma.clansmanId, sma.action, StatusCode.ERR_INVALID_ACTION);
                 }
             } else if (sma.action == ActionType.MarketBuy) {
-                try this._executeMarketBuyExternal(tick, sma.clanId, sma.clansmanId, sma.marketToken, sma.marketAmount, sma.maxGoldIn, sma.commitSequence) {
-                    // success
-                } catch {
+                try this._executeMarketBuyExternal(
+                    tick,
+                    sma.clanId,
+                    sma.clansmanId,
+                    sma.marketToken,
+                    sma.marketAmount,
+                    sma.maxGoldIn,
+                    sma.commitSequence
+                ) {
+                // success
+                }
+                catch {
                     emit MarketActionFailed(sma.clanId, sma.clansmanId, sma.action, StatusCode.ERR_INVALID_ACTION);
                 }
+            }
+        }
+
+        if (len > processCount) {
+            ScheduledMarketAction[] storage nextActions = _scheduledMarketActions[tick + 1];
+            for (uint256 i = processCount; i < len; i++) {
+                nextActions.push(actions[i]);
             }
         }
 
@@ -1146,19 +1263,31 @@ contract ClanWorld is IClanWorld {
 
     /// @dev Map a resource token address to its pool address.
     function _poolFor(address token) internal view returns (address pool) {
-        if (token == _treasury.woodToken)  return _treasury.woodGoldPool;
-        if (token == _treasury.ironToken)  return _treasury.ironGoldPool;
+        if (token == _treasury.woodToken) return _treasury.woodGoldPool;
+        if (token == _treasury.ironToken) return _treasury.ironGoldPool;
         if (token == _treasury.wheatToken) return _treasury.wheatGoldPool;
-        if (token == _treasury.fishToken)  return _treasury.fishGoldPool;
+        if (token == _treasury.fishToken) return _treasury.fishGoldPool;
         return address(0);
     }
 
     /// @dev Add an amount of a resource token to the clan vault.
     function _addToVault(Clan storage clan, address token, uint256 amount) internal {
-        if (token == _treasury.woodToken)  { clan.vaultWood  += amount; return; }
-        if (token == _treasury.ironToken)  { clan.vaultIron  += amount; return; }
-        if (token == _treasury.wheatToken) { clan.vaultWheat += amount; return; }
-        if (token == _treasury.fishToken)  { clan.vaultFish  += amount; return; }
+        if (token == _treasury.woodToken) {
+            clan.vaultWood += amount;
+            return;
+        }
+        if (token == _treasury.ironToken) {
+            clan.vaultIron += amount;
+            return;
+        }
+        if (token == _treasury.wheatToken) {
+            clan.vaultWheat += amount;
+            return;
+        }
+        if (token == _treasury.fishToken) {
+            clan.vaultFish += amount;
+            return;
+        }
     }
 
     /// @dev Deduct an amount of a resource token from the clan vault. Returns false if insufficient.
@@ -1215,14 +1344,7 @@ contract ClanWorld is IClanWorld {
         clan.goldBalance += goldOut;
 
         emit ScheduledMarketActionExecuted(
-            closedTick,
-            commitSequence,
-            clanId,
-            clansmanId,
-            token,
-            _treasury.goldToken,
-            amount,
-            goldOut
+            closedTick, commitSequence, clanId, clansmanId, token, _treasury.goldToken, amount, goldOut
         );
     }
 
@@ -1252,7 +1374,9 @@ contract ClanWorld is IClanWorld {
         Clan storage clan = _clans[clanId];
 
         if (goldIn > maxGoldIn) {
-            emit MarketActionFailed(clanId, clansmanId, ActionType.MarketBuy, StatusCode.ERR_MARKET_BUY_MAX_GOLD_EXCEEDED);
+            emit MarketActionFailed(
+                clanId, clansmanId, ActionType.MarketBuy, StatusCode.ERR_MARKET_BUY_MAX_GOLD_EXCEEDED
+            );
             return;
         }
         if (clan.goldBalance < goldIn) {
@@ -1266,23 +1390,15 @@ contract ClanWorld is IClanWorld {
         _addToVault(clan, token, amountOut);
 
         emit ScheduledMarketActionExecuted(
-            closedTick,
-            commitSequence,
-            clanId,
-            clansmanId,
-            _treasury.goldToken,
-            token,
-            actualGoldIn,
-            amountOut
+            closedTick, commitSequence, clanId, clansmanId, _treasury.goldToken, token, actualGoldIn, amountOut
         );
     }
 
-    function _validateAction(
-        Clan storage clan,
-        Clansman storage cs,
-        ClanOrder calldata order,
-        uint8 gotoRegion
-    ) internal view returns (StatusCode) {
+    function _validateAction(Clan storage clan, Clansman storage cs, ClanOrder calldata order, uint8 gotoRegion)
+        internal
+        view
+        returns (StatusCode)
+    {
         ActionType action = order.action;
 
         if (action == ActionType.None) return StatusCode.ERR_INVALID_ACTION;
@@ -1293,7 +1409,8 @@ contract ClanWorld is IClanWorld {
         }
 
         // BuildWall / UpgradeBase / UpgradeMonument: must go to homebase
-        if (action == ActionType.BuildWall || action == ActionType.UpgradeBase || action == ActionType.UpgradeMonument) {
+        if (action == ActionType.BuildWall || action == ActionType.UpgradeBase || action == ActionType.UpgradeMonument)
+        {
             if (gotoRegion != clan.baseRegion) return StatusCode.ERR_NOT_AT_HOMEBASE;
         }
 
@@ -1307,7 +1424,9 @@ contract ClanWorld is IClanWorld {
         }
         // FishDocks: must go to WestDocks or EastDocks
         if (action == ActionType.FishDocks) {
-            if (gotoRegion != ClanWorldConstants.REGION_WEST_DOCKS && gotoRegion != ClanWorldConstants.REGION_EAST_DOCKS) {
+            if (
+                gotoRegion != ClanWorldConstants.REGION_WEST_DOCKS && gotoRegion != ClanWorldConstants.REGION_EAST_DOCKS
+            ) {
                 return StatusCode.ERR_INVALID_REGION;
             }
         }
@@ -1317,7 +1436,9 @@ contract ClanWorld is IClanWorld {
         }
         // HarvestWheat: must go to WestFarms or EastFarms
         if (action == ActionType.HarvestWheat) {
-            if (gotoRegion != ClanWorldConstants.REGION_WEST_FARMS && gotoRegion != ClanWorldConstants.REGION_EAST_FARMS) {
+            if (
+                gotoRegion != ClanWorldConstants.REGION_WEST_FARMS && gotoRegion != ClanWorldConstants.REGION_EAST_FARMS
+            ) {
                 return StatusCode.ERR_INVALID_REGION;
             }
         }
@@ -1337,27 +1458,25 @@ contract ClanWorld is IClanWorld {
 
         // MarketBuy/MarketSell: must target Unicorn Town
         if (action == ActionType.MarketBuy || action == ActionType.MarketSell) {
+            require(_treasury.woodToken != address(0), "Treasury not initialized");
             if (gotoRegion != ClanWorldConstants.REGION_UNICORN_TOWN) {
                 return StatusCode.ERR_INVALID_REGION;
             }
             if (order.marketAmount == 0) return StatusCode.ERR_MARKET_ZERO_AMOUNT;
             // Validate token is a supported resource token (not gold itself)
-            if (_treasury.woodToken != address(0)) {
-                address tok = order.marketToken;
-                if (tok == address(0) || tok == _treasury.goldToken) {
-                    return StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN;
-                }
-                if (tok != _treasury.woodToken &&
-                    tok != _treasury.ironToken &&
-                    tok != _treasury.wheatToken &&
-                    tok != _treasury.fishToken) {
-                    return StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN;
-                }
+            address tok = order.marketToken;
+            if (tok == address(0) || tok == _treasury.goldToken) {
+                return StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN;
+            }
+            if (
+                tok != _treasury.woodToken && tok != _treasury.ironToken && tok != _treasury.wheatToken
+                    && tok != _treasury.fishToken
+            ) {
+                return StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN;
             }
             // Market orders are always enqueued for the arrivalTick FIFO queue.
             // _resolveAction records mission completion but does not execute any swap.
-            if (cs.currentRegion == ClanWorldConstants.REGION_UNICORN_TOWN &&
-                cs.state == ClansmanState.WAITING) {
+            if (cs.currentRegion == ClanWorldConstants.REGION_UNICORN_TOWN && cs.state == ClansmanState.WAITING) {
                 // Already at Unicorn Town — arrivalTick == currentTick, queued for next heartbeat.
             }
         }
@@ -1372,24 +1491,21 @@ contract ClanWorld is IClanWorld {
 
     /// @notice One-time treasury initialization: register token and pool addresses.
     ///         Must be called before seedPools. Callable only once.
-    function initTreasury(address[6] calldata tokens, address[4] calldata pools) external {
-        require(
-            !_treasury.poolsSeeded && _treasury.woodToken == address(0),
-            "ClanWorld: treasury already init"
-        );
+    function initTreasury(address[6] calldata tokens, address[4] calldata pools) external override {
+        require(!_treasury.poolsSeeded && _treasury.woodToken == address(0), "ClanWorld: treasury already init");
         require(msg.sender == _treasury.treasuryOwner, "ClanWorld: not owner");
 
-        _treasury.woodToken      = tokens[0];
-        _treasury.ironToken      = tokens[1];
-        _treasury.wheatToken     = tokens[2];
-        _treasury.fishToken      = tokens[3];
-        _treasury.goldToken      = tokens[4];
+        _treasury.woodToken = tokens[0];
+        _treasury.ironToken = tokens[1];
+        _treasury.wheatToken = tokens[2];
+        _treasury.fishToken = tokens[3];
+        _treasury.goldToken = tokens[4];
         _treasury.blueprintToken = tokens[5];
 
-        _treasury.woodGoldPool  = pools[0];
-        _treasury.ironGoldPool  = pools[1];
-        _treasury.wheatGoldPool = pools[2];
-        _treasury.fishGoldPool  = pools[3];
+        _treasury.woodGoldPool = pools[0];
+        _treasury.wheatGoldPool = pools[1];
+        _treasury.fishGoldPool = pools[2];
+        _treasury.ironGoldPool = pools[3];
     }
 
     /// @notice Owner-only. Seeds the four Unicorn Town AMM pools.
@@ -1398,35 +1514,32 @@ contract ClanWorld is IClanWorld {
         require(!_treasury.poolsSeeded, "ClanWorld: pools already seeded");
         require(_treasury.woodToken != address(0), "ClanWorld: treasury not init");
 
-        StubPool(_treasury.woodGoldPool).seed(cfg.woodSeed,  cfg.goldSeedForWood);
-        StubPool(_treasury.ironGoldPool).seed(cfg.ironSeed,  cfg.goldSeedForIron);
+        StubPool(_treasury.woodGoldPool).seed(cfg.woodSeed, cfg.goldSeedForWood);
         StubPool(_treasury.wheatGoldPool).seed(cfg.wheatSeed, cfg.goldSeedForWheat);
-        StubPool(_treasury.fishGoldPool).seed(cfg.fishSeed,  cfg.goldSeedForFish);
+        StubPool(_treasury.fishGoldPool).seed(cfg.fishSeed, cfg.goldSeedForFish);
+        StubPool(_treasury.ironGoldPool).seed(cfg.ironSeed, cfg.goldSeedForIron);
 
         _treasury.poolsSeeded = true;
 
         emit PoolsSeeded(
-            _treasury.woodGoldPool,
-            _treasury.ironGoldPool,
-            _treasury.wheatGoldPool,
-            _treasury.fishGoldPool
+            _treasury.woodGoldPool, _treasury.wheatGoldPool, _treasury.fishGoldPool, _treasury.ironGoldPool
         );
     }
 
     // =========================================================================
-    // OTC TRANSFERS — Phase 2 stubs
+    // OTC TRANSFERS
     // =========================================================================
 
     function transferGold(uint32, uint32, uint256) external pure override {
-        revert("ClanWorld: OTC transfers available in Phase 2");
+        revert("OTC transfers not implemented");
     }
 
     function transferVaultResource(uint32, uint32, ResourceType, uint256) external pure override {
-        revert("ClanWorld: OTC transfers available in Phase 2");
+        revert("OTC transfers not implemented");
     }
 
     function transferBlueprint(uint32, uint32, uint256) external pure override {
-        revert("ClanWorld: OTC transfers available in Phase 2");
+        revert("OTC transfers not implemented");
     }
 
     function transferBundle(uint32, uint32, uint256, uint256, uint256, uint256, uint256, uint256)
@@ -1434,7 +1547,7 @@ contract ClanWorld is IClanWorld {
         pure
         override
     {
-        revert("ClanWorld: OTC transfers available in Phase 2");
+        revert("OTC transfers not implemented");
     }
 
     // =========================================================================
@@ -1497,12 +1610,7 @@ contract ClanWorld is IClanWorld {
         return _scheduledMarketActions[tick];
     }
 
-    function getActiveDefenders(uint32 targetClanId)
-        external
-        view
-        override
-        returns (uint32[] memory)
-    {
+    function getActiveDefenders(uint32 targetClanId) external view override returns (uint32[] memory) {
         return _incomingDefenders[targetClanId];
     }
 
@@ -1512,29 +1620,15 @@ contract ClanWorld is IClanWorld {
 
     /// @dev Returns last-settled state; starvation check uses currentTick (live).
     ///      Carry amounts lag until next settleClan().
-    function getDerivedClanState(uint32 clanId)
-        external
-        view
-        override
-        returns (DerivedClanState memory)
-    {
+    function getDerivedClanState(uint32 clanId) external view override returns (DerivedClanState memory) {
         Clan memory clan = _clans[clanId];
         bool starving = clan.starvationStartsAtTick != 0 && clan.starvationStartsAtTick <= _world.currentTick;
         uint256 lootVal = _lootValueRaw(clan);
-        return DerivedClanState({
-            clan: clan,
-            isStarving: starving,
-            lootValue: lootVal,
-            derivedAtTick: _world.currentTick
-        });
+        return
+            DerivedClanState({clan: clan, isStarving: starving, lootValue: lootVal, derivedAtTick: _world.currentTick});
     }
 
-    function getDerivedClansmanState(uint32 clansmanId)
-        external
-        view
-        override
-        returns (DerivedClansmanState memory)
-    {
+    function getDerivedClansmanState(uint32 clansmanId) external view override returns (DerivedClansmanState memory) {
         Clansman memory cs = _clansmen[clansmanId];
         Mission memory m = _missions[clansmanId];
         uint8 effectiveRegion = cs.currentRegion;
@@ -1547,10 +1641,7 @@ contract ClanWorld is IClanWorld {
             }
         }
         return DerivedClansmanState({
-            clansman: cs,
-            activeMission: m,
-            effectiveRegion: effectiveRegion,
-            derivedAtTick: _world.currentTick
+            clansman: cs, activeMission: m, effectiveRegion: effectiveRegion, derivedAtTick: _world.currentTick
         });
     }
 
@@ -1637,12 +1728,8 @@ contract ClanWorld is IClanWorld {
         bool starving = clan.starvationStartsAtTick != 0 && clan.starvationStartsAtTick <= _world.currentTick;
         uint256 lootVal = _lootValueRaw(clan);
 
-        DerivedClanState memory derivedClan = DerivedClanState({
-            clan: clan,
-            isStarving: starving,
-            lootValue: lootVal,
-            derivedAtTick: _world.currentTick
-        });
+        DerivedClanState memory derivedClan =
+            DerivedClanState({clan: clan, isStarving: starving, lootValue: lootVal, derivedAtTick: _world.currentTick});
 
         uint32[] storage csIds = _clanClansmanIds[clanId];
         ClansmanFullView[] memory clansmen = new ClansmanFullView[](csIds.length);
@@ -1655,12 +1742,9 @@ contract ClanWorld is IClanWorld {
                 effRegion = _world.currentTick >= m.arrivalTick ? m.targetRegion : m.startRegion;
             }
             DerivedClansmanState memory dcs = DerivedClansmanState({
-                clansman: cs,
-                activeMission: m,
-                effectiveRegion: effRegion,
-                derivedAtTick: _world.currentTick
+                clansman: cs, activeMission: m, effectiveRegion: effRegion, derivedAtTick: _world.currentTick
             });
-            clansmen[i] = ClansmanFullView({ clansman: dcs, activeMission: m });
+            clansmen[i] = ClansmanFullView({clansman: dcs, activeMission: m});
         }
 
         // Find if any of this clan's clansmen is defending a base
@@ -1685,10 +1769,10 @@ contract ClanWorld is IClanWorld {
 
     function getMarketState() external view override returns (MarketState memory) {
         return MarketState({
-            wood:  _poolReserves(_treasury.woodToken,  _treasury.woodGoldPool),
+            wood: _poolReserves(_treasury.woodToken, _treasury.woodGoldPool),
             wheat: _poolReserves(_treasury.wheatToken, _treasury.wheatGoldPool),
-            fish:  _poolReserves(_treasury.fishToken,  _treasury.fishGoldPool),
-            iron:  _poolReserves(_treasury.ironToken,  _treasury.ironGoldPool),
+            fish: _poolReserves(_treasury.fishToken, _treasury.fishGoldPool),
+            iron: _poolReserves(_treasury.ironToken, _treasury.ironGoldPool),
             currentTick: _world.currentTick,
             currentTickQueue: _scheduledMarketActions[_world.currentTick],
             nextTickQueue: _scheduledMarketActions[_world.currentTick + 1]
@@ -1729,12 +1813,7 @@ contract ClanWorld is IClanWorld {
 
     /// @dev View function — no gas cost for off-chain indexer/UI reads.
     ///      Iterates all clans. Canonical game cap: ≤12 clans, ≤4 clansmen each = ≤48 iterations.
-    function getRegionPopulation(uint8 region)
-        external
-        view
-        override
-        returns (RegionOccupant[] memory)
-    {
+    function getRegionPopulation(uint8 region) external view override returns (RegionOccupant[] memory) {
         // Count matching occupants first
         uint256 count = 0;
         for (uint256 i = 0; i < _allClanIds.length; i++) {
