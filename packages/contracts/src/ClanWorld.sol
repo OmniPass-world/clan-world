@@ -408,6 +408,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         for (uint64 tick = fromTick; tick < curTick; tick++) {
             // 1. Apply upkeep for this tick
             _applyUpkeep(clan, tick);
+            if (clan.clanState == ClanState.DEAD) break;
 
             // 2. Wheat plot regrow check (lazy, per tick)
             for (uint256 pi = 0; pi < 2; pi++) {
@@ -458,6 +459,127 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         } else if (!starving && clan.starvationStartsAtTick != 0) {
             clan.starvationStartsAtTick = 0;
             emit ClanStarvationChanged(clan.clanId, false, tick);
+        }
+
+        if (starving && _world.winterActive && clan.starvationStartsAtTick >= _world.winterStartsAtTick) {
+            _killNextClansmanFromStarvation(clan, tick);
+        }
+    }
+
+    function _killNextClansmanFromStarvation(Clan storage clan, uint64 tick) internal {
+        if (clan.livingClansmen == 0) return;
+
+        uint32[] storage csIds = _clanClansmanIds[clan.clanId];
+        for (uint256 i = 0; i < csIds.length; i++) {
+            Clansman storage cs = _clansmen[csIds[i]];
+            if (cs.state == ClansmanState.DEAD) continue;
+
+            _markClansmanDead(clan, cs);
+            if (clan.livingClansmen == 0) {
+                _markClanDead(clan.clanId, "starvation", tick);
+            }
+            return;
+        }
+    }
+
+    function _markClansmanDead(Clan storage clan, Clansman storage cs) internal {
+        if (cs.state == ClansmanState.DEAD) return;
+
+        cs.state = ClansmanState.DEAD;
+        cs.cooldownEndsAtTs = 0;
+        if (clan.livingClansmen > 0) {
+            clan.livingClansmen--;
+        }
+
+        Mission storage mission = _missions[cs.clansmanId];
+        if (mission.active) {
+            if (mission.action == ActionType.DefendBase) {
+                _clearDefender(cs.clansmanId);
+            }
+            mission.active = false;
+        }
+    }
+
+    function _markClanDead(uint32 clanId) internal {
+        _markClanDead(clanId, "unknown", _world.currentTick, ClanWorldConstants.BANDIT_ID_NULL);
+    }
+
+    function _markClanDead(uint32 clanId, string memory reason, uint64 tick) internal {
+        _markClanDead(clanId, reason, tick, ClanWorldConstants.BANDIT_ID_NULL);
+    }
+
+    function _markClanDead(uint32 clanId, string memory, uint64 tick, uint32 excludedBanditId) internal {
+        Clan storage clan = _clans[clanId];
+        if (clan.clanId == ClanWorldConstants.CLAN_ID_NULL || clan.clanState == ClanState.DEAD) return;
+
+        uint8 baseRegion = clan.baseRegion;
+        clan.clanState = ClanState.DEAD;
+        clan.vaultWood = 0;
+        clan.vaultWheat = 0;
+        clan.vaultFish = 0;
+        clan.vaultIron = 0;
+        clan.starvationStartsAtTick = 0;
+        clan.livingClansmen = 0;
+
+        uint32[] storage csIds = _clanClansmanIds[clanId];
+        for (uint256 i = 0; i < csIds.length; i++) {
+            Clansman storage cs = _clansmen[csIds[i]];
+            cs.state = ClansmanState.DEAD;
+            cs.cooldownEndsAtTs = 0;
+            Mission storage mission = _missions[csIds[i]];
+            if (mission.active) {
+                if (mission.action == ActionType.DefendBase) {
+                    _clearDefender(csIds[i]);
+                }
+                mission.active = false;
+            }
+        }
+
+        _releaseDefendersForDeadTarget(clanId, baseRegion);
+        _abortBanditAttacksForDeadTarget(clanId, tick, excludedBanditId);
+
+        emit ClanEliminated(clanId, tick);
+    }
+
+    function _releaseDefendersForDeadTarget(uint32 deadClanId, uint8 baseRegion) internal {
+        for (uint256 i = 0; i < _allClanIds.length; i++) {
+            uint32 defenderClanId = _allClanIds[i];
+            if (defenderClanId == deadClanId) continue;
+
+            uint32[] storage csIds = _clanClansmanIds[defenderClanId];
+            for (uint256 j = 0; j < csIds.length; j++) {
+                uint32 clansmanId = csIds[j];
+                Mission storage mission = _missions[clansmanId];
+                if (
+                    mission.active && mission.action == ActionType.DefendBase
+                        && mission.targetClanId == deadClanId && _clansmanDefendingRegion[clansmanId] == baseRegion
+                ) {
+                    _clearDefender(clansmanId);
+                    mission.active = false;
+
+                    Clansman storage defender = _clansmen[clansmanId];
+                    if (defender.state != ClansmanState.DEAD) {
+                        defender.state = ClansmanState.WAITING;
+                    }
+                }
+            }
+        }
+    }
+
+    function _abortBanditAttacksForDeadTarget(uint32 deadClanId, uint64 tick, uint32 excludedBanditId) internal {
+        for (uint8 region = ClanWorldConstants.REGION_FOREST; region <= ClanWorldConstants.REGION_DEEP_SEA; region++) {
+            uint32[] storage regionBandits = _banditsByRegion[region];
+            for (uint256 i = 0; i < regionBandits.length; i++) {
+                uint32 banditId = regionBandits[i];
+                if (banditId == excludedBanditId) continue;
+
+                BanditTroop storage bandit = _bandits[banditId];
+                if (bandit.state == BanditState.Attacking && bandit.targetClanId == deadClanId) {
+                    _transitionBanditState(banditId, BanditState.Escaped);
+                    emit BanditEscaped(banditId, tick);
+                    emit BanditTargetDied(banditId, deadClanId, tick);
+                }
+            }
         }
     }
 
@@ -975,12 +1097,16 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     }
 
     function _canBanditLeaveSpawned(BanditTroop storage bandit, BanditState newState) internal view returns (bool) {
-        return newState == BanditState.Camped && _world.currentTick >= bandit.tickEnteredState + 1;
+        return newState == BanditState.Escaped
+            || (newState == BanditState.Camped && _world.currentTick >= bandit.tickEnteredState + 1);
     }
 
     function _canBanditLeaveCamped(BanditTroop storage bandit, BanditState newState) internal view returns (bool) {
-        return newState == BanditState.Attacking && bandit.targetClanId != ClanWorldConstants.CLAN_ID_NULL
-            && _world.currentTick >= bandit.tickEnteredState + ClanWorldConstants.BANDIT_CAMP_TICKS;
+        return newState == BanditState.Escaped
+            || (
+                newState == BanditState.Attacking && bandit.targetClanId != ClanWorldConstants.CLAN_ID_NULL
+                    && _world.currentTick >= bandit.tickEnteredState + ClanWorldConstants.BANDIT_CAMP_TICKS
+            );
     }
 
     function _canBanditLeaveAttacking(BanditState newState) internal pure returns (bool) {
@@ -992,8 +1118,11 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     }
 
     function _canBanditLeaveResting(BanditTroop storage bandit, BanditState newState) internal view returns (bool) {
-        return newState == BanditState.Camped
-            && _world.currentTick >= bandit.tickEnteredState + ClanWorldConstants.BANDIT_REST_TICKS;
+        return newState == BanditState.Escaped
+            || (
+                newState == BanditState.Camped
+                    && _world.currentTick >= bandit.tickEnteredState + ClanWorldConstants.BANDIT_REST_TICKS
+            );
     }
 
     function _deleteBandit(uint32 id) internal {
@@ -1301,20 +1430,18 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             }
 
             Clansman storage victim = _clansmen[victimId];
-            victim.state = ClansmanState.DEAD;
-            victim.cooldownEndsAtTs = 0;
-            _clearDefender(victimId);
-            Mission storage mission = _missions[victimId];
-            mission.active = false;
-            if (clan.livingClansmen > 0) {
-                clan.livingClansmen--;
-            }
+            _markClansmanDead(clan, victim);
 
             uint32 absorbed = remainingDamage < CLANSMAN_HP ? remainingDamage : CLANSMAN_HP;
             damageAbsorbed += absorbed;
             remainingDamage -= absorbed;
             emit ClansmanKilledByBandit(clanId, victimId, banditId);
             killIndex++;
+
+            if (clan.livingClansmen == 0) {
+                _markClanDead(clanId, "bandit", _world.currentTick, banditId);
+                break;
+            }
         }
     }
 
