@@ -53,7 +53,7 @@ contract ClanWorld is IClanWorld {
     TreasuryState private _treasury;
 
     mapping(uint32 => Clan) private _clans;
-    mapping(uint32 => Clansman) private _clansmen;
+    mapping(uint32 => Clansman) internal _clansmen;
     mapping(uint32 => Mission) private _missions; // keyed by clansmanId
     mapping(uint32 => WheatPlot[2]) private _wheatPlots; // [0]=west [1]=east
     mapping(uint64 => ScheduledMarketAction[]) private _scheduledMarketActions; // keyed by tick
@@ -805,9 +805,10 @@ contract ClanWorld is IClanWorld {
         return true;
     }
 
-    /// @dev Complete a mission: set worker to WAITING, mark mission inactive, emit event.
+    /// @dev Complete a mission: set worker to WAITING, set cooldown, mark mission inactive, emit event.
     function _completeMission(Clansman storage cs, Mission storage m) internal {
         cs.state = ClansmanState.WAITING;
+        cs.cooldownEndsAtTs = uint64(block.timestamp) + ClanWorldConstants.CLANSMAN_COOLDOWN_SECONDS;
         m.active = false;
         emit MissionCompleted(_clans[cs.clanId].clanId, cs.clansmanId, m.nonce, m.action);
     }
