@@ -21,6 +21,7 @@ import {
     Mission,
     BanditTroop,
     ScheduledMarketAction,
+    OtcProposal,
     DefenseContribution,
     PackedRoute,
     DerivedClanState,
@@ -51,8 +52,7 @@ contract ClanWorldStub is IClanWorld {
         _world.seasonEndTick = ClanWorldConstants.SEASON_DURATION_TICKS;
         _world.currentSeasonNumber = 1;
         _world.nextHeartbeatAtTick = _world.currentTick + 1;
-        _world.winterStartsAtTick =
-            ClanWorldConstants.TICKS_PER_WINTER_CYCLE - ClanWorldConstants.WINTER_DURATION_TICKS;
+        _world.winterStartsAtTick = ClanWorldConstants.TICKS_PER_WINTER_CYCLE - ClanWorldConstants.WINTER_DURATION_TICKS;
         _world.winterEndsAtTick = ClanWorldConstants.TICKS_PER_WINTER_CYCLE;
         _world.winterActive = false;
 
@@ -116,6 +116,14 @@ contract ClanWorldStub is IClanWorld {
     // -------------------------------------------------------------------------
     // OTC transfers
     // -------------------------------------------------------------------------
+
+    function proposeGoldTransfer(uint32, uint32, uint256, uint256) external pure override returns (uint256) {
+        return 1;
+    }
+
+    function acceptGoldTransfer(uint256) external override {}
+
+    function cancelGoldTransfer(uint256) external override {}
 
     function transferGold(uint32, uint32, uint256) external override {}
 
@@ -259,6 +267,10 @@ contract ClanWorldStub is IClanWorld {
 
     function getScheduledMarketActionsForTick(uint64) external pure override returns (ScheduledMarketAction[] memory) {
         return new ScheduledMarketAction[](0);
+    }
+
+    function getOtcGoldProposal(uint256) external pure override returns (OtcProposal memory) {
+        return OtcProposal({from: 0, to: 0, amount: 0, expiryTick: 0, accepted: false, cancelled: false});
     }
 
     function getActiveDefenders(uint32) external pure override returns (uint32[] memory) {
