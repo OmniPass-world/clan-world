@@ -1229,9 +1229,24 @@ contract ClanWorld is IClanWorld {
             for (uint256 i = processCount; i < len; i++) {
                 nextActions.push(actions[i]);
             }
+            // Invariant: each tick queue executes in global commitSequence order, including
+            // older overflow actions merged into a tick that already has native actions.
+            _sortScheduledMarketActionsByCommitSequence(nextActions);
         }
 
         delete _scheduledMarketActions[tick];
+    }
+
+    function _sortScheduledMarketActionsByCommitSequence(ScheduledMarketAction[] storage actions) internal {
+        for (uint256 i = 1; i < actions.length; i++) {
+            ScheduledMarketAction memory key = actions[i];
+            uint256 j = i;
+            while (j > 0 && actions[j - 1].commitSequence > key.commitSequence) {
+                actions[j] = actions[j - 1];
+                j--;
+            }
+            actions[j] = key;
+        }
     }
 
     /// @dev External wrapper for _executeMarketSell — enables try/catch from heartbeat loop.
@@ -1458,7 +1473,7 @@ contract ClanWorld is IClanWorld {
 
         // MarketBuy/MarketSell: must target Unicorn Town
         if (action == ActionType.MarketBuy || action == ActionType.MarketSell) {
-            require(_treasury.woodToken != address(0), "Treasury not initialized");
+            if (_treasury.woodToken == address(0)) return StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN;
             if (gotoRegion != ClanWorldConstants.REGION_UNICORN_TOWN) {
                 return StatusCode.ERR_INVALID_REGION;
             }

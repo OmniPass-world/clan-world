@@ -2,6 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {ClanWorld} from "../src/ClanWorld.sol";
 import {MinimalERC20} from "../src/MinimalERC20.sol";
 import {StubPool} from "../src/StubPool.sol";
@@ -520,6 +521,12 @@ contract ClanWorldTest is Test {
     function _submitAllClanMarketSells(uint32 clanId, address token) internal returns (uint256 count) {
         ClanFullView memory view_ = world.getClanFullView(clanId);
         count = view_.clansmen.length;
+        return _submitFirstClanMarketSells(clanId, token, count);
+    }
+
+    function _submitFirstClanMarketSells(uint32 clanId, address token, uint256 count) internal returns (uint256) {
+        ClanFullView memory view_ = world.getClanFullView(clanId);
+        require(count <= view_.clansmen.length, "too many clansmen");
         ClanOrder[] memory orders = new ClanOrder[](count);
         for (uint256 i = 0; i < count; i++) {
             orders[i] = ClanOrder({
@@ -537,6 +544,7 @@ contract ClanWorldTest is Test {
         for (uint256 i = 0; i < results.length; i++) {
             assertEq(uint8(results[i].status), uint8(StatusCode.OK), "market sell should enqueue");
         }
+        return count;
     }
 
     // Helper: get the first clansman id for a clan
@@ -770,6 +778,91 @@ contract ClanWorldTest is Test {
         assertEq(world.getScheduledMarketActionsForTick(executeAtTick + 1).length, 0, "deferred queue cleared");
     }
 
+    function test_scheduledMarket_overflowExecutesBeforeNativeNextTickActions() public {
+        address woodAddr = _setupMarket();
+        uint32[] memory distOneClans = new uint32[](12);
+        uint32[] memory distTwoClans = new uint32[](12);
+        uint256 distOneCount;
+        uint256 distTwoCount;
+
+        for (uint256 i = 0; i < 12; i++) {
+            uint32 clanId = _mintClan();
+            ClanFullView memory view_ = world.getClanFullView(clanId);
+            (uint8 travelTicks,) = world.quoteTravel(view_.clan.clan.baseRegion, ClanWorldConstants.REGION_UNICORN_TOWN);
+            if (travelTicks == 1) {
+                distOneClans[distOneCount++] = clanId;
+            } else if (travelTicks == 2) {
+                distTwoClans[distTwoCount++] = clanId;
+            }
+        }
+        assertGt(distTwoCount, 0, "test setup needs a distance-two clan");
+
+        uint32 nativeClanId = distTwoClans[0];
+        ClanFullView memory nativeView = world.getClanFullView(nativeClanId);
+        uint32 nativeCsId = nativeView.clansmen[3].clansman.clansman.clansmanId;
+
+        uint256 totalQueuedForTickTwo = _submitFirstClanMarketSells(nativeClanId, woodAddr, 3);
+        for (uint256 i = 1; i < distTwoCount; i++) {
+            totalQueuedForTickTwo += _submitAllClanMarketSells(distTwoClans[i], woodAddr);
+        }
+
+        _advanceTick();
+
+        for (uint256 i = 0; i < distOneCount; i++) {
+            totalQueuedForTickTwo += _submitAllClanMarketSells(distOneClans[i], woodAddr);
+        }
+
+        OrderResult[] memory nativeResult =
+            _submitMarketOrder(nativeClanId, nativeCsId, ActionType.MarketSell, woodAddr, 1e18, 0);
+        assertEq(uint8(nativeResult[0].status), uint8(StatusCode.OK), "native next-tick action should enqueue");
+
+        uint64 overflowTick = 2;
+        uint64 nextTick = overflowTick + 1;
+        uint256 cap = world.MAX_MARKET_ACTIONS_PER_TICK();
+        assertGt(totalQueuedForTickTwo, cap, "test setup must exceed cap");
+
+        ScheduledMarketAction[] memory nativeQueueBefore = world.getScheduledMarketActionsForTick(nextTick);
+        assertEq(nativeQueueBefore.length, 1, "native next-tick queue should exist before overflow merge");
+        uint64 nativeSeq = nativeQueueBefore[0].commitSequence;
+
+        _advanceTick(); // close tick 1
+        _advanceTick(); // close tick 2, process cap and defer overflow into tick 3
+
+        uint256 overflowCount = totalQueuedForTickTwo - cap;
+        ScheduledMarketAction[] memory mergedQueue = world.getScheduledMarketActionsForTick(nextTick);
+        assertEq(mergedQueue.length, overflowCount + 1, "overflow should merge with native next-tick action");
+        assertEq(mergedQueue[mergedQueue.length - 1].commitSequence, nativeSeq, "native action must stay after older overflow");
+        for (uint256 i = 1; i < mergedQueue.length; i++) {
+            assertGt(mergedQueue[i].commitSequence, mergedQueue[i - 1].commitSequence, "merged queue must be FIFO");
+        }
+
+        bytes32 executedSig =
+            keccak256("ScheduledMarketActionExecuted(uint64,uint64,uint32,uint32,address,address,uint256,uint256)");
+        vm.recordLogs();
+        _advanceTick(); // close tick 3 and execute the sorted merged queue
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        bool sawExecution;
+        uint64 previousSeq;
+        uint256 executedCount;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter != address(world) || logs[i].topics.length == 0 || logs[i].topics[0] != executedSig) {
+                continue;
+            }
+            uint64 executedTick = uint64(uint256(logs[i].topics[1]));
+            if (executedTick != nextTick) continue;
+
+            uint64 seq = uint64(uint256(logs[i].topics[2]));
+            if (sawExecution) assertGt(seq, previousSeq, "execution events must be FIFO");
+            sawExecution = true;
+            previousSeq = seq;
+            executedCount++;
+        }
+
+        assertEq(executedCount, overflowCount + 1, "all merged actions should execute");
+        assertEq(previousSeq, nativeSeq, "native action should execute after older overflow actions");
+    }
+
     // -------------------------------------------------------------------------
     // Test 15: scheduledMarket_fifo — two clans queue sells; commitSequence is FIFO
     // -------------------------------------------------------------------------
@@ -934,13 +1027,16 @@ contract ClanWorldTest is Test {
         assertEq(uint8(results[0].status), uint8(StatusCode.ERR_INVALID_REGION), "market sell to Forest should fail");
     }
 
-    function test_marketOrder_revertsWhenTreasuryUninitialized() public {
+    function test_marketOrder_returnsErrorWhenTreasuryUninitialized() public {
         uint32 clanId = _mintClan();
-        uint32 csId = _firstCs(clanId);
+        ClanFullView memory view_ = world.getClanFullView(clanId);
+        uint32 marketCsId = view_.clansmen[0].clansman.clansman.clansmanId;
+        uint32 noopCsId = view_.clansmen[1].clansman.clansman.clansmanId;
+        uint8 baseRegion = view_.clan.clan.baseRegion;
 
-        ClanOrder[] memory orders = new ClanOrder[](1);
+        ClanOrder[] memory orders = new ClanOrder[](2);
         orders[0] = ClanOrder({
-            clansmanId: csId,
+            clansmanId: marketCsId,
             gotoRegion: ClanWorldConstants.REGION_UNICORN_TOWN,
             action: ActionType.MarketSell,
             targetClanId: 0,
@@ -948,10 +1044,25 @@ contract ClanWorldTest is Test {
             marketAmount: 1e18,
             maxGoldIn: 0
         });
+        orders[1] = ClanOrder({
+            clansmanId: noopCsId,
+            gotoRegion: baseRegion,
+            action: ActionType.Wait,
+            targetClanId: 0,
+            marketToken: address(0),
+            marketAmount: 0,
+            maxGoldIn: 0
+        });
 
-        vm.expectRevert("Treasury not initialized");
         vm.prank(elder);
-        world.submitClanOrders(clanId, orders);
+        OrderResult[] memory results = world.submitClanOrders(clanId, orders);
+
+        assertEq(
+            uint8(results[0].status),
+            uint8(StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN),
+            "uninitialized treasury should be a per-order market error"
+        );
+        assertEq(uint8(results[1].status), uint8(StatusCode.OK), "other batch orders should proceed");
     }
 
     // -------------------------------------------------------------------------
