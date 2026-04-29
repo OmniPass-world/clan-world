@@ -24,6 +24,7 @@ import {
     OtcProposal,
     VaultTransferProposal,
     BlueprintTransferProposal,
+    BundledTransferProposal,
     DefenseContribution,
     PackedRoute,
     DerivedClanState,
@@ -69,6 +70,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     mapping(uint256 => OtcProposal) private _otcGoldProposals;
     mapping(uint256 => VaultTransferProposal) private _otcVaultTransferProposals;
     mapping(uint256 => BlueprintTransferProposal) private _otcBlueprintTransferProposals;
+    mapping(uint256 => BundledTransferProposal) private _otcBundledTransferProposals;
 
     uint32 private _nextClanId;
     uint32 private _nextClansmanId;
@@ -1978,6 +1980,129 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         emit BlueprintTransferCancelled(proposalId);
     }
 
+    function proposeBundledTransfer(
+        uint32 fromClanId,
+        uint32 toClanId,
+        uint256 gold,
+        uint256 wood,
+        uint256 wheat,
+        uint256 fish,
+        uint256 iron,
+        uint256 blueprint,
+        uint64 expiryTick
+    ) external override nonReentrant returns (uint256 proposalId) {
+        Clan storage fromClan = _clans[fromClanId];
+        require(fromClan.clanId != 0, "ClanWorld: clan not found");
+        require(fromClan.owner == msg.sender, "ClanWorld: not clan owner");
+        require(fromClan.clanState == ClanState.ACTIVE, "ClanWorld: clan dead");
+        require(_clans[toClanId].clanId != 0, "ClanWorld: target clan not found");
+        require(_clans[toClanId].clanState == ClanState.ACTIVE, "ClanWorld: target clan dead");
+        require(!_isEmptyBundledTransfer(gold, wood, wheat, fish, iron, blueprint), "ClanWorld: empty bundled transfer");
+        _requireBundledTransferBalance(fromClan, gold, wood, wheat, fish, iron, blueprint);
+
+        proposalId = _nextOtcProposalId++;
+        _otcBundledTransferProposals[proposalId] = BundledTransferProposal({
+            from: fromClanId,
+            to: toClanId,
+            gold: gold,
+            wood: wood,
+            wheat: wheat,
+            fish: fish,
+            iron: iron,
+            blueprint: blueprint,
+            expiryTick: expiryTick,
+            accepted: false,
+            cancelled: false
+        });
+
+        emit BundledTransferProposed(
+            proposalId, fromClanId, toClanId, gold, wood, wheat, fish, iron, blueprint, expiryTick
+        );
+    }
+
+    function acceptBundledTransfer(uint256 proposalId) external override nonReentrant {
+        BundledTransferProposal storage proposal = _otcBundledTransferProposals[proposalId];
+        require(proposal.from != 0, "ClanWorld: proposal not found");
+        require(!proposal.accepted, "ClanWorld: proposal accepted");
+        require(!proposal.cancelled, "ClanWorld: proposal cancelled");
+        require(_world.currentTick <= proposal.expiryTick, "ClanWorld: proposal expired");
+
+        Clan storage fromClan = _clans[proposal.from];
+        Clan storage toClan = _clans[proposal.to];
+        require(fromClan.clanState == ClanState.ACTIVE, "ClanWorld: clan dead");
+        require(toClan.clanState == ClanState.ACTIVE, "ClanWorld: target clan dead");
+        require(toClan.owner == msg.sender, "ClanWorld: not clan owner");
+        _requireBundledTransferBalance(
+            fromClan, proposal.gold, proposal.wood, proposal.wheat, proposal.fish, proposal.iron, proposal.blueprint
+        );
+
+        fromClan.goldBalance -= proposal.gold;
+        fromClan.vaultWood -= proposal.wood;
+        fromClan.vaultWheat -= proposal.wheat;
+        fromClan.vaultFish -= proposal.fish;
+        fromClan.vaultIron -= proposal.iron;
+        fromClan.blueprintBalance -= proposal.blueprint;
+        toClan.goldBalance += proposal.gold;
+        toClan.vaultWood += proposal.wood;
+        toClan.vaultWheat += proposal.wheat;
+        toClan.vaultFish += proposal.fish;
+        toClan.vaultIron += proposal.iron;
+        toClan.blueprintBalance += proposal.blueprint;
+        proposal.accepted = true;
+
+        emit BundledTransferAccepted(
+            proposalId,
+            proposal.from,
+            proposal.to,
+            proposal.gold,
+            proposal.wood,
+            proposal.wheat,
+            proposal.fish,
+            proposal.iron,
+            proposal.blueprint,
+            _world.currentTick
+        );
+    }
+
+    function cancelBundledTransfer(uint256 proposalId) external override nonReentrant {
+        BundledTransferProposal storage proposal = _otcBundledTransferProposals[proposalId];
+        require(proposal.from != 0, "ClanWorld: proposal not found");
+        require(!proposal.accepted, "ClanWorld: proposal accepted");
+        require(!proposal.cancelled, "ClanWorld: proposal cancelled");
+
+        Clan storage fromClan = _clans[proposal.from];
+        require(fromClan.owner == msg.sender, "ClanWorld: not clan owner");
+        require(fromClan.clanState == ClanState.ACTIVE, "ClanWorld: clan dead");
+
+        proposal.cancelled = true;
+        emit BundledTransferCancelled(proposalId);
+    }
+
+    function _isEmptyBundledTransfer(
+        uint256 gold,
+        uint256 wood,
+        uint256 wheat,
+        uint256 fish,
+        uint256 iron,
+        uint256 blueprint
+    ) private pure returns (bool) {
+        return gold == 0 && wood == 0 && wheat == 0 && fish == 0 && iron == 0 && blueprint == 0;
+    }
+
+    function _requireBundledTransferBalance(
+        Clan storage clan,
+        uint256 gold,
+        uint256 wood,
+        uint256 wheat,
+        uint256 fish,
+        uint256 iron,
+        uint256 blueprint
+    ) private view {
+        if (clan.goldBalance < gold) revert("ERR_NOT_ENOUGH_GOLD");
+        if (!_hasVaultResources(clan, wood, wheat, fish, iron)) revert("ERR_NOT_ENOUGH_RESOURCES");
+        if (clan.blueprintBalance < blueprint) revert("ERR_NOT_ENOUGH_BLUEPRINT");
+    }
+
     function transferGold(uint32, uint32, uint256) external pure override {
         revert("OTC transfers not implemented");
     }
@@ -2141,6 +2266,15 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         returns (BlueprintTransferProposal memory)
     {
         return _otcBlueprintTransferProposals[proposalId];
+    }
+
+    function getOtcBundledTransferProposal(uint256 proposalId)
+        external
+        view
+        override
+        returns (BundledTransferProposal memory)
+    {
+        return _otcBundledTransferProposals[proposalId];
     }
 
     function getActiveDefenders(uint32 targetClanId) external view override returns (uint32[] memory clansmanIds) {
