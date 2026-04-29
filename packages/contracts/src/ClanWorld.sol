@@ -89,6 +89,11 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     uint16 internal constant BANDIT_SPAWN_MAX_PROBABILITY_BPS = 8000;
     uint8 internal constant MAX_BANDITS_PER_REGION = 3;
     uint8 internal constant MAX_TOTAL_BANDITS = 8;
+    /// @dev Bandit spawn weights are a heartbeat-time heuristic. Bound the scan
+    ///      and rotate the starting clan by tick so larger worlds do not turn
+    ///      spawn preview/selection into an unbounded heartbeat cost.
+    uint256 internal constant MAX_BANDIT_SPAWN_SCAN_PER_REGION = 8;
+    uint256 internal constant MAX_BANDIT_SPAWN_CLANSMEN_SCAN_PER_REGION = MAX_BANDIT_SPAWN_SCAN_PER_REGION * 4;
     uint32 internal constant MIN_BANDIT_SPAWN_STRENGTH = 100;
     uint32 internal constant BANDIT_SPAWN_STRENGTH_SPREAD = 151;
 
@@ -991,7 +996,23 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             _activeBanditCount -= 1;
         }
         if (_world.activeBanditId == id) {
-            _world.activeBanditId = ClanWorldConstants.BANDIT_ID_NULL;
+            _world.activeBanditId = _findOldestActiveBandit();
+        }
+    }
+
+    function _findOldestActiveBandit() internal view returns (uint32 oldestBanditId) {
+        for (uint8 region = ClanWorldConstants.REGION_FOREST; region <= ClanWorldConstants.REGION_DEEP_SEA; region++) {
+            uint32[] storage regionBandits = _banditsByRegion[region];
+            for (uint256 i = 0; i < regionBandits.length; i++) {
+                uint32 candidateId = regionBandits[i];
+                BanditTroop storage candidate = _bandits[candidateId];
+                if (candidate.id == ClanWorldConstants.BANDIT_ID_NULL || candidate.state == BanditState.None) {
+                    continue;
+                }
+                if (oldestBanditId == ClanWorldConstants.BANDIT_ID_NULL || candidateId < oldestBanditId) {
+                    oldestBanditId = candidateId;
+                }
+            }
         }
     }
 
@@ -1002,13 +1023,15 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     }
 
     function _evaluateBanditSpawns(bytes32 tickSeed) internal {
+        uint256[] memory regionWeights = _banditSpawnRegionWeights();
         if (_activeBanditCount >= MAX_TOTAL_BANDITS) {
+            _refreshBanditSpawnWorldPreview(regionWeights);
             return;
         }
 
         uint256[] memory candidateWeights = new uint256[](8);
         for (uint8 region = ClanWorldConstants.REGION_FOREST; region <= ClanWorldConstants.REGION_DEEP_SEA; region++) {
-            uint256 weight = _banditSpawnRegionWeight(region);
+            uint256 weight = regionWeights[region - 1];
             if (weight == 0 || _banditsByRegion[region].length >= MAX_BANDITS_PER_REGION) {
                 continue;
             }
@@ -1029,7 +1052,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             _spawnBandit(selectedRegion, _banditSpawnStrength(tickSeed, selectedRegion));
         }
 
-        _refreshBanditSpawnWorldPreview();
+        _refreshBanditSpawnWorldPreview(regionWeights);
     }
 
     function _incrementBanditSpawnProbability(uint16 probabilityAccum) internal pure returns (uint16) {
@@ -1072,28 +1095,46 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         return MIN_BANDIT_SPAWN_STRENGTH + uint32(roll);
     }
 
-    function _banditSpawnRegionWeight(uint8 region) internal view returns (uint256 weight) {
-        for (uint256 i = 0; i < _allClanIds.length; i++) {
-            Clan storage clan = _clans[_allClanIds[i]];
+    function _banditSpawnRegionWeights() internal view returns (uint256[] memory weights) {
+        weights = new uint256[](8);
+        uint256 clanCount = _allClanIds.length;
+        if (clanCount == 0) {
+            return weights;
+        }
+
+        uint256 scanCount =
+            clanCount < MAX_BANDIT_SPAWN_SCAN_PER_REGION ? clanCount : MAX_BANDIT_SPAWN_SCAN_PER_REGION;
+        uint256 startIndex = uint256(_world.currentTick) % clanCount;
+        uint256 clansmenScanned;
+        for (uint256 i = 0; i < scanCount; i++) {
+            Clan storage clan = _clans[_allClanIds[(startIndex + i) % clanCount]];
             if (clan.clanState == ClanState.DEAD) {
                 continue;
             }
 
-            if (clan.baseRegion == region) {
-                weight += 100 + (_lootValueRaw(clan) / 1e18);
+            if (clan.baseRegion >= ClanWorldConstants.REGION_FOREST && clan.baseRegion <= ClanWorldConstants.REGION_DEEP_SEA) {
+                weights[clan.baseRegion - 1] += 100 + (_lootValueRaw(clan) / 1e18);
             }
 
             uint32[] storage clansmanIds = _clanClansmanIds[clan.clanId];
-            for (uint256 j = 0; j < clansmanIds.length; j++) {
+            for (
+                uint256 j = 0;
+                j < clansmanIds.length && clansmenScanned < MAX_BANDIT_SPAWN_CLANSMEN_SCAN_PER_REGION;
+                j++
+            ) {
+                clansmenScanned += 1;
                 Clansman storage cs = _clansmen[clansmanIds[j]];
-                if (cs.state != ClansmanState.DEAD && cs.currentRegion == region) {
-                    weight += 25;
+                if (
+                    cs.state != ClansmanState.DEAD && cs.currentRegion >= ClanWorldConstants.REGION_FOREST
+                        && cs.currentRegion <= ClanWorldConstants.REGION_DEEP_SEA
+                ) {
+                    weights[cs.currentRegion - 1] += 25;
                 }
             }
         }
     }
 
-    function _refreshBanditSpawnWorldPreview() internal {
+    function _refreshBanditSpawnWorldPreview(uint256[] memory regionWeights) internal {
         uint64 nextEligibleTick = type(uint64).max;
         uint16 maxChance = 0;
 
@@ -1101,7 +1142,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             BanditSpawnState storage spawnState = _banditSpawnByRegion[region];
             uint64 eligibleTick = spawnState.lastSpawnTick + MIN_SPAWN_COOLDOWN_TICKS;
             if (
-                _banditSpawnRegionWeight(region) > 0 && _banditsByRegion[region].length < MAX_BANDITS_PER_REGION
+                _activeBanditCount < MAX_TOTAL_BANDITS && regionWeights[region - 1] > 0
+                    && _banditsByRegion[region].length < MAX_BANDITS_PER_REGION
                     && eligibleTick < nextEligibleTick
             ) {
                 nextEligibleTick = eligibleTick;

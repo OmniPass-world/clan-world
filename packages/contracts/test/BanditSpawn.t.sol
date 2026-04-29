@@ -44,6 +44,10 @@ contract BanditSpawnHarness is ClanWorld {
         return MAX_TOTAL_BANDITS;
     }
 
+    function maxBanditSpawnScanPerRegion() external pure returns (uint256) {
+        return MAX_BANDIT_SPAWN_SCAN_PER_REGION;
+    }
+
     function banditSpawnRoll(bytes32 tickSeed, uint8 region) external pure returns (uint256) {
         return _banditSpawnRoll(tickSeed, region);
     }
@@ -135,6 +139,36 @@ contract BanditSpawnTest is Test {
         world.evaluateBanditSpawns(keccak256("global-cap"));
 
         assertEq(world.activeBanditCount(), maxTotal, "global cap");
+    }
+
+    function test_globalCapRefreshesPreviewOnHeartbeat() public {
+        _mintForestClan(world);
+
+        uint8 maxTotal = world.maxTotalBandits();
+        for (uint8 i = 0; i < maxTotal; i++) {
+            world.spawnBandit(uint8(ClanWorldConstants.REGION_FOREST + (i % 8)), 100 + i);
+        }
+        world.setBanditSpawnState(ClanWorldConstants.REGION_FOREST, 0, 4321);
+
+        _advanceTick(world);
+
+        WorldState memory state = world.getWorldState();
+        assertEq(world.activeBanditCount(), maxTotal, "still at cap");
+        assertEq(state.nextBanditSpawnEligibleTick, 0, "no eligible tick while capped");
+        assertEq(state.currentBanditSpawnChanceBps, 4321, "preview chance refreshed");
+    }
+
+    function test_heartbeatCompletesWhenClanCountExceedsBanditSpawnScanCap() public {
+        uint256 clanCount = world.maxBanditSpawnScanPerRegion() + 1;
+        uint160 ownerId = 1;
+        for (uint256 i = 0; i < clanCount; i++) {
+            world.mintClan(address(ownerId));
+            ownerId += 1;
+        }
+
+        _advanceTick(world);
+
+        assertEq(world.getWorldState().currentTick, 1, "heartbeat advanced");
     }
 
     function test_regionSelectionDeterministicForSameSeed() public {

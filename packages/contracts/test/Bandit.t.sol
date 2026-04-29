@@ -118,6 +118,21 @@ contract BanditTest is Test {
         assertEq(world.getWorldState().activeBanditId, 0, "active bandit cleared");
     }
 
+    function test_defeatingActiveBanditPromotesOldestRemainingBandit() public {
+        uint32 id1 = world.spawnBandit(ClanWorldConstants.REGION_FOREST, 100);
+        uint32 id2 = world.spawnBandit(ClanWorldConstants.REGION_MOUNTAINS, 200);
+        uint32 id3 = world.spawnBandit(ClanWorldConstants.REGION_WEST_FARMS, 300);
+
+        _advanceTick();
+        world.transitionBandit(id1, BanditState.Camped);
+        _advanceTicks(ClanWorldConstants.BANDIT_CAMP_TICKS);
+        world.transitionBanditToAttacking(id1, 77);
+        world.transitionBandit(id1, BanditState.Defeated);
+
+        assertEq(world.getWorldState().activeBanditId, id2, "oldest remaining promoted");
+        assertEq(world.getBandit(id3).id, id3, "newer bandit remains live");
+    }
+
     function test_attackingToEscapedRestingCampedCycleWorks() public {
         uint32 id = _spawnCampAndAttack(77);
 
