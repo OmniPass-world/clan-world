@@ -153,6 +153,21 @@
               "internalType": "uint64"
             },
             {
+              "name": "submittedAtTick",
+              "type": "uint64",
+              "internalType": "uint64"
+            },
+            {
+              "name": "executesAtTick",
+              "type": "uint64",
+              "internalType": "uint64"
+            },
+            {
+              "name": "settlesAtTick",
+              "type": "uint64",
+              "internalType": "uint64"
+            },
+            {
               "name": "clansmanId",
               "type": "uint32",
               "internalType": "uint32"
@@ -221,6 +236,83 @@
         }
       ],
       "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "getMissionTiming",
+      "inputs": [
+        {
+          "name": "clanId",
+          "type": "uint32",
+          "internalType": "uint32"
+        },
+        {
+          "name": "clansmanId",
+          "type": "uint32",
+          "internalType": "uint32"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "submitted",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "executes",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "settles",
+          "type": "uint64",
+          "internalType": "uint64"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "getActionDuration",
+      "inputs": [
+        {
+          "name": "action",
+          "type": "uint8",
+          "internalType": "enum ActionType"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint64",
+          "internalType": "uint64"
+        }
+      ],
+      "stateMutability": "pure"
+    },
+    {
+      "type": "function",
+      "name": "getTravelTicks",
+      "inputs": [
+        {
+          "name": "fromRegion",
+          "type": "uint8",
+          "internalType": "uint8"
+        },
+        {
+          "name": "toRegion",
+          "type": "uint8",
+          "internalType": "uint8"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint64",
+          "internalType": "uint64"
+        }
+      ],
+      "stateMutability": "pure"
     },
     {
       "type": "function",
@@ -651,6 +743,21 @@
                           "internalType": "uint64"
                         },
                         {
+                          "name": "submittedAtTick",
+                          "type": "uint64",
+                          "internalType": "uint64"
+                        },
+                        {
+                          "name": "executesAtTick",
+                          "type": "uint64",
+                          "internalType": "uint64"
+                        },
+                        {
+                          "name": "settlesAtTick",
+                          "type": "uint64",
+                          "internalType": "uint64"
+                        },
+                        {
                           "name": "clansmanId",
                           "type": "uint32",
                           "internalType": "uint32"
@@ -741,6 +848,21 @@
                     },
                     {
                       "name": "nonce",
+                      "type": "uint64",
+                      "internalType": "uint64"
+                    },
+                    {
+                      "name": "submittedAtTick",
+                      "type": "uint64",
+                      "internalType": "uint64"
+                    },
+                    {
+                      "name": "executesAtTick",
+                      "type": "uint64",
+                      "internalType": "uint64"
+                    },
+                    {
+                      "name": "settlesAtTick",
                       "type": "uint64",
                       "internalType": "uint64"
                     },
@@ -1171,6 +1293,21 @@
                 },
                 {
                   "name": "nonce",
+                  "type": "uint64",
+                  "internalType": "uint64"
+                },
+                {
+                  "name": "submittedAtTick",
+                  "type": "uint64",
+                  "internalType": "uint64"
+                },
+                {
+                  "name": "executesAtTick",
+                  "type": "uint64",
+                  "internalType": "uint64"
+                },
+                {
+                  "name": "settlesAtTick",
                   "type": "uint64",
                   "internalType": "uint64"
                 },

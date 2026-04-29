@@ -273,6 +273,9 @@ struct Mission {
     bool active;
 
     uint64 nonce;
+    uint64 submittedAtTick;
+    uint64 executesAtTick;
+    uint64 settlesAtTick;
     uint32 clansmanId;
 
     uint8 startRegion;
@@ -694,6 +697,15 @@ interface IClanWorld is IClanWorldEvents {
     function getClansman(uint32 clansmanId) external view returns (Clansman memory);
 
     function getActiveMission(uint32 clansmanId) external view returns (Mission memory);
+
+    function getMissionTiming(uint32 clanId, uint32 clansmanId)
+        external
+        view
+        returns (uint64 submitted, uint64 executes, uint64 settles);
+
+    function getActionDuration(ActionType action) external pure returns (uint64);
+
+    function getTravelTicks(uint8 fromRegion, uint8 toRegion) external pure returns (uint64);
 
     function getBanditTroop(uint32 banditId) external view returns (BanditTroop memory);
 

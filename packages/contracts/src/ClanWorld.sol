@@ -275,6 +275,11 @@ contract ClanWorld is IClanWorld {
         return _distMatrix(fromRegion, toRegion);
     }
 
+    function _addTicksClamped(uint64 tick, uint64 delta) private pure returns (uint64) {
+        if (type(uint64).max - tick < delta) return type(uint64).max;
+        return tick + delta;
+    }
+
     // =========================================================================
     // INTERNAL SETTLEMENT
     // =========================================================================
@@ -1036,7 +1041,7 @@ contract ClanWorld is IClanWorld {
 
         // Compute travel
         ctx.travelTicks = _travelTicks(ctx.fromRegion, ctx.gotoRegion);
-        ctx.arrivalTick = _world.currentTick + uint64(ctx.travelTicks);
+        ctx.arrivalTick = _addTicksClamped(_world.currentTick, uint64(ctx.travelTicks));
 
         // New nonce
         ctx.newNonce = cs.lastMissionNonce + 1;
@@ -1108,6 +1113,9 @@ contract ClanWorld is IClanWorld {
         m.active = true;
         m.nonce = ctx.newNonce;
         m.clansmanId = cs.clansmanId;
+        m.submittedAtTick = _world.currentTick;
+        m.executesAtTick = ctx.arrivalTick;
+        m.settlesAtTick = _addTicksClamped(ctx.arrivalTick, getActionDuration(order.action));
         m.startRegion = ctx.fromRegion;
         m.targetRegion = ctx.gotoRegion;
         m.action = order.action;
@@ -1588,6 +1596,42 @@ contract ClanWorld is IClanWorld {
 
     function getActiveMission(uint32 clansmanId) external view override returns (Mission memory) {
         return _missions[clansmanId];
+    }
+
+    function getMissionTiming(uint32 clanId, uint32 clansmanId)
+        external
+        view
+        override
+        returns (uint64 submitted, uint64 executes, uint64 settles)
+    {
+        Mission memory m = _missions[clansmanId];
+        if (!m.active || _clansmen[clansmanId].clanId != clanId) {
+            return (0, 0, 0);
+        }
+        return (m.submittedAtTick, m.executesAtTick, m.settlesAtTick);
+    }
+
+    function getActionDuration(ActionType action) public pure override returns (uint64) {
+        if (
+            action == ActionType.ChopWood || action == ActionType.MineIron || action == ActionType.FishDocks
+                || action == ActionType.FishDeepSea || action == ActionType.HarvestWheat
+        ) {
+            return 4;
+        }
+
+        if (
+            action == ActionType.DepositResources || action == ActionType.BuildWall || action == ActionType.UpgradeBase
+                || action == ActionType.UpgradeMonument || action == ActionType.MarketBuy
+                || action == ActionType.MarketSell
+        ) {
+            return 1;
+        }
+
+        return 0;
+    }
+
+    function getTravelTicks(uint8 fromRegion, uint8 toRegion) external pure override returns (uint64) {
+        return uint64(_travelTicks(fromRegion, toRegion));
     }
 
     function getBanditTroop(uint32) external pure override returns (BanditTroop memory) {
