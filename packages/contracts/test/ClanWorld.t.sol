@@ -25,7 +25,6 @@ import {
     Clansman,
     Mission,
     BanditTroop,
-    ScheduledMarketAction,
     DefenseContribution,
     PackedRoute,
     DerivedClanState,
@@ -792,7 +791,11 @@ contract ClanWorldTest is Test {
         assertEq(uint8(r[0].marketMode), uint8(MarketExecutionMode.Scheduled), "cooldown should force scheduled mode");
         assertTrue(m.active, "scheduled fallback should install a mission");
         assertEq(uint8(m.marketMode), uint8(MarketExecutionMode.Scheduled), "mission should be scheduled");
-        assertEq(world.getScheduledMarketActionsForTick(m.actionStartTick).length, 1, "scheduled action should enqueue");
+        assertEq(
+            world.getScheduledMarketActionsForTick(m.settlesAtTick).length,
+            0,
+            "scheduled action queues when mission settles"
+        );
         assertEq(world.getClan(clanId).goldBalance, goldBefore, "scheduled fallback should not trade immediately");
     }
 
@@ -806,7 +809,11 @@ contract ClanWorldTest is Test {
         assertEq(uint8(r[0].status), uint8(StatusCode.OK), "out-of-town market order should schedule");
         assertEq(uint8(r[0].marketMode), uint8(MarketExecutionMode.Scheduled), "out-of-town should be scheduled");
         assertTrue(m.active, "scheduled fallback should install a mission");
-        assertEq(world.getScheduledMarketActionsForTick(m.actionStartTick).length, 1, "scheduled action should enqueue");
+        assertEq(
+            world.getScheduledMarketActionsForTick(m.settlesAtTick).length,
+            0,
+            "scheduled action queues when mission settles"
+        );
     }
 
     function test_immediateMarket_busyWorker_fallsBackToScheduled() public {
@@ -819,7 +826,11 @@ contract ClanWorldTest is Test {
         assertEq(uint8(r[0].status), uint8(StatusCode.OK), "busy market worker should schedule");
         assertEq(uint8(r[0].marketMode), uint8(MarketExecutionMode.Scheduled), "busy worker should be scheduled");
         assertTrue(m.active, "scheduled fallback should install a mission");
-        assertEq(world.getScheduledMarketActionsForTick(m.actionStartTick).length, 1, "scheduled action should enqueue");
+        assertEq(
+            world.getScheduledMarketActionsForTick(m.settlesAtTick).length,
+            0,
+            "scheduled action queues when mission settles"
+        );
     }
 
     function test_immediateMarketBuy_executesWhenMaxGoldSatisfied() public {
@@ -896,13 +907,13 @@ contract ClanWorldTest is Test {
         // Clan starts with 20 wood in vault (starter pack)
         uint256 goldBefore = world.getClan(clanId).goldBalance;
 
-        // Submit sell order — clansman travels to Unicorn Town then executes at actionStartTick
+        // Submit sell order — clansman travels to Unicorn Town then executes when the market mission settles
         OrderResult[] memory r = _submitMarketOrder(clanId, csId, ActionType.MarketSell, woodAddr, 5e18, 0);
         assertEq(uint8(r[0].status), uint8(StatusCode.OK), "sell order should be accepted");
 
         // Find out which tick the action fires
         Mission memory m = world.getActiveMission(csId);
-        uint64 executeAtTick = m.actionStartTick;
+        uint64 executeAtTick = m.settlesAtTick;
 
         // Advance ticks until heartbeat closes executeAtTick
         uint64 curTick = world.getWorldState().currentTick;
@@ -939,7 +950,7 @@ contract ClanWorldTest is Test {
         assertEq(uint8(r[0].status), uint8(StatusCode.OK), "buy order should be accepted");
 
         Mission memory m = world.getActiveMission(csId);
-        uint64 executeAtTick = m.actionStartTick;
+        uint64 executeAtTick = m.settlesAtTick;
 
         uint64 curTick = world.getWorldState().currentTick;
         uint256 ticksNeeded = uint256(executeAtTick - curTick) + 1;
@@ -969,7 +980,7 @@ contract ClanWorldTest is Test {
         assertEq(uint8(r[0].status), uint8(StatusCode.OK), "order submission should succeed");
 
         Mission memory m = world.getActiveMission(csId);
-        uint64 executeAtTick = m.actionStartTick;
+        uint64 executeAtTick = m.settlesAtTick;
         uint64 curTick = world.getWorldState().currentTick;
 
         // Advance all ticks UP TO (but not including) the execute tick
@@ -1004,10 +1015,7 @@ contract ClanWorldTest is Test {
         assertEq(uint8(r[0].status), uint8(StatusCode.OK));
 
         Mission memory m = world.getActiveMission(csId);
-        uint64 executeAtTick = m.actionStartTick;
-
-        // Verify queue has entry before heartbeat
-        assertGt(world.getScheduledMarketActionsForTick(executeAtTick).length, 0, "queue should have entry");
+        uint64 executeAtTick = m.settlesAtTick;
 
         uint64 curTick = world.getWorldState().currentTick;
         uint256 ticksNeeded = uint256(executeAtTick - curTick) + 1;
@@ -1029,7 +1037,7 @@ contract ClanWorldTest is Test {
         OrderResult[] memory r1 = _submitMarketOrder(clanId, csId, ActionType.MarketSell, woodAddr, 1e18, 0);
         assertEq(uint8(r1[0].status), uint8(StatusCode.OK), "first sell order should be accepted");
         Mission memory oldMission = world.getActiveMission(csId);
-        uint64 oldExecuteAtTick = oldMission.actionStartTick;
+        uint64 oldExecuteAtTick = oldMission.settlesAtTick;
 
         vm.warp(block.timestamp + ClanWorldConstants.CLANSMAN_COOLDOWN_SECONDS + 1);
         _advanceTick();
@@ -1037,28 +1045,26 @@ contract ClanWorldTest is Test {
         OrderResult[] memory r2 = _submitMarketOrder(clanId, csId, ActionType.MarketSell, woodAddr, 2e18, 0);
         assertEq(uint8(r2[0].status), uint8(StatusCode.OK), "replacement sell order should be accepted");
         Mission memory newMission = world.getActiveMission(csId);
-        uint64 newExecuteAtTick = newMission.actionStartTick;
+        uint64 newExecuteAtTick = newMission.settlesAtTick;
         assertGt(newMission.nonce, oldMission.nonce, "replacement should bump nonce");
 
-        ScheduledMarketAction[] memory oldQueue = world.getScheduledMarketActionsForTick(oldExecuteAtTick);
-        ScheduledMarketAction[] memory newQueue = world.getScheduledMarketActionsForTick(newExecuteAtTick);
-        assertEq(oldQueue[0].missionNonce, oldMission.nonce, "old queue captures old nonce");
-        assertEq(newQueue[0].missionNonce, newMission.nonce, "new queue captures new nonce");
+        assertEq(world.getScheduledMarketActionsForTick(oldExecuteAtTick).length, 0, "old mission not queued before settle");
+        assertEq(world.getScheduledMarketActionsForTick(newExecuteAtTick).length, 0, "new mission not queued before settle");
 
         uint256 goldBefore = world.getClan(clanId).goldBalance;
 
-        _advanceTick(); // close tick before the stale entry
-
-        vm.expectEmit(true, true, false, true);
-        emit IClanWorldEvents.MarketActionFailed(clanId, csId, ActionType.MarketSell, StatusCode.ERR_INVALID_ACTION);
-        _advanceTick(); // close stale entry tick
+        while (world.getWorldState().currentTick <= oldExecuteAtTick) {
+            _advanceTick();
+        }
         assertEq(world.getClan(clanId).goldBalance, goldBefore, "stale sell must not execute");
 
-        _advanceTick(); // close replacement entry tick
+        while (world.getWorldState().currentTick <= newExecuteAtTick) {
+            _advanceTick();
+        }
         assertGt(world.getClan(clanId).goldBalance, goldBefore, "replacement sell should execute");
     }
 
-    function test_scheduledMarket_defersActionsAbovePerTickCap() public {
+    function test_scheduledMarket_executesAllActionsForClosedTick() public {
         address woodAddr = _setupMarket();
         uint32[] memory distOneClans = new uint32[](12);
         uint32[] memory distTwoClans = new uint32[](12);
@@ -1087,192 +1093,87 @@ contract ClanWorldTest is Test {
             totalQueued += _submitAllClanMarketSells(distOneClans[i], woodAddr);
         }
 
-        uint64 executeAtTick = 2;
-        uint256 cap = world.MAX_MARKET_ACTIONS_PER_TICK();
-        assertGt(totalQueued, cap, "test setup must exceed cap");
-        assertEq(
-            world.getScheduledMarketActionsForTick(executeAtTick).length,
-            totalQueued,
-            "all aligned actions should share tick 2"
-        );
-
-        _advanceTick(); // close tick 1
-        _advanceTick(); // close tick 2, process cap and defer remainder
-
-        assertEq(world.getScheduledMarketActionsForTick(executeAtTick).length, 0, "original tick queue cleared");
-        assertEq(
-            world.getScheduledMarketActionsForTick(executeAtTick + 1).length,
-            totalQueued - cap,
-            "overflow actions deferred to next tick"
-        );
-
-        _advanceTick(); // close tick 3, process deferred actions
-        assertEq(world.getScheduledMarketActionsForTick(executeAtTick + 1).length, 0, "deferred queue cleared");
-    }
-
-    function test_scheduledMarket_overflowExecutesBeforeNativeNextTickActions() public {
-        address woodAddr = _setupMarket();
-        uint32[] memory distOneClans = new uint32[](12);
-        uint32[] memory distTwoClans = new uint32[](12);
-        uint256 distOneCount;
-        uint256 distTwoCount;
-
-        for (uint256 i = 0; i < 12; i++) {
-            uint32 clanId = _mintClan();
-            ClanFullView memory view_ = world.getClanFullView(clanId);
-            (uint8 travelTicks,) = world.quoteTravel(view_.clan.clan.baseRegion, ClanWorldConstants.REGION_UNICORN_TOWN);
-            if (travelTicks == 1) {
-                distOneClans[distOneCount++] = clanId;
-            } else if (travelTicks == 2) {
-                distTwoClans[distTwoCount++] = clanId;
-            }
-        }
-        assertGt(distTwoCount, 0, "test setup needs a distance-two clan");
-
-        uint32 nativeClanId = distTwoClans[0];
-        ClanFullView memory nativeView = world.getClanFullView(nativeClanId);
-        uint32 nativeCsId = nativeView.clansmen[3].clansman.clansman.clansmanId;
-
-        uint256 totalQueuedForTickTwo = _submitFirstClanMarketSells(nativeClanId, woodAddr, 3);
-        for (uint256 i = 1; i < distTwoCount; i++) {
-            totalQueuedForTickTwo += _submitAllClanMarketSells(distTwoClans[i], woodAddr);
-        }
-
-        _advanceTick();
-
-        for (uint256 i = 0; i < distOneCount; i++) {
-            totalQueuedForTickTwo += _submitAllClanMarketSells(distOneClans[i], woodAddr);
-        }
-
-        OrderResult[] memory nativeResult =
-            _submitMarketOrder(nativeClanId, nativeCsId, ActionType.MarketSell, woodAddr, 1e18, 0);
-        assertEq(uint8(nativeResult[0].status), uint8(StatusCode.OK), "native next-tick action should enqueue");
-
-        uint64 overflowTick = 2;
-        uint64 nextTick = overflowTick + 1;
-        uint256 cap = world.MAX_MARKET_ACTIONS_PER_TICK();
-        assertGt(totalQueuedForTickTwo, cap, "test setup must exceed cap");
-
-        ScheduledMarketAction[] memory nativeQueueBefore = world.getScheduledMarketActionsForTick(nextTick);
-        assertEq(nativeQueueBefore.length, 1, "native next-tick queue should exist before overflow merge");
-        uint64 nativeSeq = nativeQueueBefore[0].commitSequence;
-
-        _advanceTick(); // close tick 1
-        _advanceTick(); // close tick 2, process cap and defer overflow into tick 3
-
-        uint256 overflowCount = totalQueuedForTickTwo - cap;
-        ScheduledMarketAction[] memory mergedQueue = world.getScheduledMarketActionsForTick(nextTick);
-        assertEq(mergedQueue.length, overflowCount + 1, "overflow should merge with native next-tick action");
-        assertEq(
-            mergedQueue[mergedQueue.length - 1].commitSequence,
-            nativeSeq,
-            "native action must stay after older overflow"
-        );
-        for (uint256 i = 1; i < mergedQueue.length; i++) {
-            assertGt(mergedQueue[i].commitSequence, mergedQueue[i - 1].commitSequence, "merged queue must be FIFO");
-        }
-
+        uint64 executeAtTick = 3;
         bytes32 executedSig =
             keccak256("ScheduledMarketActionExecuted(uint64,uint64,uint32,uint32,address,address,uint256,uint256)");
+
+        _advanceTick(); // close tick 1
+        _advanceTick(); // close tick 2
+
         vm.recordLogs();
-        _advanceTick(); // close tick 3 and execute the sorted merged queue
+        _advanceTick(); // close tick 3 and execute every scheduled action for the tick
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        bool sawExecution;
+        uint256 executedCount;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter != address(world) || logs[i].topics.length == 0 || logs[i].topics[0] != executedSig) {
+                continue;
+            }
+            if (uint64(uint256(logs[i].topics[1])) != executeAtTick) continue;
+            executedCount++;
+        }
+
+        assertEq(executedCount, totalQueued, "all same-tick actions should execute");
+        assertEq(world.getScheduledMarketActionsForTick(executeAtTick).length, 0, "queue should be deleted");
+    }
+
+    // -------------------------------------------------------------------------
+    // Test 15: scheduledMarket_fifo — same-tick sells execute in submission order
+    // -------------------------------------------------------------------------
+
+    function test_scheduledMarket_fifo() public {
+        address woodAddr = _setupMarket();
+        uint32 clanId = _mintClan();
+        ClanFullView memory view_ = world.getClanFullView(clanId);
+
+        ClanOrder[] memory orders = new ClanOrder[](3);
+        for (uint256 i = 0; i < orders.length; i++) {
+            orders[i] = ClanOrder({
+                clansmanId: view_.clansmen[i].clansman.clansman.clansmanId,
+                gotoRegion: ClanWorldConstants.REGION_UNICORN_TOWN,
+                action: ActionType.MarketSell,
+                targetClanId: 0,
+                marketToken: woodAddr,
+                marketAmount: 2e18,
+                maxGoldIn: 0
+            });
+        }
+        vm.prank(elder);
+        OrderResult[] memory results = world.submitClanOrders(clanId, orders);
+        for (uint256 i = 0; i < results.length; i++) {
+            assertEq(uint8(results[i].status), uint8(StatusCode.OK), "sell order ok");
+        }
+
+        Mission memory m = world.getActiveMission(orders[0].clansmanId);
+        uint64 executeAtTick = m.settlesAtTick;
+        bytes32 executedSig =
+            keccak256("ScheduledMarketActionExecuted(uint64,uint64,uint32,uint32,address,address,uint256,uint256)");
+
+        while (world.getWorldState().currentTick < executeAtTick) {
+            _advanceTick();
+        }
+
+        vm.recordLogs();
+        _advanceTick();
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
         uint64 previousSeq;
         uint256 executedCount;
         for (uint256 i = 0; i < logs.length; i++) {
             if (logs[i].emitter != address(world) || logs[i].topics.length == 0 || logs[i].topics[0] != executedSig) {
                 continue;
             }
-            uint64 executedTick = uint64(uint256(logs[i].topics[1]));
-            if (executedTick != nextTick) continue;
+            if (uint64(uint256(logs[i].topics[1])) != executeAtTick) continue;
 
             uint64 seq = uint64(uint256(logs[i].topics[2]));
-            if (sawExecution) assertGt(seq, previousSeq, "execution events must be FIFO");
-            sawExecution = true;
+            if (executedCount > 0) assertGt(seq, previousSeq, "execution should be FIFO");
+            assertEq(uint32(uint256(logs[i].topics[3])), clanId, "same clan should execute");
             previousSeq = seq;
             executedCount++;
         }
 
-        assertEq(executedCount, overflowCount + 1, "all merged actions should execute");
-        assertEq(previousSeq, nativeSeq, "native action should execute after older overflow actions");
-    }
-
-    // -------------------------------------------------------------------------
-    // Test 15: scheduledMarket_fifo — two clans queue sells; commitSequence is FIFO
-    // -------------------------------------------------------------------------
-
-    function test_scheduledMarket_fifo() public {
-        address woodAddr = _setupMarket();
-
-        // Mint two clans — they get region 1 and region 2 respectively
-        uint32 clanId1 = _mintClan();
-        vm.prank(elder2);
-        (uint32 clanId2,) = world.mintClan(elder2);
-
-        uint32 csId1 = _firstCs(clanId1);
-        uint32 csId2 = world.getClanFullView(clanId2).clansmen[0].clansman.clansman.clansmanId;
-
-        // Submit clan1's sell order first (commitSequence = 0)
-        ClanOrder[] memory orders1 = new ClanOrder[](1);
-        orders1[0] = ClanOrder({
-            clansmanId: csId1,
-            gotoRegion: ClanWorldConstants.REGION_UNICORN_TOWN,
-            action: ActionType.MarketSell,
-            targetClanId: 0,
-            marketToken: woodAddr,
-            marketAmount: 2e18,
-            maxGoldIn: 0
-        });
-        vm.prank(elder);
-        OrderResult[] memory r1 = world.submitClanOrders(clanId1, orders1);
-        assertEq(uint8(r1[0].status), uint8(StatusCode.OK), "clan1 sell order ok");
-
-        // Submit clan2's sell order second (commitSequence = 1)
-        ClanOrder[] memory orders2 = new ClanOrder[](1);
-        orders2[0] = ClanOrder({
-            clansmanId: csId2,
-            gotoRegion: ClanWorldConstants.REGION_UNICORN_TOWN,
-            action: ActionType.MarketSell,
-            targetClanId: 0,
-            marketToken: woodAddr,
-            marketAmount: 2e18,
-            maxGoldIn: 0
-        });
-        vm.prank(elder2);
-        OrderResult[] memory r2 = world.submitClanOrders(clanId2, orders2);
-        assertEq(uint8(r2[0].status), uint8(StatusCode.OK), "clan2 sell order ok");
-
-        // Verify FIFO: clan1 committed before clan2 so has lower commitSequence
-        Mission memory m1 = world.getActiveMission(csId1);
-        Mission memory m2 = world.getActiveMission(csId2);
-
-        // Check commitSequence in the queues for each clan's respective tick
-        ScheduledMarketAction[] memory q1 = world.getScheduledMarketActionsForTick(m1.actionStartTick);
-        ScheduledMarketAction[] memory q2 = world.getScheduledMarketActionsForTick(m2.actionStartTick);
-
-        uint64 seq1;
-        uint64 seq2;
-        for (uint256 i = 0; i < q1.length; i++) {
-            if (q1[i].clanId == clanId1) seq1 = q1[i].commitSequence;
-        }
-        for (uint256 i = 0; i < q2.length; i++) {
-            if (q2[i].clanId == clanId2) seq2 = q2[i].commitSequence;
-        }
-        assertLt(seq1, seq2, "clan1 submitted first: lower commitSequence");
-
-        // Advance ticks to cover both actions
-        uint64 curTick = world.getWorldState().currentTick;
-        uint64 maxTick = m1.actionStartTick > m2.actionStartTick ? m1.actionStartTick : m2.actionStartTick;
-        uint256 ticksNeeded = uint256(maxTick - curTick) + 1;
-        for (uint256 i = 0; i < ticksNeeded; i++) {
-            _advanceTick();
-        }
-
-        // Both clans should have gained gold (starter 3e18 + sell proceeds)
-        assertGt(world.getClan(clanId1).goldBalance, 3e18, "clan1 should have gained gold from sell");
-        assertGt(world.getClan(clanId2).goldBalance, 3e18, "clan2 should have gained gold from sell");
+        assertEq(executedCount, 3, "three same-tick sells should execute");
+        assertGt(world.getClan(clanId).goldBalance, 3e18, "clan should gain gold from sells");
     }
 
     // -------------------------------------------------------------------------
@@ -1320,7 +1221,7 @@ contract ClanWorldTest is Test {
         Mission memory m1 = world.getActiveMission(csId1);
         Mission memory m2 = world.getActiveMission(csId2);
 
-        uint64 maxTick = m1.actionStartTick > m2.actionStartTick ? m1.actionStartTick : m2.actionStartTick;
+        uint64 maxTick = m1.settlesAtTick > m2.settlesAtTick ? m1.settlesAtTick : m2.settlesAtTick;
         uint64 curTick = world.getWorldState().currentTick;
         uint256 ticksNeeded = uint256(maxTick - curTick) + 1;
         for (uint256 i = 0; i < ticksNeeded; i++) {

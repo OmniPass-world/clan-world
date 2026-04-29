@@ -125,7 +125,7 @@ contract ReentrancyTest is Test {
 
         Mission memory mission = world.getActiveMission(csId);
         uint64 currentTick = world.getWorldState().currentTick;
-        uint256 ticksNeeded = uint256(mission.actionStartTick - currentTick) + 1;
+        uint256 ticksNeeded = uint256(mission.settlesAtTick - currentTick) + 1;
         for (uint256 i = 0; i < ticksNeeded; i++) {
             _advanceTick();
         }

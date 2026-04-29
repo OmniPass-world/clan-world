@@ -59,6 +59,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     mapping(uint32 => Mission) private _missions; // keyed by clansmanId
     mapping(uint32 => WheatPlot[2]) private _wheatPlots; // [0]=west [1]=east
     mapping(uint64 => ScheduledMarketAction[]) private _scheduledMarketActions; // keyed by tick
+    mapping(uint32 => uint64) private _marketMissionCommitSequence; // clansmanId => FIFO sequence captured at submit
     mapping(uint8 => uint32[]) private _defendingClansByRegion; // home region => unique defending clanIds
     mapping(uint8 => mapping(uint32 => uint256)) private _defenderCountByRegionClan; // region => clanId => clansmen count
     mapping(uint32 => uint8) private _clansmanDefendingRegion; // clansmanId => defended home region
@@ -470,9 +471,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             // Phase 1 stub: check homebase, check resources; if ok, stub success
             _doBuilding(clan, cs, m, clanId, tick, action);
         } else if (action == ActionType.MarketBuy || action == ActionType.MarketSell) {
-            // Scheduled market actions: already enqueued at submitClanOrders time.
-            // Settlement resolves this action slot — just complete the mission.
-            // (Actual execution happened or will happen at heartbeat.)
+            _enqueueScheduledMarketAction(clanId, cs.clansmanId, m);
             _completeMission(cs, m);
         }
     }
@@ -1261,12 +1260,6 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         _clearDefender(cs.clansmanId);
 
-        // v4.2 §8 L758: "executes at heartbeat closing tick T" where T = arrivalTick.
-        // executeAtTick = arrivalTick (not arrivalTick+1).
-        if (isMarketAction) {
-            _enqueueScheduledMarketAction(clanId, order, cs.clansmanId, ctx.arrivalTick, ctx.newNonce);
-        }
-
         if (order.action == ActionType.DefendBase && ctx.travelTicks == 0) {
             _registerDefender(ctx.gotoRegion, clanId, cs.clansmanId);
         }
@@ -1318,25 +1311,26 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         m.marketToken = order.marketToken;
         m.marketAmount = order.marketAmount;
         m.maxGoldIn = order.maxGoldIn;
+
+        if (m.marketMode == MarketExecutionMode.Scheduled) {
+            _marketMissionCommitSequence[cs.clansmanId] = _world.nextCommitSequence++;
+        } else {
+            delete _marketMissionCommitSequence[cs.clansmanId];
+        }
     }
 
-    function _enqueueScheduledMarketAction(
-        uint32 clanId,
-        ClanOrder calldata order,
-        uint32 clansmanId,
-        uint64 executeAtTick,
-        uint64 missionNonce
-    ) internal {
+    function _enqueueScheduledMarketAction(uint32 clanId, uint32 clansmanId, Mission storage m) internal {
+        uint64 executeAtTick = m.settlesAtTick;
         ScheduledMarketAction memory sma = ScheduledMarketAction({
             executeAtTick: executeAtTick,
-            commitSequence: _world.nextCommitSequence++,
-            missionNonce: missionNonce,
+            commitSequence: _marketMissionCommitSequence[clansmanId],
+            missionNonce: m.nonce,
             clanId: clanId,
             clansmanId: clansmanId,
-            action: order.action,
-            marketToken: order.marketToken,
-            marketAmount: order.marketAmount,
-            maxGoldIn: order.maxGoldIn
+            action: m.action,
+            marketToken: m.marketToken,
+            marketAmount: m.marketAmount,
+            maxGoldIn: m.maxGoldIn
         });
         _scheduledMarketActions[executeAtTick].push(sma);
         emit ScheduledMarketActionCommitted(
@@ -1344,10 +1338,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             sma.commitSequence,
             clanId,
             clansmanId,
-            order.action,
-            order.marketToken,
-            order.marketAmount,
-            order.maxGoldIn
+            m.action,
+            m.marketToken,
+            m.marketAmount,
+            m.maxGoldIn
         );
     }
 
@@ -1389,16 +1383,15 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     // MARKET EXECUTION (Phase 2)
     // =========================================================================
 
-    /// @dev Execute up to MAX_MARKET_ACTIONS_PER_TICK scheduled market actions for the given tick.
-    ///      Overflow is appended to the next tick to keep heartbeat gas bounded.
+    /// @dev Execute all scheduled market actions for the given tick, then delete the queue.
     function _executeScheduledMarketActions(uint64 tick) internal {
         ScheduledMarketAction[] storage actions = _scheduledMarketActions[tick];
         uint256 len = actions.length;
         if (len == 0) return;
 
-        uint256 processCount = len > MAX_MARKET_ACTIONS_PER_TICK ? MAX_MARKET_ACTIONS_PER_TICK : len;
+        _sortScheduledMarketActionsByCommitSequence(actions);
 
-        for (uint256 i = 0; i < processCount; i++) {
+        for (uint256 i = 0; i < len; i++) {
             ScheduledMarketAction storage sma = actions[i];
 
             // Validate clansman still belongs to the clan
@@ -1442,16 +1435,6 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
                     emit MarketActionFailed(sma.clanId, sma.clansmanId, sma.action, StatusCode.ERR_INVALID_ACTION);
                 }
             }
-        }
-
-        if (len > processCount) {
-            ScheduledMarketAction[] storage nextActions = _scheduledMarketActions[tick + 1];
-            for (uint256 i = processCount; i < len; i++) {
-                nextActions.push(actions[i]);
-            }
-            // Invariant: each tick queue executes in global commitSequence order, including
-            // older overflow actions merged into a tick that already has native actions.
-            _sortScheduledMarketActionsByCommitSequence(nextActions);
         }
 
         delete _scheduledMarketActions[tick];
@@ -1794,8 +1777,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
                 return StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN;
             }
             // Immediate market orders execute during submitClanOrders when the
-            // worker is waiting in Unicorn Town and off cooldown. All other
-            // valid market orders are enqueued for the arrivalTick FIFO queue.
+            // worker is waiting in Unicorn Town and off cooldown. Other valid
+            // market orders enqueue when the scheduled mission resolves.
             if (cs.currentRegion == ClanWorldConstants.REGION_UNICORN_TOWN && cs.state == ClansmanState.WAITING) {
                 // Already at Unicorn Town — immediate if off cooldown, scheduled otherwise.
             }
