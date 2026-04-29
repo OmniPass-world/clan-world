@@ -63,6 +63,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     mapping(uint8 => mapping(uint32 => uint256)) private _defenderCountByRegionClan; // region => clanId => clansmen count
     mapping(uint32 => uint8) private _clansmanDefendingRegion; // clansmanId => defended home region
     mapping(uint64 => bytes32) private _tickSeeds; // tick => seed
+    mapping(uint32 => WallUpgradeReservation) private _wallUpgradeReservations; // clansmanId => reserved upgrade
+    mapping(uint32 => uint8) private _pendingWallUpgradesByClan; // clanId => queued, unsettled wall upgrades
 
     uint32 private _nextClanId;
     uint32 private _nextClansmanId;
@@ -71,11 +73,21 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     // per-clan clansman list: clanId => clansmanId[]
     mapping(uint32 => uint32[]) private _clanClansmanIds;
 
+    struct WallUpgradeReservation {
+        bool active;
+        uint32 clanId;
+        uint64 missionNonce;
+        uint256 woodCost;
+        uint256 ironCost;
+    }
+
     // =========================================================================
     // CONSTANTS — Wheat harvest rate (not in IClanWorld constants)
     // =========================================================================
 
     uint64 private constant DEPOSIT_DURATION_TICKS = 1;
+    uint64 private constant UPGRADE_WALL_DURATION_TICKS = 2;
+    uint8 private constant WALL_MAX_LEVEL = 5;
     uint256 private constant WHEAT_HARVEST_RATE = 20e18;
     uint256 private constant DOMAIN_GATHER = uint256(keccak256("clanworld.gather.v1"));
     /// @dev Caps market queue work per heartbeat; overflow is deferred to the next tick.
@@ -313,6 +325,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             if (m.active) {
                 if (m.action == ActionType.DefendBase) {
                     _clearDefender(cs.clansmanId);
+                } else if (m.action == ActionType.UpgradeWall) {
+                    _refundWallUpgradeReservation(cs.clansmanId);
                 }
                 m.active = false; // silent invalidation; dead clansman gets no MissionCompleted
             }
@@ -463,8 +477,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             // Persistent mission. Registration happens atomically at order submission.
         } else if (
             action == ActionType.BuildWall || action == ActionType.UpgradeBase || action == ActionType.UpgradeMonument
+                || action == ActionType.UpgradeWall
         ) {
-            // Phase 1 stub: check homebase, check resources; if ok, stub success
             _doBuilding(clan, cs, m, clanId, tick, action);
         } else if (action == ActionType.MarketBuy || action == ActionType.MarketSell) {
             // Scheduled market actions: already enqueued at submitClanOrders time.
@@ -719,6 +733,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         bool success = false;
         if (action == ActionType.BuildWall) {
             success = _tryBuildWall(clan, clanId, tick);
+        } else if (action == ActionType.UpgradeWall) {
+            success = _settleWallUpgrade(clan, cs.clansmanId, m.nonce, clanId, tick);
         } else if (action == ActionType.UpgradeBase) {
             success = _tryUpgradeBase(clan, clanId, tick);
         } else if (action == ActionType.UpgradeMonument) {
@@ -762,6 +778,27 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         uint8 old = clan.wallLevel;
         clan.wallLevel = nextLevel;
         emit WallLevelChanged(clanId, old, nextLevel, tick);
+        return true;
+    }
+
+    function _settleWallUpgrade(Clan storage clan, uint32 clansmanId, uint64 missionNonce, uint32 clanId, uint64 tick)
+        internal
+        returns (bool)
+    {
+        WallUpgradeReservation storage reservation = _wallUpgradeReservations[clansmanId];
+        if (!reservation.active || reservation.clanId != clanId || reservation.missionNonce != missionNonce) {
+            return false;
+        }
+
+        _clearWallUpgradeReservation(clansmanId);
+        if (clan.wallLevel >= WALL_MAX_LEVEL) return false;
+
+        uint8 old = clan.wallLevel;
+        clan.wallLevel = old + 1;
+        emit WallLevelChanged(clanId, old, clan.wallLevel, tick);
+        // Phase 8 event ABI uses uint32; season tick horizons are far below this cap.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        emit WallUpgraded(clanId, clan.wallLevel, uint32(tick));
         return true;
     }
 
@@ -1219,6 +1256,14 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         ctx.newNonce = cs.lastMissionNonce + 1;
         cs.lastMissionNonce = ctx.newNonce;
 
+        if (ctx.wasActive && existingM.action == ActionType.UpgradeWall) {
+            _refundWallUpgradeReservation(order.clansmanId);
+        }
+
+        if (order.action == ActionType.UpgradeWall) {
+            _reserveWallUpgrade(clan, clanId, order.clansmanId, ctx.newNonce);
+        }
+
         // Install mission via helper to keep stack shallow
         _installMission(existingM, order, cs, ctx);
 
@@ -1617,10 +1662,16 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             if (gotoRegion != clan.baseRegion) return StatusCode.ERR_INVALID_REGION;
         }
 
-        // BuildWall / UpgradeBase / UpgradeMonument: must go to homebase
-        if (action == ActionType.BuildWall || action == ActionType.UpgradeBase || action == ActionType.UpgradeMonument)
-        {
+        // BuildWall / UpgradeWall / UpgradeBase / UpgradeMonument: must go to homebase
+        if (
+            action == ActionType.BuildWall || action == ActionType.UpgradeWall || action == ActionType.UpgradeBase
+                || action == ActionType.UpgradeMonument
+        ) {
             if (gotoRegion != clan.baseRegion) return StatusCode.ERR_NOT_AT_HOMEBASE;
+        }
+
+        if (action == ActionType.UpgradeWall) {
+            return _validateUpgradeWallOrder(clan, cs.clansmanId);
         }
 
         // ChopWood: must go to Forest
@@ -1683,6 +1734,62 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         cs; // suppress unused warning
         return StatusCode.OK;
+    }
+
+    function _validateUpgradeWallOrder(Clan storage clan, uint32 clansmanId) internal view returns (StatusCode) {
+        uint8 pendingUpgrades = _pendingWallUpgradesByClan[clan.clanId];
+        uint256 availableWood = clan.vaultWood;
+        uint256 availableIron = clan.vaultIron;
+
+        WallUpgradeReservation storage existing = _wallUpgradeReservations[clansmanId];
+        if (existing.active && existing.clanId == clan.clanId) {
+            pendingUpgrades -= 1;
+            availableWood += existing.woodCost;
+            availableIron += existing.ironCost;
+        }
+
+        uint8 plannedCurrentLevel = clan.wallLevel + pendingUpgrades;
+        if (plannedCurrentLevel >= WALL_MAX_LEVEL) return StatusCode.ERR_INVALID_ACTION;
+
+        (uint256 woodCost, uint256 ironCost) = _wallUpgradeCost(plannedCurrentLevel);
+        if (availableWood < woodCost || availableIron < ironCost) return StatusCode.ERR_MISSING_RESOURCES;
+
+        return StatusCode.OK;
+    }
+
+    function _reserveWallUpgrade(Clan storage clan, uint32 clanId, uint32 clansmanId, uint64 missionNonce) internal {
+        uint8 plannedCurrentLevel = clan.wallLevel + _pendingWallUpgradesByClan[clanId];
+        (uint256 woodCost, uint256 ironCost) = _wallUpgradeCost(plannedCurrentLevel);
+
+        clan.vaultWood -= woodCost;
+        clan.vaultIron -= ironCost;
+        _pendingWallUpgradesByClan[clanId] += 1;
+
+        _wallUpgradeReservations[clansmanId] = WallUpgradeReservation({
+            active: true, clanId: clanId, missionNonce: missionNonce, woodCost: woodCost, ironCost: ironCost
+        });
+    }
+
+    function _refundWallUpgradeReservation(uint32 clansmanId) internal {
+        WallUpgradeReservation storage reservation = _wallUpgradeReservations[clansmanId];
+        if (!reservation.active) return;
+
+        Clan storage clan = _clans[reservation.clanId];
+        clan.vaultWood += reservation.woodCost;
+        clan.vaultIron += reservation.ironCost;
+        _clearWallUpgradeReservation(clansmanId);
+    }
+
+    function _clearWallUpgradeReservation(uint32 clansmanId) internal {
+        WallUpgradeReservation storage reservation = _wallUpgradeReservations[clansmanId];
+        if (!reservation.active) return;
+
+        uint32 clanId = reservation.clanId;
+        if (_pendingWallUpgradesByClan[clanId] > 0) {
+            _pendingWallUpgradesByClan[clanId] -= 1;
+        }
+
+        delete _wallUpgradeReservations[clansmanId];
     }
 
     function _validateDefendBaseOrder(Clan storage clan, ClanOrder calldata order, uint8 gotoRegion)
@@ -1797,6 +1904,19 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         return (m.submittedAtTick, m.executesAtTick, m.settlesAtTick);
     }
 
+    function getWallUpgradeCost(uint8 currentLevel) public pure override returns (uint256 wood, uint256 iron) {
+        return _wallUpgradeCost(currentLevel);
+    }
+
+    function _wallUpgradeCost(uint8 currentLevel) internal pure returns (uint256 wood, uint256 iron) {
+        if (currentLevel == 0) return (20e18, 0);
+        if (currentLevel == 1) return (35e18, 0);
+        if (currentLevel == 2) return (30e18, 5e18);
+        if (currentLevel == 3) return (40e18, 10e18);
+        if (currentLevel == 4) return (50e18, 15e18);
+        return (0, 0);
+    }
+
     function getActionDuration(ActionType action) public pure override returns (uint64) {
         if (
             action == ActionType.ChopWood || action == ActionType.MineIron || action == ActionType.FishDocks
@@ -1807,6 +1927,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         if (action == ActionType.DepositResources) {
             return DEPOSIT_DURATION_TICKS;
+        }
+
+        if (action == ActionType.UpgradeWall) {
+            return UPGRADE_WALL_DURATION_TICKS;
         }
 
         if (

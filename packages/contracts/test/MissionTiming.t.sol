@@ -133,6 +133,7 @@ contract MissionTimingTest is Test {
         assertEq(world.getActionDuration(ActionType.MarketBuy), 1, "market buy");
         assertEq(world.getActionDuration(ActionType.MarketSell), 1, "market sell");
         assertEq(world.getActionDuration(ActionType.Wait), 0, "wait");
+        assertEq(world.getActionDuration(ActionType.UpgradeWall), 2, "upgrade wall");
     }
 
     function test_getTravelTicks_adjacentAndDistantMatchTable() public view {

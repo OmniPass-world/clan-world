@@ -141,7 +141,8 @@ enum ActionType {
     DefendBase,
     MarketBuy,
     MarketSell,
-    Wait
+    Wait,
+    UpgradeWall
 }
 
 enum MarketExecutionMode {
@@ -543,6 +544,7 @@ interface IClanWorldEvents {
 
     // ----- building -----
     event WallLevelChanged(uint32 indexed clanId, uint8 oldLevel, uint8 newLevel, uint64 atTick);
+    event WallUpgraded(uint32 indexed clanId, uint8 newLevel, uint32 settledAtTick);
     event BaseLevelChanged(uint32 indexed clanId, uint8 oldLevel, uint8 newLevel, uint64 atTick);
     event MonumentLevelChanged(uint32 indexed clanId, uint8 oldLevel, uint8 newLevel, uint64 atTick);
 
@@ -710,6 +712,8 @@ interface IClanWorld is IClanWorldEvents {
         external
         view
         returns (uint64 submitted, uint64 executes, uint64 settles);
+
+    function getWallUpgradeCost(uint8 currentLevel) external pure returns (uint256 wood, uint256 iron);
 
     function getActionDuration(ActionType action) external pure returns (uint64);
 
