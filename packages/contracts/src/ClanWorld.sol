@@ -23,6 +23,7 @@ import {
     ScheduledMarketAction,
     OtcProposal,
     VaultTransferProposal,
+    BlueprintTransferProposal,
     DefenseContribution,
     PackedRoute,
     DerivedClanState,
@@ -67,6 +68,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     mapping(uint64 => bytes32) private _tickSeeds; // tick => seed
     mapping(uint256 => OtcProposal) private _otcGoldProposals;
     mapping(uint256 => VaultTransferProposal) private _otcVaultTransferProposals;
+    mapping(uint256 => BlueprintTransferProposal) private _otcBlueprintTransferProposals;
 
     uint32 private _nextClanId;
     uint32 private _nextClansmanId;
@@ -100,8 +102,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         _world.nextHeartbeatAtTick = 1; // first heartbeat will open tick 1
         // First winter: last WINTER_DURATION_TICKS of first TICKS_PER_WINTER_CYCLE cycle
         // i.e. ticks [100, 110)
-        _world.winterStartsAtTick =
-            ClanWorldConstants.TICKS_PER_WINTER_CYCLE - ClanWorldConstants.WINTER_DURATION_TICKS; // = 100
+        _world.winterStartsAtTick = ClanWorldConstants.TICKS_PER_WINTER_CYCLE - ClanWorldConstants.WINTER_DURATION_TICKS; // = 100
         _world.winterEndsAtTick = ClanWorldConstants.TICKS_PER_WINTER_CYCLE; // = 110
         _world.winterActive = false;
         _treasury.treasuryOwner = msg.sender;
@@ -1920,6 +1921,63 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         return clan.vaultWood >= wood && clan.vaultWheat >= wheat && clan.vaultFish >= fish && clan.vaultIron >= iron;
     }
 
+    function proposeBlueprintTransfer(uint32 fromClanId, uint32 toClanId, uint256 amount, uint64 expiryTick)
+        external
+        override
+        nonReentrant
+        returns (uint256 proposalId)
+    {
+        Clan storage fromClan = _clans[fromClanId];
+        require(fromClan.clanId != 0, "ClanWorld: clan not found");
+        require(fromClan.owner == msg.sender, "ClanWorld: not clan owner");
+        require(fromClan.clanState == ClanState.ACTIVE, "ClanWorld: clan dead");
+        require(_clans[toClanId].clanId != 0, "ClanWorld: target clan not found");
+        require(_clans[toClanId].clanState == ClanState.ACTIVE, "ClanWorld: target clan dead");
+        if (fromClan.blueprintBalance < amount) revert("ERR_NOT_ENOUGH_BLUEPRINT");
+
+        proposalId = _nextOtcProposalId++;
+        _otcBlueprintTransferProposals[proposalId] = BlueprintTransferProposal({
+            from: fromClanId, to: toClanId, amount: amount, expiryTick: expiryTick, accepted: false, cancelled: false
+        });
+
+        emit BlueprintTransferProposed(proposalId, fromClanId, toClanId, amount, expiryTick);
+    }
+
+    function acceptBlueprintTransfer(uint256 proposalId) external override nonReentrant {
+        BlueprintTransferProposal storage proposal = _otcBlueprintTransferProposals[proposalId];
+        require(proposal.from != 0, "ClanWorld: proposal not found");
+        require(!proposal.accepted, "ClanWorld: proposal accepted");
+        require(!proposal.cancelled, "ClanWorld: proposal cancelled");
+        require(_world.currentTick <= proposal.expiryTick, "ClanWorld: proposal expired");
+
+        Clan storage fromClan = _clans[proposal.from];
+        Clan storage toClan = _clans[proposal.to];
+        require(fromClan.clanState == ClanState.ACTIVE, "ClanWorld: clan dead");
+        require(toClan.clanState == ClanState.ACTIVE, "ClanWorld: target clan dead");
+        require(toClan.owner == msg.sender, "ClanWorld: not clan owner");
+        if (fromClan.blueprintBalance < proposal.amount) revert("ERR_NOT_ENOUGH_BLUEPRINT");
+
+        fromClan.blueprintBalance -= proposal.amount;
+        toClan.blueprintBalance += proposal.amount;
+        proposal.accepted = true;
+
+        emit BlueprintTransferAccepted(proposalId, proposal.from, proposal.to, proposal.amount, _world.currentTick);
+    }
+
+    function cancelBlueprintTransfer(uint256 proposalId) external override nonReentrant {
+        BlueprintTransferProposal storage proposal = _otcBlueprintTransferProposals[proposalId];
+        require(proposal.from != 0, "ClanWorld: proposal not found");
+        require(!proposal.accepted, "ClanWorld: proposal accepted");
+        require(!proposal.cancelled, "ClanWorld: proposal cancelled");
+
+        Clan storage fromClan = _clans[proposal.from];
+        require(fromClan.owner == msg.sender, "ClanWorld: not clan owner");
+        require(fromClan.clanState == ClanState.ACTIVE, "ClanWorld: clan dead");
+
+        proposal.cancelled = true;
+        emit BlueprintTransferCancelled(proposalId);
+    }
+
     function transferGold(uint32, uint32, uint256) external pure override {
         revert("OTC transfers not implemented");
     }
@@ -2074,6 +2132,15 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         returns (VaultTransferProposal memory)
     {
         return _otcVaultTransferProposals[proposalId];
+    }
+
+    function getOtcBlueprintTransferProposal(uint256 proposalId)
+        external
+        view
+        override
+        returns (BlueprintTransferProposal memory)
+    {
+        return _otcBlueprintTransferProposals[proposalId];
     }
 
     function getActiveDefenders(uint32 targetClanId) external view override returns (uint32[] memory clansmanIds) {

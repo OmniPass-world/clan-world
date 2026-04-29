@@ -23,6 +23,7 @@ import {
     ScheduledMarketAction,
     OtcProposal,
     VaultTransferProposal,
+    BlueprintTransferProposal,
     DefenseContribution,
     PackedRoute,
     DerivedClanState,
@@ -138,6 +139,14 @@ contract ClanWorldStub is IClanWorld {
     function acceptVaultTransfer(uint256) external override {}
 
     function cancelVaultTransfer(uint256) external override {}
+
+    function proposeBlueprintTransfer(uint32, uint32, uint256, uint64) external pure override returns (uint256) {
+        return 1;
+    }
+
+    function acceptBlueprintTransfer(uint256) external override {}
+
+    function cancelBlueprintTransfer(uint256) external override {}
 
     function transferGold(uint32, uint32, uint256) external override {}
 
@@ -291,6 +300,15 @@ contract ClanWorldStub is IClanWorld {
         return VaultTransferProposal({
             from: 0, to: 0, wood: 0, wheat: 0, fish: 0, iron: 0, expiryTick: 0, accepted: false, cancelled: false
         });
+    }
+
+    function getOtcBlueprintTransferProposal(uint256)
+        external
+        pure
+        override
+        returns (BlueprintTransferProposal memory)
+    {
+        return BlueprintTransferProposal({from: 0, to: 0, amount: 0, expiryTick: 0, accepted: false, cancelled: false});
     }
 
     function getActiveDefenders(uint32) external pure override returns (uint32[] memory) {
