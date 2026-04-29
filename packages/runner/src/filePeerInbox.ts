@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { IElderPeerInbox, PeerMessage } from '@clan-world/agents/seams';
 import { assertSafeInboxKey } from '@clan-world/shared';
+import { appendRestrictedFileSync } from './restrictedFile';
 import { ELDER_IDS, type ElderId } from './types';
 
 /**
@@ -79,9 +80,8 @@ export class FilePeerInbox implements IElderPeerInbox {
       msg: message,
       ts: sentAt,
     };
-    fs.appendFileSync(file, JSON.stringify(entry) + '\n', {
+    appendRestrictedFileSync(file, JSON.stringify(entry) + '\n', {
       encoding: 'utf8',
-      mode: 0o600,
     });
   }
 

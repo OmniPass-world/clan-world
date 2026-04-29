@@ -136,6 +136,17 @@ describe('memory save/recall', () => {
     expect(mem['key1']).toBe('val1');
     expect(mem['key2']).toBe('val2');
   });
+
+  it('normalizes permissions when saving to an existing memory file', async () => {
+    const file = path.join(home, '.world', 'clanworld-runner', 'state', 'elder-2-memory.json');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '{}\n', { encoding: 'utf8', mode: 0o644 });
+    fs.chmodSync(file, 0o644);
+
+    writeMemory(2, { plan: 'expand east' }, home);
+
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+  });
 });
 
 describe('peer whisper/inbox', () => {

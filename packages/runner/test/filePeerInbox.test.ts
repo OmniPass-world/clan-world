@@ -79,4 +79,18 @@ describe('FilePeerInbox', () => {
 
     expect(() => new FilePeerInbox(1, '../../escape', stateDir)).toThrow(/unsafe inbox key/);
   });
+
+  it('normalizes permissions on an existing recipient inbox file', async () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clanworld-peer-inbox-'));
+    const inboxDir = path.join(stateDir, 'peer-inbox');
+    const inboxFile = path.join(inboxDir, 'elder-2.jsonl');
+    fs.mkdirSync(inboxDir, { recursive: true });
+    fs.writeFileSync(inboxFile, '', { encoding: 'utf8', mode: 0o644 });
+    fs.chmodSync(inboxFile, 0o644);
+    const inbox = new FilePeerInbox(1, '1', stateDir);
+
+    await inbox.send('2', 'tighten permissions', 43);
+
+    expect(fs.statSync(inboxFile).mode & 0o777).toBe(0o600);
+  });
 });

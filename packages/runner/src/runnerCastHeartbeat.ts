@@ -86,7 +86,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): RunnerHeart
   }
   return {
     privateKey: pk,
-    rpcUrl: env['RPC_URL_PRIMARY'] ?? env['RPC_URL_FALLBACK'],
+    rpcUrl: env['RPC_URL_PRIMARY'] || env['RPC_URL_FALLBACK'],
     contractAddress: contractAddress as `0x${string}`,
   };
 }
