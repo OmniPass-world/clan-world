@@ -14,6 +14,8 @@
 #   make elders-down      Kill all 4 Elder tmux sessions
 #   make elders-status    Show which sessions are alive
 #   make elder-N          Start one Elder (N = 1..4)
+#   make elders-greet     Inject /clear + /rename + /color into all 4 REPLs
+#   make elder-greet-N    Inject startup commands into one Elder
 #   make ttyd-up          Start all 4 ttyd readonly web services
 #   make ttyd-down        Stop all 4 ttyd services
 #   make ttyd-status      Show ttyd service state
@@ -30,8 +32,9 @@ SYSTEMD_USER_DIR := $(HOME)/.config/systemd/user
 
 .PHONY: help install setup elders-up elders-down elders-status \
         ttyd-up ttyd-down ttyd-status ttyd-units \
-        seed-liquidity \
-        $(addprefix elder-,$(ELDER_NUMBERS))
+        seed-liquidity elders-greet \
+        $(addprefix elder-,$(ELDER_NUMBERS)) \
+        $(addprefix elder-greet-,$(ELDER_NUMBERS))
 
 help:
 	@echo "ClanWorld Elders harness"
@@ -42,6 +45,8 @@ help:
 	@echo "  make elders-down      Kill all 4 Elder tmux sessions"
 	@echo "  make elders-status    Show which sessions are alive"
 	@echo "  make elder-N          Start one Elder (N = 1..4)"
+	@echo "  make elders-greet     Inject /clear + /rename + /color into all 4 REPLs"
+	@echo "  make elder-greet-N    Inject startup commands into one Elder"
 	@echo "  make ttyd-up          Start all 4 ttyd readonly web services"
 	@echo "  make ttyd-down        Stop all 4 ttyd services"
 	@echo "  make ttyd-status      Show ttyd service state"
@@ -54,11 +59,12 @@ help:
 # Idempotent. Safe to re-run. Will NOT clobber:
 #   .env, agent-directive.secret.md, state/, existing CLAUDE.md (personality)
 # WILL overwrite (source-controlled, always safe to update):
-#   AGENTS.md, settings.json, skills/, run.sh, Makefile, aliases.sh
+#   AGENTS.md, settings.json, skills/, run.sh, bin/, Makefile, aliases.sh
 
 install:
 	@echo "=== installing elder harness to $(DEST) ==="
 	@mkdir -p $(DEST)/.claude/skills
+	@mkdir -p $(DEST)/bin
 	@cp -p $(REPO_DIR)/parent/AGENTS.md $(DEST)/AGENTS.md
 	@ln -sf AGENTS.md $(DEST)/CLAUDE.md
 	@cp -p $(REPO_DIR)/parent/.claude/settings.json $(DEST)/.claude/settings.json
@@ -71,6 +77,7 @@ install:
 	done
 	@cp -p $(REPO_DIR)/Makefile $(DEST)/Makefile
 	@cp -p $(REPO_DIR)/aliases.sh $(DEST)/aliases.sh
+	@cp -p $(REPO_DIR)/bin/* $(DEST)/bin/
 	@for n in $(ELDER_NUMBERS); do \
 	    mkdir -p $(DEST)/elder-$$n/.claude; \
 	    mkdir -p $(DEST)/elder-$$n/state/plugin-cache; \
@@ -97,7 +104,7 @@ install:
 	@echo ""
 	@echo "Install complete → $(DEST)"
 	@echo "  source $(DEST)/aliases.sh        # shell shortcuts"
-	@echo "  make -C $(DEST) elders-up        # spawn elder sessions (OAuth wizard on first run)"
+	@echo "  make -C $(DEST) elders-up        # spawn elder sessions"
 	@echo "  make -C $(DEST) ttyd-up          # start ttyd services (after elders are running)"
 
 setup: install
@@ -125,7 +132,7 @@ ttyd-units:
 	        echo "  unchanged: $$unit"; \
 	    fi; \
 	done
-	@systemctl --user daemon-reload
+	@systemctl --user daemon-reload || echo "  warning: systemctl --user daemon-reload unavailable — skipped"
 	@for n in $(ELDER_NUMBERS); do \
 	    systemctl --user enable ttyd-elder-$$n.service 2>&1 | grep -v "already enabled" || true; \
 	done
@@ -134,6 +141,17 @@ ttyd-units:
 
 elders-up: $(addprefix elder-,$(ELDER_NUMBERS))
 	@$(MAKE) --no-print-directory elders-status
+
+# Inject /clear + /rename + /color into a running elder REPL via tmux send-keys.
+# Slash commands are processed by the CC input layer, not by env or model — they
+# have to be physically typed into the running REPL. Helper at bin/elder-inject-startup.sh.
+elders-greet:
+	@$(ELDER_DIR)/bin/elder-inject-startup.sh all
+
+elder-greet-1: ; @$(ELDER_DIR)/bin/elder-inject-startup.sh 1
+elder-greet-2: ; @$(ELDER_DIR)/bin/elder-inject-startup.sh 2
+elder-greet-3: ; @$(ELDER_DIR)/bin/elder-inject-startup.sh 3
+elder-greet-4: ; @$(ELDER_DIR)/bin/elder-inject-startup.sh 4
 
 elder-%:
 	@if tmux has-session -t elder-$* 2>/dev/null; then \

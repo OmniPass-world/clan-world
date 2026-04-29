@@ -5,6 +5,23 @@
     "TZ": "America/New_York"
   },
   "permissions": {
-    "defaultMode": "acceptEdits"
+    "defaultMode": "default",
+    "allow": [
+      "Bash(elder *)",
+      "Bash(date)",
+      "Read",
+      "Write",
+      "Edit"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(curl *)",
+      "Bash(wget *)",
+      "Bash(git *)",
+      "Bash(systemctl *)",
+      "Bash(sudo *)",
+      "WebFetch",
+      "WebSearch"
+    ]
   }
 }

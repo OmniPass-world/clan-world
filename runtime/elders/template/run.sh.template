@@ -12,6 +12,18 @@ AGENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # === Core isolation — OAuth via CLAUDE_CONFIG_DIR per ADR 0013 ===
 # NEVER use ANTHROPIC_API_KEY, NEVER use --bare (forces API key).
 export CLAUDE_CONFIG_DIR="$AGENT_DIR/.claude"
+export CLAUDE_CODE_HIDE_ACCOUNT_INFO=1
+
+# === Token-based auth (skips interactive OAuth wizard) ===
+# CLAUDE_CODE_OAUTH_TOKEN env var avoids the per-elder wizard dance.
+# Token is shared across all elders (tied to user's MAX subscription).
+# Stored in ~/code/clan-world/.env.local (gitignored).
+if [ -f "$HOME/code/clan-world/.env.local" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$HOME/code/clan-world/.env.local"
+  set +a
+fi
 
 # OAuth credentials: symlink to host-shared credentials so token refresh stays fresh.
 # Run once during agent setup if not already present:
@@ -53,17 +65,6 @@ export PATH="$HOME/code/omnipass-world/clan-world/packages/agents/bin:$PATH"
 cd "$AGENT_DIR"
 echo "[$AGENT_NAME] Starting... model=$ANTHROPIC_MODEL $(date '+%Y-%m-%d %H:%M:%S %Z')"
 
-# Per-cwd session continuation. Encoded path matches Claude Code's projects/ layout.
-CWD_ENCODED="${PWD//\//-}"
-CONTINUE_FLAG="--continue"
-if [ ! -d "$CLAUDE_CONFIG_DIR/projects/$CWD_ENCODED" ]; then
-  CONTINUE_FLAG=""
-  echo "[$AGENT_NAME] No prior session for $PWD — starting fresh"
-fi
-
 # Elders don't need the Telegram plugin (no inbound Telegram), so omit --channels.
 # The runner injects situation blocks via tmux send-keys directly to this REPL.
-exec claude \
-  --dangerously-skip-permissions \
-  $CONTINUE_FLAG \
-  "$@"
+exec claude "$@"

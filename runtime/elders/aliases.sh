@@ -6,6 +6,8 @@
 #   elders-up             start all 4 Elder sessions (Makefile-backed)
 #   elders-down           kill all 4 Elder sessions
 #   elders-status         list which Elder sessions are alive
+#   elders-greet          inject /clear + /rename + /color into all 4 REPLs
+#   elder-greet <N>       inject startup commands into one Elder
 #   elder-up <N>          start one Elder
 #
 # These aliases delegate to the Makefile at $_ELDER_DIR/Makefile
@@ -23,6 +25,16 @@ fi
 elders-up()     { make -C "$_ELDER_DIR" --no-print-directory elders-up; }
 elders-down()   { make -C "$_ELDER_DIR" --no-print-directory elders-down; }
 elders-status() { make -C "$_ELDER_DIR" --no-print-directory elders-status; }
+elders-greet()  { make -C "$_ELDER_DIR" --no-print-directory elders-greet; }
+
+elder-greet() {
+  local n="$1"
+  if [[ ! "$n" =~ ^[1-4]$ ]]; then
+    echo "usage: elder-greet <N>   where N is 1, 2, 3, or 4" >&2
+    return 1
+  fi
+  make -C "$_ELDER_DIR" --no-print-directory "elder-greet-$n"
+}
 
 elder-up() {
   local n="$1"
