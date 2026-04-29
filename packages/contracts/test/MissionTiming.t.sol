@@ -125,7 +125,7 @@ contract MissionTimingTest is Test {
         assertEq(world.getActionDuration(ActionType.FishDocks), 4, "fish docks");
         assertEq(world.getActionDuration(ActionType.FishDeepSea), 4, "fish deep sea");
         assertEq(world.getActionDuration(ActionType.HarvestWheat), 4, "harvest wheat");
-        assertEq(world.getActionDuration(ActionType.DepositResources), 1, "deposit");
+        assertEq(world.getActionDuration(ActionType.DepositResources), 0, "deposit");
         assertEq(world.getActionDuration(ActionType.BuildWall), 1, "build wall");
         assertEq(world.getActionDuration(ActionType.UpgradeBase), 1, "upgrade base");
         assertEq(world.getActionDuration(ActionType.UpgradeMonument), 1, "upgrade monument");

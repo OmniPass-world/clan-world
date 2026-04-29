@@ -528,12 +528,11 @@ interface IClanWorldEvents {
     );
     event ResourcesDeposited(
         uint32 indexed clanId,
-        uint32 indexed clansmanId,
-        uint256 wood,
-        uint256 iron,
-        uint256 wheat,
-        uint256 fish,
-        uint64 atTick
+        uint32 clansmanId,
+        uint256 woodDelta,
+        uint256 ironDelta,
+        uint256 fishDelta,
+        uint256 wheatDelta
     );
 
     // ----- building -----
