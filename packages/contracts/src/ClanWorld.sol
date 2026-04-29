@@ -103,6 +103,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     uint256 internal constant MAX_BANDIT_EAGER_SETTLE_DEFENDER_SCAN_PER_REGION = 48;
     uint32 internal constant MIN_BANDIT_SPAWN_STRENGTH = 100;
     uint32 internal constant BANDIT_SPAWN_STRENGTH_SPREAD = 151;
+    uint32 internal constant CLANSMAN_MAX_DEFENSE_DAMAGE = 100;
+    uint32 internal constant WALL_HP_PER_LEVEL = 100;
+    uint32 internal constant BASE_HP_PER_LEVEL = 25;
+    uint32 internal constant CLANSMAN_HP = 100;
 
     struct BanditSpawnState {
         uint64 lastSpawnTick;
@@ -1029,6 +1033,233 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         return uint16(strength);
     }
 
+    function _resolveAttackingBandits(uint64 closedTick) internal {
+        for (uint8 region = ClanWorldConstants.REGION_FOREST; region <= ClanWorldConstants.REGION_DEEP_SEA; region++) {
+            uint32[] storage regionBandits = _banditsByRegion[region];
+            uint256 i = 0;
+            while (i < regionBandits.length) {
+                uint32 banditId = regionBandits[i];
+                BanditTroop storage bandit = _bandits[banditId];
+                bool shouldResolve =
+                    bandit.state == BanditState.Attacking && bandit.tickEnteredState == closedTick;
+                if (shouldResolve) {
+                    _resolveBanditAttack(banditId, closedTick);
+                    if (_bandits[banditId].id == ClanWorldConstants.BANDIT_ID_NULL) {
+                        continue;
+                    }
+                }
+                i++;
+            }
+        }
+    }
+
+    function _resolveBanditAttack(uint32 banditId, uint64 closedTick) internal {
+        require(_world.currentTick == closedTick, "ClanWorld: bandit attack tick mismatch");
+
+        BanditTroop storage bandit = _bandits[banditId];
+        if (bandit.id == ClanWorldConstants.BANDIT_ID_NULL || bandit.state != BanditState.Attacking) {
+            return;
+        }
+        if (bandit.tickEnteredState != closedTick) {
+            return;
+        }
+
+        uint32 targetClanId = bandit.targetClanId;
+        Clan storage targetClan = _clans[targetClanId];
+        if (targetClan.clanId == ClanWorldConstants.CLAN_ID_NULL || targetClan.clanState == ClanState.DEAD) {
+            _transitionBanditState(banditId, BanditState.Escaped);
+            emit BanditEscaped(banditId, closedTick);
+            return;
+        }
+
+        _settleClan(targetClanId);
+        _eagerSettleActiveDefendersForBase(targetClanId, targetClan.baseRegion);
+
+        bytes32 tickSeed = _world.currentTickSeed;
+        uint32 banditAttackPower = bandit.strength;
+        uint32 totalClansmanDefense = _totalBanditClansmanDefense(banditId, targetClanId, tickSeed);
+        bool defeated = uint256(totalClansmanDefense) >= uint256(banditAttackPower) * 2;
+
+        uint32 wallDamage;
+        uint32 baseAbsorbed;
+        uint32 clansmanDamageAbsorbed;
+        if (!defeated) {
+            uint32 incomingDamage =
+                banditAttackPower > totalClansmanDefense ? banditAttackPower - totalClansmanDefense : 0;
+            (incomingDamage, wallDamage) = _applyBanditWallDamage(targetClan, targetClanId, banditId, incomingDamage);
+            (incomingDamage, baseAbsorbed) = _applyBanditBaseDefense(targetClan, incomingDamage);
+            clansmanDamageAbsorbed =
+                _applyBanditClansmanCasualties(targetClan, targetClanId, banditId, incomingDamage, tickSeed);
+        }
+
+        uint32 totalDefense = totalClansmanDefense + wallDamage + baseAbsorbed + clansmanDamageAbsorbed;
+        emit BanditAttackResolved(
+            banditId,
+            targetClanId,
+            defeated,
+            _uint16Clamp(banditAttackPower),
+            _uint16Clamp(totalDefense),
+            targetClan.wallLevel,
+            0,
+            0,
+            0,
+            0,
+            closedTick
+        );
+
+        if (defeated) {
+            emit BanditDefeated(banditId, targetClanId, closedTick);
+            _transitionBanditState(banditId, BanditState.Defeated);
+        } else {
+            _transitionBanditState(banditId, BanditState.Escaped);
+            emit BanditEscaped(banditId, closedTick);
+        }
+    }
+
+    function _totalBanditClansmanDefense(uint32 banditId, uint32 targetClanId, bytes32 tickSeed)
+        internal
+        view
+        returns (uint32 totalDefense)
+    {
+        uint8 targetRegion = _clans[targetClanId].baseRegion;
+        uint32[] storage defendingClans = _defendingClansByRegion[targetRegion];
+
+        for (uint256 i = 0; i < defendingClans.length; i++) {
+            uint32 defenderClanId = defendingClans[i];
+            Clan storage defenderClan = _clans[defenderClanId];
+            if (defenderClan.clanState == ClanState.DEAD || _isStarving(defenderClan)) {
+                continue;
+            }
+
+            uint32[] storage clansmanIds = _clanClansmanIds[defenderClanId];
+            for (uint256 j = 0; j < clansmanIds.length; j++) {
+                uint32 clansmanId = clansmanIds[j];
+                Clansman storage cs = _clansmen[clansmanId];
+                Mission storage mission = _missions[clansmanId];
+                if (
+                    cs.state == ClansmanState.ACTING && cs.currentRegion == targetRegion && mission.active
+                        && mission.action == ActionType.DefendBase && mission.targetClanId == targetClanId
+                ) {
+                    totalDefense += _clansmanDefenseDamageRoll(tickSeed, banditId, clansmanId);
+                }
+            }
+        }
+    }
+
+    function _applyBanditWallDamage(Clan storage clan, uint32 clanId, uint32 banditId, uint32 incomingDamage)
+        internal
+        returns (uint32 remainingDamage, uint32 wallDamage)
+    {
+        remainingDamage = incomingDamage;
+        if (remainingDamage == 0 || clan.wallLevel == 0) {
+            return (remainingDamage, 0);
+        }
+
+        wallDamage = remainingDamage < WALL_HP_PER_LEVEL ? remainingDamage : WALL_HP_PER_LEVEL;
+        remainingDamage -= wallDamage;
+        if (wallDamage >= WALL_HP_PER_LEVEL) {
+            if (clan.wallLevel > 0) {
+                clan.wallLevel--;
+            }
+            emit WallDamagedByBandit(clanId, clan.wallLevel, banditId);
+        }
+    }
+
+    function _applyBanditBaseDefense(Clan storage clan, uint32 incomingDamage)
+        internal
+        view
+        returns (uint32 remainingDamage, uint32 baseAbsorbed)
+    {
+        remainingDamage = incomingDamage;
+        if (remainingDamage == 0 || clan.baseLevel == 0) {
+            return (remainingDamage, 0);
+        }
+
+        uint32 baseDefense = uint32(clan.baseLevel) * BASE_HP_PER_LEVEL;
+        baseAbsorbed = remainingDamage < baseDefense ? remainingDamage : baseDefense;
+        remainingDamage -= baseAbsorbed;
+    }
+
+    function _applyBanditClansmanCasualties(
+        Clan storage clan,
+        uint32 clanId,
+        uint32 banditId,
+        uint32 incomingDamage,
+        bytes32 tickSeed
+    ) internal returns (uint32 damageAbsorbed) {
+        uint32 remainingDamage = incomingDamage;
+        uint32 killIndex = 0;
+        while (remainingDamage > 0) {
+            uint32 victimId = _pickBanditClansmanVictim(clanId, banditId, killIndex, tickSeed);
+            if (victimId == 0) {
+                break;
+            }
+
+            Clansman storage victim = _clansmen[victimId];
+            victim.state = ClansmanState.DEAD;
+            victim.cooldownEndsAtTs = 0;
+            _clearDefender(victimId);
+            Mission storage mission = _missions[victimId];
+            mission.active = false;
+            if (clan.livingClansmen > 0) {
+                clan.livingClansmen--;
+            }
+
+            uint32 absorbed = remainingDamage < CLANSMAN_HP ? remainingDamage : CLANSMAN_HP;
+            damageAbsorbed += absorbed;
+            remainingDamage -= absorbed;
+            emit ClansmanKilledByBandit(clanId, victimId, banditId);
+            killIndex++;
+        }
+    }
+
+    function _pickBanditClansmanVictim(uint32 clanId, uint32 banditId, uint32 killIndex, bytes32 tickSeed)
+        internal
+        view
+        returns (uint32 victimId)
+    {
+        uint32[] storage clansmanIds = _clanClansmanIds[clanId];
+        uint256 livingCount;
+        for (uint256 i = 0; i < clansmanIds.length; i++) {
+            if (_clansmen[clansmanIds[i]].state != ClansmanState.DEAD) {
+                livingCount++;
+            }
+        }
+        if (livingCount == 0) {
+            return 0;
+        }
+
+        uint256 pick = uint256(keccak256(abi.encode("bandit_clansman_kill", tickSeed, banditId, clanId, killIndex)))
+            % livingCount;
+        uint256 seen;
+        for (uint256 i = 0; i < clansmanIds.length; i++) {
+            uint32 candidateId = clansmanIds[i];
+            if (_clansmen[candidateId].state == ClansmanState.DEAD) {
+                continue;
+            }
+            if (seen == pick) {
+                return candidateId;
+            }
+            seen++;
+        }
+    }
+
+    function _clansmanDefenseDamageRoll(bytes32 tickSeed, uint32 banditId, uint32 clansmanId)
+        internal
+        pure
+        returns (uint32)
+    {
+        return uint32(
+            uint256(keccak256(abi.encode("clansman_defense", tickSeed, banditId, clansmanId)))
+                % (CLANSMAN_MAX_DEFENSE_DAMAGE + 1)
+        );
+    }
+
+    function _uint16Clamp(uint32 value) internal pure returns (uint16) {
+        if (value > type(uint16).max) return type(uint16).max;
+        return uint16(value);
+    }
+
     function _evaluateBanditSpawns(bytes32 tickSeed) internal {
         uint256[] memory regionWeights = _banditSpawnRegionWeights();
         if (_activeBanditCount >= MAX_TOTAL_BANDITS) {
@@ -1269,13 +1500,16 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         // Step 3: Eager-settle bases and active defenders in bandit spawn-candidate regions.
         _eagerSettleForBandits(closedTick);
 
-        // Step 4: Evaluate deterministic bandit spawns for the closed tick.
+        // Step 4: Resolve deterministic bandit attacks for the closed tick.
+        _resolveAttackingBandits(closedTick);
+
+        // Step 5: Evaluate deterministic bandit spawns for the closed tick.
         _evaluateBanditSpawns(closedTickSeed);
 
-        // Step 5: Resolve world events (season boundary, winter transitions).
+        // Step 6: Resolve world events (season boundary, winter transitions).
         _resolveWorldEvents(closedTick);
 
-        // Step 6: Increment tick and publish the opened tick seed as one visible state transition.
+        // Step 7: Increment tick and publish the opened tick seed as one visible state transition.
         uint64 newTick = closedTick + 1;
         bytes32 newSeed = keccak256(abi.encode(block.prevrandao, closedTickSeed, closedTick));
         _world.currentTick = newTick;

@@ -1970,6 +1970,16 @@
               "internalType": "bool"
             },
             {
+              "name": "currentSeasonNumber",
+              "type": "uint64",
+              "internalType": "uint64"
+            },
+            {
+              "name": "nextHeartbeatAtTick",
+              "type": "uint64",
+              "internalType": "uint64"
+            },
+            {
               "name": "winterActive",
               "type": "bool",
               "internalType": "bool"
@@ -2075,6 +2085,16 @@
               "name": "seasonFinalized",
               "type": "bool",
               "internalType": "bool"
+            },
+            {
+              "name": "currentSeasonNumber",
+              "type": "uint64",
+              "internalType": "uint64"
+            },
+            {
+              "name": "nextHeartbeatAtTick",
+              "type": "uint64",
+              "internalType": "uint64"
             },
             {
               "name": "nextHeartbeatAtTs",
@@ -2952,6 +2972,31 @@
     },
     {
       "type": "event",
+      "name": "ClansmanKilledByBandit",
+      "inputs": [
+        {
+          "name": "clanId",
+          "type": "uint32",
+          "indexed": true,
+          "internalType": "uint32"
+        },
+        {
+          "name": "clansmanId",
+          "type": "uint32",
+          "indexed": true,
+          "internalType": "uint32"
+        },
+        {
+          "name": "banditId",
+          "type": "uint32",
+          "indexed": true,
+          "internalType": "uint32"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
       "name": "ColdDamageApplied",
       "inputs": [
         {
@@ -3617,6 +3662,31 @@
           "type": "uint64",
           "indexed": false,
           "internalType": "uint64"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "WallDamagedByBandit",
+      "inputs": [
+        {
+          "name": "clanId",
+          "type": "uint32",
+          "indexed": true,
+          "internalType": "uint32"
+        },
+        {
+          "name": "newLevel",
+          "type": "uint8",
+          "indexed": false,
+          "internalType": "uint8"
+        },
+        {
+          "name": "banditId",
+          "type": "uint32",
+          "indexed": true,
+          "internalType": "uint32"
         }
       ],
       "anonymous": false
