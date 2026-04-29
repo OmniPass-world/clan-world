@@ -183,7 +183,9 @@ enum StatusCode {
     ERR_SEASON_ENDED,
     ERR_NOT_ENOUGH_GOLD,
     ERR_CARRY_FULL,
-    ERR_MARKET_INSUFFICIENT_LIQUIDITY
+    ERR_MARKET_INSUFFICIENT_LIQUIDITY,
+    ERR_LIQUIDITY_INSUFFICIENT,
+    ERR_MAX_GOLD_IN_EXCEEDED
 }
 
 // =============================================================================
