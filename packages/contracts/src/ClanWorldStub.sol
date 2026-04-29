@@ -47,6 +47,14 @@ contract ClanWorldStub is IClanWorld {
     constructor(address[6] memory tokens, address[4] memory pools) {
         _world.currentTick = 1;
         _world.nextHeartbeatAtTs = uint64(block.timestamp);
+        _world.seasonStartTick = 0;
+        _world.seasonEndTick = ClanWorldConstants.SEASON_DURATION_TICKS;
+        _world.currentSeasonNumber = 1;
+        _world.nextHeartbeatAtTick = 1;
+        _world.winterStartsAtTick =
+            ClanWorldConstants.TICKS_PER_WINTER_CYCLE - ClanWorldConstants.WINTER_DURATION_TICKS;
+        _world.winterEndsAtTick = ClanWorldConstants.TICKS_PER_WINTER_CYCLE;
+        _world.winterActive = false;
 
         _treasury.woodToken = tokens[0];
         _treasury.ironToken = tokens[1];
@@ -70,6 +78,7 @@ contract ClanWorldStub is IClanWorld {
     function heartbeat() external override {
         uint64 closed = _world.currentTick;
         _world.currentTick += 1;
+        _world.nextHeartbeatAtTick = _world.currentTick + 1;
         _world.nextHeartbeatAtTs = uint64(block.timestamp);
         emit TickAdvanced(closed, _world.currentTick, bytes32(0));
     }
@@ -260,9 +269,9 @@ contract ClanWorldStub is IClanWorld {
             seasonFinalized: false,
             currentSeasonNumber: _world.currentSeasonNumber,
             nextHeartbeatAtTick: _world.nextHeartbeatAtTick,
-            winterActive: false,
-            winterStartsAtTick: 0,
-            winterEndsAtTick: 0,
+            winterActive: _world.winterActive,
+            winterStartsAtTick: _world.winterStartsAtTick,
+            winterEndsAtTick: _world.winterEndsAtTick,
             activeBanditId: 0,
             currentTickSeed: bytes32(0),
             leaderboard: new LeaderboardEntry[](0)
