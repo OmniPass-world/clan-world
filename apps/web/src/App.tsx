@@ -4,6 +4,7 @@ import { useIDKitRequest } from '@worldcoin/idkit';
 import type { IDKitRequestHookConfig } from '@worldcoin/idkit';
 import { WorldMap } from './WorldMap';
 import { Cockpit } from './pages/Cockpit';
+import { WorldMapBoundary } from './components/cockpit/shared/WorldMapBoundary';
 
 // Convex HTTP actions are served at <deployment>.convex.site (not .convex.cloud)
 const CONVEX_SITE_URL =
@@ -175,7 +176,11 @@ function MainApp() {
           Claim Your Clan Identity
         </button>
       )}
-      {verified && <WorldMap />}
+      {verified && (
+        <WorldMapBoundary>
+          <WorldMap />
+        </WorldMapBoundary>
+      )}
     </main>
   );
 }

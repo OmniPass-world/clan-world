@@ -181,6 +181,18 @@ describe('memory recall/save', () => {
 // ---------------------------------------------------------------------------
 
 describe('peer whisper', () => {
+  it('rejects unsafe recipient clan ids before resolving an inbox path', async () => {
+    await expect(
+      runCommand('peer', 'whisper', ['../escape', 'attack at dawn'], deps, { ELDER_N: '2' }, tmpDir),
+    ).rejects.toThrow(/unsafe inbox key/);
+    expect(fs.existsSync(path.join(tmpDir, '.world', 'clanworld-runner', 'state', 'escape.jsonl'))).toBe(false);
+  });
+
+  it('allows safe hyphenated recipient clan ids', async () => {
+    await runCommand('peer', 'whisper', ['valid-clan', 'hold position'], deps, { ELDER_N: '2' }, tmpDir);
+    expect(fs.existsSync(recipientInboxFile('valid-clan', tmpDir))).toBe(true);
+  });
+
   it('writes JSON line to recipientInboxFile with correct from/to/msg', async () => {
     await runCommand('peer', 'whisper', ['5', 'attack at dawn'], deps, { ELDER_N: '2' }, tmpDir);
 

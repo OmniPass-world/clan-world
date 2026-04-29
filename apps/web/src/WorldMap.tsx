@@ -296,8 +296,10 @@ export function WorldMap() {
 
   // Zone-pulse ticker (visual heartbeat for clan zone halos).
   const zonePulseCbRef = useRef<(() => void) | null>(null);
+  const isMountedRef = useRef(true);
 
   const [pixiReady, setPixiReady] = useState(false);
+  const [pixiInitError, setPixiInitError] = useState<Error | null>(null);
   const [, setSize] = useState({ w: 800, h: 600 });
 
   const logs = useAgentLogs();
@@ -313,6 +315,7 @@ export function WorldMap() {
 
   // ---- Pixi init ------------------------------------------------------------
   useEffect(() => {
+    isMountedRef.current = true;
     let mounted = true;
     const app = new Application();
     appRef.current = app;
@@ -331,7 +334,7 @@ export function WorldMap() {
         autoDensity: true,
       })
       .then(async () => {
-        if (!mounted || !canvasWrapRef.current) return;
+        if (!mounted || !isMountedRef.current || !canvasWrapRef.current) return;
         canvasWrapRef.current.appendChild(app.canvas);
         // CSS: stretch to wrapper
         app.canvas.style.display = 'block';
@@ -382,7 +385,7 @@ export function WorldMap() {
         // Loaded async; sprite is added to viewport BEFORE buildScene so region circles render on top.
         try {
           const tex = await Assets.load(worldMapBg);
-          if (!mounted) return;
+          if (!mounted || !isMountedRef.current) return;
           const bg = new Sprite(tex);
           // Render at native world resolution; viewport handles screen-fit zoom.
           bg.width = MAP_WIDTH;
@@ -543,12 +546,19 @@ export function WorldMap() {
         // viewport handles screen-fit transformation. Children inside the viewport
         // are positioned in world coords and pixi-viewport scales them to screen.
         relayout(MAP_WIDTH, MAP_HEIGHT);
+        if (!mounted || !isMountedRef.current) return;
         setSize({ w: initialW, h: initialH });
         setPixiReady(true);
+      })
+      .catch((err: unknown) => {
+        console.error('[WorldMap] failed to initialize Pixi application', err);
+        if (!mounted || !isMountedRef.current) return;
+        setPixiInitError(err instanceof Error ? err : new Error(String(err)));
       });
 
     return () => {
       mounted = false;
+      isMountedRef.current = false;
       const a = appRef.current;
       if (a && tickerCbRef.current) a.ticker.remove(tickerCbRef.current);
       if (a && travelTickerCbRef.current) a.ticker.remove(travelTickerCbRef.current);
@@ -704,6 +714,7 @@ export function WorldMap() {
         // remains visible if load fails. Once loaded, sprite is positioned by relayout.
         Assets.load(clan.sigil)
           .then((texture) => {
+            if (!isMountedRef.current || !appRef.current) return;
             const sprite = new Sprite(texture);
             sprite.alpha = 0; // hidden until first relayout positions it
             viewport.addChild(sprite);
@@ -738,6 +749,7 @@ export function WorldMap() {
       // hides the fallback ring. Catch silently so the ring stays visible on failure.
       Assets.load('/sprites/bandit.png')
         .then((texture) => {
+          if (!isMountedRef.current || !appRef.current) return;
           const sprite = new Sprite(texture);
           sprite.anchor.set(0.5, 0.5);
           sprite.alpha = 0; // hidden until first redrawBandit positions it
@@ -763,6 +775,7 @@ export function WorldMap() {
 
         Assets.load(clan.basePng)
           .then((texture) => {
+            if (!isMountedRef.current || !appRef.current) return;
             const sprite = new Sprite(texture);
             sprite.anchor.set(0.5, 1); // anchored at bottom-center so it "stands" on the region
             sprite.alpha = 0;
@@ -781,6 +794,7 @@ export function WorldMap() {
         // If load fails we silently fall back to the colored Graphics dot.
         Assets.load(clan.clansmanPng)
           .then((texture) => {
+            if (!isMountedRef.current) return;
             clansmanTextureCache[clan.id] = texture;
           })
           .catch(() => {
@@ -1227,6 +1241,10 @@ export function WorldMap() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pixiReady]);
+
+  if (pixiInitError) {
+    throw pixiInitError;
+  }
 
   // ---- Scoreboard data: live snapshot if present, else mock metadata -------
   // Portrait + archetype label come from MOCK_CLANS (they are static metadata,

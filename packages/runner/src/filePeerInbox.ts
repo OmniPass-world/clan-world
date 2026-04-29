@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { IElderPeerInbox, PeerMessage } from '@clan-world/agents/seams';
+import { assertSafeInboxKey } from '@clan-world/shared';
 import { ELDER_IDS, type ElderId } from './types';
 
 /**
@@ -99,21 +100,6 @@ function inboxKeyForClanId(clanId: string, env: NodeJS.ProcessEnv = process.env)
     if (mappedClanId === clanId) return String(elder);
   }
   return clanId;
-}
-
-/**
- * Reject inbox keys that aren't a single safe path segment. A clan id of `..`
- * or `foo/bar` or anything containing a path separator could escape the
- * `peer-inbox` directory when interpolated into a filename. Allow only
- * alphanumeric + `-` + `_` (matches the canonical Elder CLI clan-id shape).
- *
- * Same guard as axlPeerInbox.assertSafeClanId — kept inline rather than
- * exported because the two adapters can drift independently.
- */
-function assertSafeInboxKey(key: string): void {
-  if (!/^[A-Za-z0-9_-]+$/.test(key)) {
-    throw new Error(`filePeerInbox: unsafe inbox key '${key}' — must be alphanumeric + '-_' only`);
-  }
 }
 
 interface CliShape {

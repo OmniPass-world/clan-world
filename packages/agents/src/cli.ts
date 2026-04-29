@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import type { ClanOrder } from '@clan-world/shared';
+import { assertSafeInboxKey, type ClanOrder } from '@clan-world/shared';
 import type { IConvexClient, IChainClient } from '@clan-world/shared/adapters';
 import { createConvexClient, createChainClient } from '@clan-world/shared/adapters';
 
@@ -29,6 +29,7 @@ export function inboxFile(n: number, base?: string): string {
 }
 
 export function recipientInboxFile(clanId: string, base?: string): string {
+  assertSafeInboxKey(clanId);
   return path.join(stateDir(base), 'peer-inbox', `elder-${clanId}.jsonl`);
 }
 
