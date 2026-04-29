@@ -206,21 +206,19 @@ contract ClanWorldStub is IClanWorld {
         return 0;
     }
 
-    function getBanditTroop(uint32) external pure override returns (BanditTroop memory) {
-        return BanditTroop({
-            banditId: 0,
-            state: BanditState.NONE,
-            currentRegion: 0,
-            attackAttemptsMade: 0,
-            stateEnteredTick: 0,
-            nextActionTick: 0,
-            tier: 0,
-            attackPower: 0,
-            carryWood: 0,
-            carryIron: 0,
-            carryWheat: 0,
-            carryFish: 0
-        });
+    function getBandit(uint32) public pure override returns (BanditTroop memory) {
+        return
+            BanditTroop({
+                id: 0, region: 0, state: BanditState.Spawned, targetClanId: 0, tickEnteredState: 0, strength: 0
+            });
+    }
+
+    function getBanditTroop(uint32 banditId) external pure override returns (BanditTroop memory) {
+        return getBandit(banditId);
+    }
+
+    function getBanditsInRegion(uint8) external pure override returns (uint32[] memory) {
+        return new uint32[](0);
     }
 
     function getWheatPlots(uint32) external pure override returns (WheatPlot memory west, WheatPlot memory east) {
@@ -330,7 +328,7 @@ contract ClanWorldStub is IClanWorld {
         return ActiveBanditView({
             exists: false,
             banditId: 0,
-            state: BanditState.NONE,
+            state: BanditState.Spawned,
             currentRegion: 0,
             attackAttemptsMade: 0,
             maxAttemptsRemaining: 0,

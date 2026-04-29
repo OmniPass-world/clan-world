@@ -104,12 +104,12 @@ enum ClansmanState {
 }
 
 enum BanditState {
-    NONE,
-    CAMPING,
-    RESTING,
-    ATTACKING,
-    DEFEATED,
-    ESCAPED
+    Spawned,
+    Camped,
+    Resting,
+    Attacking,
+    Defeated,
+    Escaped
 }
 
 enum WheatPlotState {
@@ -296,21 +296,12 @@ struct Mission {
 }
 
 struct BanditTroop {
-    uint32 banditId;
+    uint32 id;
+    uint8 region;
     BanditState state;
-
-    uint8 currentRegion;
-    uint8 attackAttemptsMade;
-    uint64 stateEnteredTick;
-    uint64 nextActionTick;
-
-    uint8 tier;
-    uint16 attackPower; // derived from tier; tier is canonical (v4.3 §G)
-
-    uint256 carryWood;
-    uint256 carryIron;
-    uint256 carryWheat;
-    uint256 carryFish;
+    uint32 targetClanId; // 0 if not attacking
+    uint64 tickEnteredState;
+    uint32 strength; // hp / combat power
 }
 
 struct ScheduledMarketAction {
@@ -710,7 +701,11 @@ interface IClanWorld is IClanWorldEvents {
 
     function getTravelTicks(uint8 fromRegion, uint8 toRegion) external pure returns (uint64);
 
+    function getBandit(uint32 banditId) external view returns (BanditTroop memory);
+
     function getBanditTroop(uint32 banditId) external view returns (BanditTroop memory);
+
+    function getBanditsInRegion(uint8 region) external view returns (uint32[] memory);
 
     function getWheatPlots(uint32 clanId) external view returns (WheatPlot memory west, WheatPlot memory east);
 
