@@ -2912,6 +2912,12 @@
           "internalType": "uint32"
         },
         {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
           "name": "tick",
           "type": "uint64",
           "indexed": false,

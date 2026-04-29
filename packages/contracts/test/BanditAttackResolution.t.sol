@@ -12,6 +12,7 @@ import {
     ActionType,
     StatusCode,
     Clan,
+    ClanFullView,
     Mission,
     ClanOrder,
     OrderResult
@@ -32,14 +33,27 @@ contract BanditAttackHarness is ClanWorld {
         _clans[clanId].starvationStartsAtTick = tick;
     }
 
-    function setClanUpkeepState(uint32 clanId, uint64 lastSettledTick, uint256 vaultWheat, uint256 vaultFish)
-        external
-    {
+    function setClanUpkeepState(uint32 clanId, uint64 lastSettledTick, uint256 vaultWheat, uint256 vaultFish) external {
         Clan storage clan = _clans[clanId];
         clan.lastSettledTick = lastSettledTick;
         clan.vaultWheat = vaultWheat;
         clan.vaultFish = vaultFish;
         clan.starvationStartsAtTick = 0;
+    }
+
+    function setLivingClansmenForTest(uint32 clanId, uint8 livingClansmen) external {
+        _clans[clanId].livingClansmen = livingClansmen;
+    }
+
+    function blockBanditSpawnsForTest() external {
+        uint64 currentTick = this.getWorldState().currentTick;
+        for (uint8 region = ClanWorldConstants.REGION_FOREST; region <= ClanWorldConstants.REGION_DEEP_SEA; region++) {
+            _banditSpawnByRegion[region].lastSpawnTick = currentTick;
+        }
+    }
+
+    function blueprintUnit() external pure returns (uint256) {
+        return BLUEPRINT_UNIT;
     }
 
     function setBanditStrength(uint32 banditId, uint32 strength) external {
@@ -79,7 +93,7 @@ contract BanditAttackResolutionTest is Test {
         uint64 atTick
     );
     event BanditDefeated(uint32 indexed banditId, uint32 indexed targetClanId, uint64 atTick);
-    event BlueprintEarned(uint32 indexed clanId, uint32 indexed banditId, uint64 tick);
+    event BlueprintEarned(uint32 indexed clanId, uint32 indexed banditId, uint256 amount, uint64 tick);
     event BanditTargetDied(uint32 indexed banditId, uint32 indexed deadClanId, uint64 tick);
     event LootDistributed(
         uint32 indexed banditId,
@@ -182,14 +196,33 @@ contract BanditAttackResolutionTest is Test {
         bytes32 expectedClanTopic = bytes32(uint256(expectedDeadClanId));
         for (uint256 i = 0; i < logs.length; i++) {
             if (
-                logs[i].topics.length == 3 && logs[i].topics[0] == eventSig
-                    && logs[i].topics[1] == expectedBanditTopic && logs[i].topics[2] == expectedClanTopic
+                logs[i].topics.length == 3 && logs[i].topics[0] == eventSig && logs[i].topics[1] == expectedBanditTopic
+                    && logs[i].topics[2] == expectedClanTopic
             ) {
                 uint64 tick = abi.decode(logs[i].data, (uint64));
                 if (tick == expectedTick) return;
             }
         }
         fail("expected BanditTargetDied log");
+    }
+
+    function _assertBanditAttackResolvedLog(Vm.Log[] memory logs, uint32 expectedBanditId, uint32 expectedTargetClanId)
+        internal
+    {
+        bytes32 eventSig = keccak256(
+            "BanditAttackResolved(uint32,uint32,bool,uint16,uint16,uint16,uint256,uint256,uint256,uint256,uint64)"
+        );
+        bytes32 expectedBanditTopic = bytes32(uint256(expectedBanditId));
+        bytes32 expectedClanTopic = bytes32(uint256(expectedTargetClanId));
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (
+                logs[i].topics.length == 3 && logs[i].topics[0] == eventSig && logs[i].topics[1] == expectedBanditTopic
+                    && logs[i].topics[2] == expectedClanTopic
+            ) {
+                return;
+            }
+        }
+        fail("expected BanditAttackResolved log");
     }
 
     function _activateTargetDefenders(uint32 targetClanId, uint32[] memory defenderClanIds, uint256 countEach)
@@ -254,15 +287,55 @@ contract BanditAttackResolutionTest is Test {
         world.setBanditStrength(banditId, 0);
 
         vm.expectEmit(true, true, false, true, address(world));
-        emit BlueprintEarned(clanId, banditId, world.getWorldState().currentTick);
+        emit BlueprintEarned(clanId, banditId, world.blueprintUnit(), world.getWorldState().currentTick);
 
         _advanceTick();
 
-        assertEq(world.getClan(clanId).blueprintBalance, blueprintBefore + 1, "target blueprint awarded");
+        assertEq(
+            world.getClan(clanId).blueprintBalance, blueprintBefore + world.blueprintUnit(), "target blueprint awarded"
+        );
+    }
+
+    function test_e2e_banditLifecycle_throughHeartbeat() public {
+        uint32 clanId = _mintClan();
+
+        uint32 banditId;
+        for (uint256 i = 0; i < 64; i++) {
+            vm.prevrandao(keccak256(abi.encodePacked("bandit-lifecycle", i)));
+            _advanceTick();
+            banditId = world.getWorldState().activeBanditId;
+            if (banditId != 0) break;
+        }
+        assertGt(banditId, 0, "bandit spawned through heartbeat");
+
+        _advanceTick();
+        assertEq(uint8(world.getBandit(banditId).state), uint8(BanditState.Camped), "spawned to camped");
+
+        uint64 campedAt = world.getBandit(banditId).tickEnteredState;
+        while (world.getWorldState().currentTick < campedAt + ClanWorldConstants.BANDIT_CAMP_TICKS) {
+            _advanceTick();
+        }
+
+        vm.recordLogs();
+        _advanceTick();
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        _assertBanditAttackResolvedLog(logs, banditId, clanId);
+
+        assertEq(uint8(world.getBandit(banditId).state), uint8(BanditState.Escaped), "attack resolved to escaped");
+
+        for (uint64 i = 0; i < ClanWorldConstants.BANDIT_REST_TICKS; i++) {
+            _advanceTick();
+        }
+        assertEq(uint8(world.getBandit(banditId).state), uint8(BanditState.Resting), "escaped recovered to resting");
     }
 
     function test_deadTargetCleanupReleasesDefendersAndEscapesBandit() public {
+        uint64 winterStart = world.getWorldState().winterStartsAtTick;
+        _advanceUntil(winterStart + 4);
+
         uint32[] memory clanIds = _mintClans(3);
+        world.blockBanditSpawnsForTest();
+
         uint32 defenderClanId = clanIds[0];
         uint32 targetClanId = clanIds[1];
         uint32 unaffectedClanId = clanIds[2];
@@ -277,8 +350,6 @@ contract BanditAttackResolutionTest is Test {
         assertEq(uint8(defenderStateBefore), uint8(ClansmanState.ACTING), "defender active before target death");
         assertEq(world.getActiveDefenders(targetClanId).length, 1, "target has active defender");
 
-        uint64 winterStart = world.getWorldState().winterStartsAtTick;
-        _advanceUntil(winterStart + 4);
         uint64 deathFromTick = winterStart;
         world.setClanUpkeepState(targetClanId, deathFromTick, 0, 0);
 
@@ -359,7 +430,11 @@ contract BanditAttackResolutionTest is Test {
 
         _advanceTick();
 
-        assertEq(world.getClan(clanIds[0]).blueprintBalance, blueprintBefore[0] + 1, "base owner blueprint");
+        assertEq(
+            world.getClan(clanIds[0]).blueprintBalance,
+            blueprintBefore[0] + world.blueprintUnit(),
+            "base owner blueprint"
+        );
         for (uint256 i = 1; i < clanIds.length; i++) {
             assertEq(world.getClan(clanIds[i]).blueprintBalance, blueprintBefore[i], "helper clan no blueprint");
         }
@@ -379,7 +454,47 @@ contract BanditAttackResolutionTest is Test {
 
         _advanceTick();
 
-        assertEq(world.getClan(clanId).blueprintBalance, blueprintBefore + 2, "one blueprint per defeated bandit");
+        assertEq(
+            world.getClan(clanId).blueprintBalance,
+            blueprintBefore + 2 * world.blueprintUnit(),
+            "one blueprint per defeated bandit"
+        );
+    }
+
+    function test_winterStarvationReplayUsesHistoricalWinterTicks() public {
+        uint64 winterStart = world.getWorldState().winterStartsAtTick;
+        _advanceUntil(winterStart + 30);
+        assertFalse(world.getWorldState().winterActive, "test settles after winter");
+
+        uint32 clanId = _mintClan();
+        world.setClanUpkeepState(clanId, winterStart, 0, 0);
+
+        ClanFullView memory preview = world.getClanFullView(clanId);
+        assertEq(uint8(preview.clan.clan.clanState), uint8(ClanState.DEAD), "derived view replays winter deaths");
+        assertEq(preview.clan.clan.livingClansmen, 0, "derived living count");
+
+        world.settleClan(clanId);
+
+        Clan memory settled = world.getClan(clanId);
+        assertEq(uint8(settled.clanState), uint8(ClanState.DEAD), "settlement replays winter deaths");
+        assertEq(settled.livingClansmen, 0, "settled living count");
+    }
+
+    function test_resolveBanditAttackReturnsWhenTargetDiesDuringSettlement() public {
+        uint64 winterStart = world.getWorldState().winterStartsAtTick;
+        _advanceUntil(winterStart + 1);
+
+        uint32 targetClanId = _mintClan();
+        world.setClanUpkeepState(targetClanId, winterStart, 0, 0);
+        world.setLivingClansmenForTest(targetClanId, 1);
+
+        uint32 banditId = _forceAttack(targetClanId, 100);
+
+        _advanceTick();
+
+        assertEq(uint8(world.getClan(targetClanId).clanState), uint8(ClanState.DEAD), "target starved");
+        assertEq(uint8(world.getBandit(banditId).state), uint8(BanditState.Escaped), "bandit escaped once");
+        assertEq(world.getBandit(banditId).targetClanId, 0, "bandit target cleared");
     }
 
     function test_defeatedBanditLootBurnsWholeTokenOverflowAcrossThreeDefendingClans() public {
@@ -533,8 +648,7 @@ contract BanditAttackResolutionTest is Test {
         world.setStarvationStartsAt(clanId, 1);
 
         uint32 banditId = _forceAttack(clanId, 100);
-        uint32 nonStarvingRoll =
-            world.defenseRoll(world.getWorldState().currentTickSeed, banditId, _csId(clanId, 0));
+        uint32 nonStarvingRoll = world.defenseRoll(world.getWorldState().currentTickSeed, banditId, _csId(clanId, 0));
         assertGt(nonStarvingRoll, 0, "test setup needs nonzero roll");
 
         _advanceTick();
@@ -564,7 +678,10 @@ contract BanditAttackResolutionTest is Test {
         assertEq(uint8(a.getBandit(2).state), uint8(b.getBandit(2).state), "second bandit state deterministic");
     }
 
-    function _setupTwoAttackWorld(BanditAttackHarness target) internal returns (uint32 firstClanId, uint32 secondClanId) {
+    function _setupTwoAttackWorld(BanditAttackHarness target)
+        internal
+        returns (uint32 firstClanId, uint32 secondClanId)
+    {
         vm.prank(elder);
         (firstClanId,) = target.mintClan(elder);
         vm.prank(elder);

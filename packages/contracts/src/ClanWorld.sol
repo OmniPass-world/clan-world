@@ -82,9 +82,11 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
     uint256 private constant WHEAT_HARVEST_RATE = 20e18;
     uint256 private constant RESOURCE_UNIT = 1e18;
+    uint256 internal constant BLUEPRINT_UNIT = 1e18;
     /// @dev Caps market queue work per heartbeat; overflow is deferred to the next tick.
     uint256 public constant MAX_MARKET_ACTIONS_PER_TICK = 32;
     uint256 internal constant DOMAIN_BANDIT_SPAWN = uint256(keccak256("clanworld.bandit.spawn.v1"));
+    uint256 internal constant DOMAIN_BANDIT_TARGET_PICK = uint256(keccak256("bandit_target_pick"));
     uint64 internal constant MIN_SPAWN_COOLDOWN_TICKS = ClanWorldConstants.BANDIT_COOLDOWN_TICKS;
     uint16 internal constant BANDIT_SPAWN_PROBABILITY_INCREMENT_BPS = 1000;
     uint16 internal constant BANDIT_SPAWN_MAX_PROBABILITY_BPS = 8000;
@@ -468,9 +470,21 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             emit ClanStarvationChanged(clan.clanId, false, tick);
         }
 
-        if (starving && _world.winterActive && clan.starvationStartsAtTick >= _world.winterStartsAtTick) {
+        if (starving && _isWinterTick(tick) && clan.starvationStartsAtTick <= tick) {
             _killNextClansmanFromStarvation(clan, tick);
         }
+    }
+
+    function _isWinterTick(uint64 tick) internal pure returns (bool) {
+        uint64 seasonOffset = tick % ClanWorldConstants.SEASON_DURATION_TICKS;
+        uint64 cycleOffset = seasonOffset % ClanWorldConstants.TICKS_PER_WINTER_CYCLE;
+        uint64 cycleStart = seasonOffset - cycleOffset;
+        uint64 winterStart =
+            cycleStart + ClanWorldConstants.TICKS_PER_WINTER_CYCLE - ClanWorldConstants.WINTER_DURATION_TICKS;
+        uint64 winterEnd = cycleStart + ClanWorldConstants.TICKS_PER_WINTER_CYCLE;
+
+        return winterStart < ClanWorldConstants.SEASON_DURATION_TICKS && seasonOffset >= winterStart
+            && seasonOffset < winterEnd;
     }
 
     function _killNextClansmanFromStarvation(Clan storage clan, uint64 tick) internal {
@@ -1088,7 +1102,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             sim.clan.starvationStartsAtTick = 0;
         }
 
-        if (starving && _world.winterActive && sim.clan.starvationStartsAtTick >= _world.winterStartsAtTick) {
+        if (starving && _isWinterTick(tick) && sim.clan.starvationStartsAtTick <= tick) {
             _simulateKillNextClansmanFromStarvation(sim);
         }
     }
@@ -1661,6 +1675,22 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
                 if (bandit.state == BanditState.Spawned && closedTick > bandit.tickEnteredState) {
                     _transitionBanditState(banditId, BanditState.Camped);
                 } else if (
+                    bandit.state == BanditState.Camped
+                        && closedTick >= bandit.tickEnteredState + ClanWorldConstants.BANDIT_CAMP_TICKS
+                ) {
+                    uint32 targetClanId = _pickBanditAttackTarget(bandit);
+                    if (targetClanId == ClanWorldConstants.CLAN_ID_NULL) {
+                        _transitionBanditState(banditId, BanditState.Escaped);
+                        emit BanditEscaped(banditId, closedTick);
+                    } else {
+                        _transitionBanditToAttacking(banditId, targetClanId);
+                    }
+                } else if (
+                    bandit.state == BanditState.Escaped
+                        && closedTick >= bandit.tickEnteredState + ClanWorldConstants.BANDIT_REST_TICKS
+                ) {
+                    _transitionBanditState(banditId, BanditState.Resting);
+                } else if (
                     bandit.state == BanditState.Resting
                         && closedTick >= bandit.tickEnteredState + ClanWorldConstants.BANDIT_REST_TICKS
                 ) {
@@ -1668,6 +1698,40 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
                 }
             }
         }
+    }
+
+    function _pickBanditAttackTarget(BanditTroop storage bandit) internal view returns (uint32 targetClanId) {
+        uint32[MAX_CLANS] memory tiedClanIds;
+        uint256 tiedCount;
+        uint256 bestLootValue;
+
+        for (uint256 i = 0; i < _allClanIds.length; i++) {
+            uint32 clanId = _allClanIds[i];
+            Clan storage clan = _clans[clanId];
+            if (clan.clanState == ClanState.DEAD || clan.baseRegion != bandit.region || clan.livingClansmen == 0) {
+                continue;
+            }
+
+            uint256 lootValue = _lootValueRaw(clan);
+            if (tiedCount == 0 || lootValue > bestLootValue) {
+                bestLootValue = lootValue;
+                tiedClanIds[0] = clanId;
+                tiedCount = 1;
+            } else if (lootValue == bestLootValue) {
+                tiedClanIds[tiedCount] = clanId;
+                tiedCount++;
+            }
+        }
+
+        if (tiedCount == 0) {
+            return ClanWorldConstants.CLAN_ID_NULL;
+        }
+        if (tiedCount == 1) {
+            return tiedClanIds[0];
+        }
+
+        uint256 selected = RNG.rngBounded(_world.currentTickSeed, DOMAIN_BANDIT_TARGET_PICK, bandit.id, tiedCount);
+        return tiedClanIds[selected];
     }
 
     function _banditStrengthForLegacyEvent(uint32 strength) internal pure returns (uint16) {
@@ -1715,7 +1779,22 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         }
 
         _settleClan(targetClanId);
+        if (bandit.state != BanditState.Attacking || bandit.targetClanId != targetClanId) {
+            return;
+        }
+        if (targetClan.clanState == ClanState.DEAD) {
+            _transitionBanditState(banditId, BanditState.Escaped);
+            emit BanditEscaped(banditId, closedTick);
+            return;
+        }
+
         _eagerSettleActiveDefendersForBase(targetClanId, targetClan.baseRegion);
+        if (
+            bandit.state != BanditState.Attacking || bandit.targetClanId != targetClanId
+                || targetClan.clanState == ClanState.DEAD
+        ) {
+            return;
+        }
 
         bytes32 tickSeed = _world.currentTickSeed;
         uint32 banditAttackPower = bandit.strength;
@@ -1752,8 +1831,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         if (defeated) {
             emit BanditDefeated(banditId, targetClanId, closedTick);
             _distributeBanditLootToDefendingClans(banditId, targetClanId);
-            targetClan.blueprintBalance += 1;
-            emit BlueprintEarned(targetClanId, banditId, closedTick);
+            targetClan.blueprintBalance += BLUEPRINT_UNIT;
+            emit BlueprintEarned(targetClanId, banditId, BLUEPRINT_UNIT, closedTick);
             _transitionBanditState(banditId, BanditState.Defeated);
         } else {
             _transitionBanditState(banditId, BanditState.Escaped);

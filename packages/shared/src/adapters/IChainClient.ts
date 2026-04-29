@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import { createPublicClient, createWalletClient, http, fallback, defineChain } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import IClanWorldArtifact from '../../../contracts/abi/IClanWorld.json';
 import type { ClanFullView, ClanOrder, Tick } from '../types';
+import type { Abi } from 'viem';
 import { readEnv } from './_env';
 
 export interface IChainClient {
@@ -21,221 +23,7 @@ export const baseSepolia = defineChain({
   },
 });
 
-// Minimal ABI — only the two read functions we call.
-const CLAN_WORLD_ABI = [
-  {
-    type: 'function',
-    name: 'getWorldSnapshot',
-    inputs: [],
-    outputs: [
-      {
-        name: '',
-        type: 'tuple',
-        components: [
-          { name: 'currentTick', type: 'uint64' },
-          { name: 'seasonStartTick', type: 'uint64' },
-          { name: 'seasonEndTick', type: 'uint64' },
-          { name: 'seasonFinalized', type: 'bool' },
-          { name: 'winterActive', type: 'bool' },
-          { name: 'winterStartsAtTick', type: 'uint64' },
-          { name: 'winterEndsAtTick', type: 'uint64' },
-          { name: 'activeBanditId', type: 'uint32' },
-          { name: 'currentTickSeed', type: 'bytes32' },
-          {
-            name: 'leaderboard',
-            type: 'tuple[]',
-            components: [
-              { name: 'clanId', type: 'uint32' },
-              { name: 'owner', type: 'address' },
-              { name: 'monumentLevel', type: 'uint8' },
-              { name: 'baseLevel', type: 'uint8' },
-              { name: 'wallLevel', type: 'uint8' },
-              { name: 'livingClansmen', type: 'uint8' },
-              { name: 'state', type: 'uint8' },
-              { name: 'lootValue', type: 'uint256' },
-            ],
-          },
-        ],
-      },
-    ],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    name: 'getClanFullView',
-    inputs: [{ name: '', type: 'uint32' }],
-    outputs: [
-      {
-        name: '',
-        type: 'tuple',
-        components: [
-          {
-            name: 'clan',
-            type: 'tuple',
-            components: [
-              {
-                name: 'clan',
-                type: 'tuple',
-                components: [
-                  { name: 'clanId', type: 'uint32' },
-                  { name: 'iftTokenId', type: 'uint256' },
-                  { name: 'owner', type: 'address' },
-                  { name: 'clanState', type: 'uint8' },
-                  { name: 'baseRegion', type: 'uint8' },
-                  { name: 'baseLevel', type: 'uint8' },
-                  { name: 'wallLevel', type: 'uint8' },
-                  { name: 'monumentLevel', type: 'uint8' },
-                  { name: 'livingClansmen', type: 'uint8' },
-                  { name: 'lastSettledTick', type: 'uint64' },
-                  { name: 'starvationStartsAtTick', type: 'uint64' },
-                  { name: 'coldDamage', type: 'uint16' },
-                  { name: 'goldBalance', type: 'uint256' },
-                  { name: 'blueprintBalance', type: 'uint256' },
-                  { name: 'vaultWood', type: 'uint256' },
-                  { name: 'vaultIron', type: 'uint256' },
-                  { name: 'vaultWheat', type: 'uint256' },
-                  { name: 'vaultFish', type: 'uint256' },
-                ],
-              },
-              { name: 'isStarving', type: 'bool' },
-              { name: 'lootValue', type: 'uint256' },
-              { name: 'derivedAtTick', type: 'uint64' },
-            ],
-          },
-          // clansmen, westPlot, eastPlot etc. omitted — not needed for Wave 0 mapping
-          {
-            name: 'clansmen',
-            type: 'tuple[]',
-            components: [
-              {
-                name: 'clansman',
-                type: 'tuple',
-                components: [
-                  {
-                    name: 'clansman',
-                    type: 'tuple',
-                    components: [
-                      { name: 'clansmanId', type: 'uint32' },
-                      { name: 'clanId', type: 'uint32' },
-                      { name: 'state', type: 'uint8' },
-                      { name: 'currentRegion', type: 'uint8' },
-                      { name: 'cooldownEndsAtTs', type: 'uint64' },
-                      { name: 'lastMissionNonce', type: 'uint64' },
-                      { name: 'carryWood', type: 'uint256' },
-                      { name: 'carryIron', type: 'uint256' },
-                      { name: 'carryWheat', type: 'uint256' },
-                      { name: 'carryFish', type: 'uint256' },
-                    ],
-                  },
-                  {
-                    name: 'activeMission',
-                    type: 'tuple',
-                    components: [
-                      { name: 'active', type: 'bool' },
-                      { name: 'nonce', type: 'uint64' },
-                      { name: 'clansmanId', type: 'uint32' },
-                      { name: 'startRegion', type: 'uint8' },
-                      { name: 'targetRegion', type: 'uint8' },
-                      { name: 'action', type: 'uint8' },
-                      { name: 'startTick', type: 'uint64' },
-                      { name: 'arrivalTick', type: 'uint64' },
-                      { name: 'actionStartTick', type: 'uint64' },
-                      { name: 'missionSeed', type: 'bytes32' },
-                      { name: 'marketMode', type: 'uint8' },
-                      { name: 'targetClanId', type: 'uint32' },
-                      { name: 'marketToken', type: 'address' },
-                      { name: 'marketAmount', type: 'uint256' },
-                      { name: 'maxGoldIn', type: 'uint256' },
-                    ],
-                  },
-                  { name: 'effectiveRegion', type: 'uint8' },
-                  { name: 'derivedAtTick', type: 'uint64' },
-                ],
-              },
-              {
-                name: 'activeMission',
-                type: 'tuple',
-                components: [
-                  { name: 'active', type: 'bool' },
-                  { name: 'nonce', type: 'uint64' },
-                  { name: 'clansmanId', type: 'uint32' },
-                  { name: 'startRegion', type: 'uint8' },
-                  { name: 'targetRegion', type: 'uint8' },
-                  { name: 'action', type: 'uint8' },
-                  { name: 'startTick', type: 'uint64' },
-                  { name: 'arrivalTick', type: 'uint64' },
-                  { name: 'actionStartTick', type: 'uint64' },
-                  { name: 'missionSeed', type: 'bytes32' },
-                  { name: 'marketMode', type: 'uint8' },
-                  { name: 'targetClanId', type: 'uint32' },
-                  { name: 'marketToken', type: 'address' },
-                  { name: 'marketAmount', type: 'uint256' },
-                  { name: 'maxGoldIn', type: 'uint256' },
-                ],
-              },
-            ],
-          },
-          {
-            name: 'westPlot',
-            type: 'tuple',
-            components: [
-              { name: 'state', type: 'uint8' },
-              { name: 'region', type: 'uint8' },
-              { name: 'remainingWheat', type: 'uint256' },
-              { name: 'regrowUntilTick', type: 'uint64' },
-            ],
-          },
-          {
-            name: 'eastPlot',
-            type: 'tuple',
-            components: [
-              { name: 'state', type: 'uint8' },
-              { name: 'region', type: 'uint8' },
-              { name: 'remainingWheat', type: 'uint256' },
-              { name: 'regrowUntilTick', type: 'uint64' },
-            ],
-          },
-          { name: 'incomingDefenderIds', type: 'uint32[]' },
-          { name: 'thisClanDefendingBaseId', type: 'uint32' },
-        ],
-      },
-    ],
-    stateMutability: 'view',
-  },
-  {
-    name: 'submitClanOrders',
-    type: 'function',
-    inputs: [
-      { name: 'clanId', type: 'uint32' },
-      {
-        name: 'orders',
-        type: 'tuple[]',
-        components: [
-          { name: 'clansmanId', type: 'uint32' },
-          { name: 'gotoRegion', type: 'uint8' },
-          { name: 'action', type: 'uint8' },
-          { name: 'targetClanId', type: 'uint32' },
-          { name: 'marketToken', type: 'address' },
-          { name: 'marketAmount', type: 'uint256' },
-          { name: 'maxGoldIn', type: 'uint256' },
-        ],
-      },
-    ],
-    outputs: [
-      {
-        name: 'results',
-        type: 'tuple[]',
-        components: [
-          { name: 'clansmanId', type: 'uint32' },
-          { name: 'status', type: 'uint8' },
-          { name: 'cooldownEndsAtTs', type: 'uint64' },
-          { name: 'missionNonce', type: 'uint64' },
-        ],
-      },
-    ],
-    stateMutability: 'nonpayable',
-  },
-] as const;
+export const CLAN_WORLD_ABI = IClanWorldArtifact.abi as Abi;
 
 class StubChainClient implements IChainClient {
   async getCurrentTick(): Promise<Tick> {
@@ -282,7 +70,7 @@ class RealChainClient implements IChainClient {
       address: this.contractAddress,
       abi: CLAN_WORLD_ABI,
       functionName: 'getWorldSnapshot',
-    });
+    }) as { currentTick: bigint };
     return Number(snapshot.currentTick); // safe: tick values are small enough to fit Number precisely in Wave 0
   }
 
@@ -380,7 +168,14 @@ class RealChainClient implements IChainClient {
       abi: CLAN_WORLD_ABI,
       functionName: 'getClanFullView',
       args: [parseInt(clanId, 10)],
-    });
+    }) as {
+      clan: {
+        clan: {
+          clanId: number;
+          goldBalance: bigint;
+        };
+      };
+    };
 
     const inner = result.clan.clan;
     return {

@@ -48,6 +48,10 @@ contract ClanWorldTestHarness is ClanWorld {
     function killClansman(uint32 csId) external {
         _clansmen[csId].state = ClansmanState.DEAD;
     }
+
+    function setLastSettledTickForTest(uint32 clanId, uint64 lastSettledTick) external {
+        _clans[clanId].lastSettledTick = lastSettledTick;
+    }
 }
 
 contract ClanWorldTest is Test {
@@ -68,7 +72,7 @@ contract ClanWorldTest is Test {
     StubPool fishPool;
 
     function setUp() public {
-        world = new ClanWorld();
+        world = new ClanWorldTestHarness();
     }
 
     /// @dev Deploy tokens + pools, call initTreasury + seedPools. Returns wood token address.
@@ -579,17 +583,14 @@ contract ClanWorldTest is Test {
     // -------------------------------------------------------------------------
 
     function test_submitClanOrders_reverts_when_clan_too_far_behind() public {
+        while (world.getWorldState().currentTick <= 200) {
+            _advanceTick();
+        }
+
         uint32 clanId = _mintClan();
         ClanFullView memory view_ = world.getClanFullView(clanId);
         uint32 csId = view_.clansmen[0].clansman.clansman.clansmanId;
-
-        // Advance until the clan is truly >200 ticks behind. Phase 9 bandit
-        // eager-settle may settle candidate-region bases on spawn ticks, so
-        // this test follows the invariant instead of assuming no heartbeat
-        // settlement ever touches the clan.
-        while (world.getWorldState().currentTick <= world.getClan(clanId).lastSettledTick + 200) {
-            _advanceTick();
-        }
+        ClanWorldTestHarness(address(world)).setLastSettledTickForTest(clanId, 0);
 
         // submitClanOrders should return ERR_INVALID_ACTION (ERR_MUST_SETTLE_FIRST proxy)
         // without reverting, for every order in the batch
@@ -1904,7 +1905,11 @@ contract ClanWorldTest is Test {
         // Call settleClansman on-demand — must be idempotent (no crash, no double-credit).
         uint256 ironBefore = world.getClansman(csId).carryIron;
         world.settleClansman(csId);
-        assertEq(world.getClansman(csId).carryIron, ironBefore, "onDemand: settleClansman is idempotent after heartbeat settle");
+        assertEq(
+            world.getClansman(csId).carryIron,
+            ironBefore,
+            "onDemand: settleClansman is idempotent after heartbeat settle"
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -2011,8 +2016,7 @@ contract ClanWorldTest is Test {
         assertEq(ws.seasonStartTick, 0);
         assertEq(ws.seasonEndTick, ClanWorldConstants.SEASON_DURATION_TICKS);
         assertEq(
-            ws.winterStartsAtTick,
-            ClanWorldConstants.TICKS_PER_WINTER_CYCLE - ClanWorldConstants.WINTER_DURATION_TICKS
+            ws.winterStartsAtTick, ClanWorldConstants.TICKS_PER_WINTER_CYCLE - ClanWorldConstants.WINTER_DURATION_TICKS
         );
         assertFalse(ws.winterActive);
     }
@@ -2021,8 +2025,7 @@ contract ClanWorldTest is Test {
         // winterStartsAtTick = 100; WinterStarted fires on the heartbeat that opens tick 100
         // i.e. when closedTick=99, newTick=100 >= winterStartsAtTick=100.
         // Advance 99 heartbeats so currentTick=99, then one more heartbeat fires WinterStarted at tick 100.
-        uint64 winterStart =
-            ClanWorldConstants.TICKS_PER_WINTER_CYCLE - ClanWorldConstants.WINTER_DURATION_TICKS; // = 100
+        uint64 winterStart = ClanWorldConstants.TICKS_PER_WINTER_CYCLE - ClanWorldConstants.WINTER_DURATION_TICKS; // = 100
         for (uint64 i = 0; i < winterStart - 1; i++) {
             vm.warp(block.timestamp + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS);
             world.heartbeat();

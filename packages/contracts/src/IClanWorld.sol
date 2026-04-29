@@ -601,7 +601,7 @@ interface IClanWorldEvents {
     event WallDamagedByBandit(uint32 indexed clanId, uint8 newLevel, uint32 indexed banditId);
     event ClansmanKilledByBandit(uint32 indexed clanId, uint32 indexed clansmanId, uint32 indexed banditId);
     event BlueprintAwarded(uint32 indexed clanId, uint32 indexed banditId, uint256 amount);
-    event BlueprintEarned(uint32 indexed clanId, uint32 indexed banditId, uint64 tick);
+    event BlueprintEarned(uint32 indexed clanId, uint32 indexed banditId, uint256 amount, uint64 tick);
     event LootDistributed(
         uint32 indexed banditId,
         uint32[] clanIdsRewarded,
