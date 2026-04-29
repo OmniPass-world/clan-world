@@ -705,6 +705,10 @@ interface IClanWorld is IClanWorldEvents {
 
     function getResourceToken(uint8 resourceType) external view returns (address);
 
+    function getPool(uint8 resourceType) external view returns (address);
+
+    function getPrice(uint8 resourceType, uint256 amountIn) external view returns (uint256 amountOut);
+
     function getClan(uint32 clanId) external view returns (Clan memory);
 
     function getClansman(uint32 clansmanId) external view returns (Clansman memory);
