@@ -386,16 +386,29 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             }
         }
 
+        if (curTick > fromTick && !_isWinterActiveAt(curTick) && _isWinterActiveAt(curTick - 1)) {
+            clan.coldDamage = 0;
+        }
+
         clan.lastSettledTick = curTick;
         emit ClanSettled(clanId, curTick);
     }
 
-    /// @dev Apply one tick of upkeep. Marks starvation if insufficient food.
+    /// @dev Apply one tick of upkeep. Marks starvation if insufficient food and cold damage if winter wood is short.
     function _applyUpkeep(Clan storage clan, uint64 tick) internal {
+        bool winter = _isWinterActiveAt(tick);
+        if (!winter && tick > 0 && _isWinterActiveAt(tick - 1)) {
+            clan.coldDamage = 0;
+        }
+
         if (clan.livingClansmen == 0) return;
 
         uint256 wheatNeeded = uint256(clan.livingClansmen) * ClanWorldConstants.WHEAT_UPKEEP_PER_CLANSMAN;
         uint256 fishNeeded = uint256(clan.livingClansmen) * ClanWorldConstants.FISH_UPKEEP_PER_CLANSMAN;
+        if (winter) {
+            wheatNeeded = wheatNeeded * ClanWorldConstants.WINTER_UPKEEP_MULTIPLIER_BPS / 10000;
+            fishNeeded = fishNeeded * ClanWorldConstants.WINTER_UPKEEP_MULTIPLIER_BPS / 10000;
+        }
 
         bool hadEnoughWheat = clan.vaultWheat >= wheatNeeded;
         bool hadEnoughFish = clan.vaultFish >= fishNeeded;
@@ -418,6 +431,20 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         } else if (!starving && clan.starvationStartsAtTick != 0) {
             clan.starvationStartsAtTick = 0;
             emit ClanStarvationChanged(clan.clanId, false, tick);
+        }
+
+        if (winter) {
+            uint256 woodNeeded = uint256(clan.livingClansmen) * ClanWorldConstants.WINTER_WOOD_BURN_PER_CLANSMAN;
+            if (clan.vaultWood >= woodNeeded) {
+                clan.vaultWood -= woodNeeded;
+            } else {
+                uint256 woodShort = woodNeeded - clan.vaultWood;
+                clan.vaultWood = 0;
+                if (clan.coldDamage < type(uint16).max) {
+                    clan.coldDamage += 1;
+                }
+                emit ClanColdShortage(clan.clanId, _eventTick(tick), woodShort);
+            }
         }
     }
 
@@ -948,11 +975,22 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             emit WinterStarted(_winterEventTick(newTick));
         }
         if (wasWinter && !nowWinter) {
+            _resetColdDamageForAllClans();
             emit WinterEnded(_winterEventTick(newTick));
         }
     }
 
+    function _resetColdDamageForAllClans() internal {
+        for (uint256 i = 0; i < _allClanIds.length; i++) {
+            _clans[_allClanIds[i]].coldDamage = 0;
+        }
+    }
+
     function _winterEventTick(uint64 tick) internal pure returns (uint32) {
+        return _eventTick(tick);
+    }
+
+    function _eventTick(uint64 tick) internal pure returns (uint32) {
         require(tick <= type(uint32).max, "ClanWorld: winter tick overflow");
         // forge-lint: disable-next-line(unsafe-typecast)
         return uint32(tick);
