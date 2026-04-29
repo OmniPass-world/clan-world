@@ -41,16 +41,16 @@ library ClanWorldConstants {
 
     // Carry caps (per clansman)
     uint256 internal constant CLANSMAN_CARRY_CAP = 10e18;
-    uint256 internal constant WOOD_CAP = CLANSMAN_CARRY_CAP;
+    uint256 internal constant WOOD_CAP = 15e18;
     uint256 internal constant IRON_CAP = 5e18;
     uint256 internal constant WHEAT_CAP = 40e18;
     uint256 internal constant FISH_CAP = 8e18;
 
     // Gathering yields
     uint256 internal constant WOOD_YIELD_PER_TICK = 1e18;
-    uint256 internal constant WOOD_BASE_YIELD = WOOD_YIELD_PER_TICK;
+    uint256 internal constant WOOD_BASE_YIELD = 2e18;
     uint256 internal constant WOOD_CRIT_BONUS = WOOD_YIELD_PER_TICK;
-    uint16 internal constant WOOD_CRIT_BPS = 1000; // 10%
+    uint16 internal constant WOOD_CRIT_BPS = 2000; // 20%
 
     uint256 internal constant IRON_BASE_YIELD = 5e17; // 0.5e18
     uint16 internal constant GOLD_FROM_IRON_BPS = 200; // 2%
@@ -762,9 +762,8 @@ interface IClanWorld is IClanWorldEvents {
 
     /// @notice Ranking score preview for a clan.
     /// @dev Score is ordered by monument level, then earliest first-reached tick for that level,
-    ///      then committed vault loot value, then wall level. The loot component matches
-    ///      quoteLootValueSettled's current committed-vault basis and does not simulate pending
-    ///      lazy settlement.
+    ///      then settled vault loot value, then wall level. The loot component matches
+    ///      quoteLootValueSettled's read-only settled-vault basis.
     function getClanScore(uint32 clanId)
         external
         view

@@ -16,6 +16,10 @@ contract RankGetterHarness is ClanWorld {
     function setWallLevel(uint32 clanId, uint8 wallLevel) external {
         _clans[clanId].wallLevel = wallLevel;
     }
+
+    function setLivingClansmen(uint32 clanId, uint8 livingClansmen) external {
+        _clans[clanId].livingClansmen = livingClansmen;
+    }
 }
 
 contract RankGettersTest is Test {
@@ -118,12 +122,12 @@ contract RankGettersTest is Test {
         assertEq(levelA, 2, "A level");
         assertEq(levelB, 1, "B level");
         assertEq(levelC, 1, "C level");
-        assertEq(reachedA, 4, "A reached level 2");
-        assertEq(reachedB, 4, "B reached level 1");
-        assertEq(reachedC, 5, "C reached level 1");
-        assertEq(scoreA, _expectedScore(levelA, reachedA, world.quoteLootValueRaw(clanA)), "A score");
-        assertEq(scoreB, _expectedScore(levelB, reachedB, world.quoteLootValueRaw(clanB)), "B score");
-        assertEq(scoreC, _expectedScore(levelC, reachedC, world.quoteLootValueRaw(clanC)), "C score");
+        assertEq(reachedA, 1, "A reached level 2");
+        assertEq(reachedB, 1, "B reached level 1");
+        assertEq(reachedC, 2, "C reached level 1");
+        assertEq(scoreA, _expectedScore(levelA, reachedA, world.quoteLootValueSettled(clanA)), "A score");
+        assertEq(scoreB, _expectedScore(levelB, reachedB, world.quoteLootValueSettled(clanB)), "B score");
+        assertEq(scoreC, _expectedScore(levelC, reachedC, world.quoteLootValueSettled(clanC)), "C score");
         assertGt(scoreA, scoreB, "higher monument level wins");
         assertGt(scoreB, scoreC, "earlier reach tick wins");
 
@@ -187,13 +191,32 @@ contract RankGettersTest is Test {
         (uint256 scoreA, uint64 reachedA, uint8 levelA) = world.getClanScore(clanA);
         (uint256 scoreB, uint64 reachedB, uint8 levelB) = world.getClanScore(clanB);
         (uint256 scoreC, uint64 reachedC, uint8 levelC) = world.getClanScore(clanC);
-        assertEq(scoreA, _expectedScore(levelA, reachedA, world.quoteLootValueRaw(clanA), 1), "A score");
-        assertEq(scoreB, _expectedScore(levelB, reachedB, world.quoteLootValueRaw(clanB), 2), "B score");
-        assertEq(scoreC, _expectedScore(levelC, reachedC, world.quoteLootValueRaw(clanC), 0), "C score");
+        assertEq(scoreA, _expectedScore(levelA, reachedA, world.quoteLootValueSettled(clanA), 1), "A score");
+        assertEq(scoreB, _expectedScore(levelB, reachedB, world.quoteLootValueSettled(clanB), 2), "B score");
+        assertEq(scoreC, _expectedScore(levelC, reachedC, world.quoteLootValueSettled(clanC), 0), "C score");
 
         (uint32[] memory ranked,) = world.getRankings();
         assertEq(ranked[0], clanB, "highest wall wins after loot");
         assertEq(ranked[1], clanA, "next wall second");
         assertEq(ranked[2], clanC, "zero wall third");
+    }
+
+    function test_getRankings_usesSettledUpkeepForLootScore() public {
+        uint32 clanA = _mintClan(elderA);
+        uint32 clanB = _mintClan(elderB);
+
+        world.setVault(clanA, 100e18, 0, 1e18, 100e18);
+        world.setVault(clanB, 100e18, 0, 0, 100e18);
+        world.setLivingClansmen(clanA, 4);
+        world.setLivingClansmen(clanB, 1);
+
+        assertGt(world.quoteLootValueRaw(clanA), world.quoteLootValueRaw(clanB), "raw A starts higher");
+        _advanceTick();
+
+        assertLt(world.quoteLootValueSettled(clanA), world.quoteLootValueSettled(clanB), "settled B ranks higher");
+
+        (uint32[] memory ranked,) = world.getRankings();
+        assertEq(ranked[0], clanB, "rankings use settled upkeep");
+        assertEq(ranked[1], clanA, "A drops after simulated upkeep");
     }
 }

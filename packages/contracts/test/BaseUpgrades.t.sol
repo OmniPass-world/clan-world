@@ -109,7 +109,7 @@ contract BaseUpgradesTest is Test {
         assertEq(wheat, 50e18, "level 5 wheat");
     }
 
-    function test_upgradeBase_deductsAtQueueAndSettlesLevel() public {
+    function test_upgradeBase_holdsAtQueueAndDebitsAtSettle() public {
         uint32 clanId = _mintClan(elder);
         uint32 csId = _firstCs(clanId);
         world.setVault(clanId, 100e18, 100e18, 100e18, 100e18);
@@ -118,17 +118,20 @@ contract BaseUpgradesTest is Test {
         OrderResult[] memory result = _submitOrder(elder, clanId, csId, ActionType.UpgradeBase);
 
         assertEq(uint8(result[0].status), uint8(StatusCode.OK), "queue status");
-        assertEq(world.getClan(clanId).vaultWood, 100e18 - woodCost, "wood deducted at queue");
-        assertEq(world.getClan(clanId).vaultIron, 100e18 - ironCost, "iron deducted at queue");
-        assertEq(world.getClan(clanId).vaultWheat, 100e18 - wheatCost, "wheat deducted at queue");
+        assertEq(world.getClan(clanId).vaultWood, 100e18, "wood not deducted at queue");
+        assertEq(world.getClan(clanId).vaultIron, 100e18, "iron not deducted at queue");
+        assertEq(world.getClan(clanId).vaultWheat, 100e18, "wheat not deducted at queue");
         assertEq(world.getClan(clanId).baseLevel, 1, "base level waits for settle");
 
         _advanceTicks(world.getActionDuration(ActionType.UpgradeBase));
         vm.expectEmit(true, false, false, true, address(world));
-        emit IClanWorldEvents.BaseUpgraded(clanId, 2, 2);
+        emit IClanWorldEvents.BaseUpgraded(clanId, 2, 1);
         _advanceTick();
 
         assertEq(world.getClan(clanId).baseLevel, 2, "base level after settle");
+        assertEq(world.getClan(clanId).vaultWood, 100e18 - woodCost, "wood deducted at settle");
+        assertEq(world.getClan(clanId).vaultIron, 100e18 - ironCost, "iron deducted at settle");
+        assertEq(world.getClan(clanId).vaultWheat, 100e18 - wheatCost, "wheat deducted at settle");
     }
 
     function test_upgradeBase_rejectsInsufficientVaultAtQueueTime() public {

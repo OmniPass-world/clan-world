@@ -120,7 +120,7 @@ contract MonumentUpgradesTest is Test {
         assertEq(blueprint, 1e18, "level 7 blueprint");
     }
 
-    function test_upgradeMonument_deductsAtQueueAndSettlesLevel() public {
+    function test_upgradeMonument_holdsAtQueueAndDebitsAtSettle() public {
         uint32 clanId = _mintClan(elder);
         uint32 csId = _firstCs(clanId);
         world.setVault(clanId, 100e18, 100e18, 100e18, 100e18);
@@ -130,18 +130,22 @@ contract MonumentUpgradesTest is Test {
         OrderResult[] memory result = _submitOrder(elder, clanId, csId, ActionType.UpgradeMonument);
 
         assertEq(uint8(result[0].status), uint8(StatusCode.OK), "queue status");
-        assertEq(world.getClan(clanId).vaultWood, 100e18 - woodCost, "wood deducted at queue");
-        assertEq(world.getClan(clanId).vaultIron, 100e18 - ironCost, "iron deducted at queue");
-        assertEq(world.getClan(clanId).vaultWheat, 100e18 - wheatCost, "wheat deducted at queue");
-        assertEq(world.getClan(clanId).blueprintBalance, 5e18 - blueprintCost, "blueprint deducted at queue");
+        assertEq(world.getClan(clanId).vaultWood, 100e18, "wood not deducted at queue");
+        assertEq(world.getClan(clanId).vaultIron, 100e18, "iron not deducted at queue");
+        assertEq(world.getClan(clanId).vaultWheat, 100e18, "wheat not deducted at queue");
+        assertEq(world.getClan(clanId).blueprintBalance, 5e18, "blueprint not deducted at queue");
         assertEq(world.getClan(clanId).monumentLevel, 0, "monument level waits for settle");
 
         _advanceTicks(world.getActionDuration(ActionType.UpgradeMonument));
         vm.expectEmit(true, false, false, true, address(world));
-        emit IClanWorldEvents.MonumentUpgraded(clanId, 1, 4);
+        emit IClanWorldEvents.MonumentUpgraded(clanId, 1, 1);
         _advanceTick();
 
         assertEq(world.getClanFullView(clanId).clan.clan.monumentLevel, 1, "monument level after settle");
+        assertEq(world.getClan(clanId).vaultWood, 100e18 - woodCost, "wood deducted at settle");
+        assertEq(world.getClan(clanId).vaultIron, 100e18 - ironCost, "iron deducted at settle");
+        assertEq(world.getClan(clanId).vaultWheat, 100e18 - wheatCost, "wheat deducted at settle");
+        assertEq(world.getClan(clanId).blueprintBalance, 5e18 - blueprintCost, "blueprint deducted at settle");
     }
 
     function test_upgradeMonument_rejectsInsufficientVaultAtQueueTime() public {

@@ -76,19 +76,21 @@ contract GatheringTest is Test {
         return world.getClansman(csId);
     }
 
-    function test_chopWoodAtForestYieldsBaseTimesActionDuration() public {
+    function test_chopWoodAtForestYieldsBaseOrCritBonus() public {
         vm.prevrandao(bytes32(uint256(2)));
         uint32 clanId = _mintClan();
         uint32 csId = _firstCs(clanId);
 
         Clansman memory cs = _settleChopWood(clanId, csId);
 
-        uint256 expected = ClanWorldConstants.WOOD_YIELD_PER_TICK * world.getActionDuration(ActionType.ChopWood);
-        assertEq(cs.carryWood, expected, "base wood yield");
+        assertTrue(
+            cs.carryWood == ClanWorldConstants.WOOD_BASE_YIELD
+                || cs.carryWood == ClanWorldConstants.WOOD_BASE_YIELD + ClanWorldConstants.WOOD_CRIT_BONUS,
+            "wood yield"
+        );
     }
 
     function test_chopWoodCritDistributionAcrossSeeds() public {
-        uint256 baseYield = ClanWorldConstants.WOOD_YIELD_PER_TICK * world.getActionDuration(ActionType.ChopWood);
         uint256 critCount = 0;
         world = new GatheringHarness();
         uint256 cleanState = vm.snapshotState();
@@ -100,25 +102,25 @@ contract GatheringTest is Test {
             uint32 csId = _firstCs(clanId);
 
             Clansman memory cs = _settleChopWood(clanId, csId);
-            if (cs.carryWood == baseYield * 2) {
+            if (cs.carryWood == ClanWorldConstants.WOOD_BASE_YIELD + ClanWorldConstants.WOOD_CRIT_BONUS) {
                 critCount++;
             } else {
-                assertEq(cs.carryWood, baseYield, "non-crit yield");
+                assertEq(cs.carryWood, ClanWorldConstants.WOOD_BASE_YIELD, "non-crit yield");
             }
         }
 
-        assertGe(critCount, 3, "crit count too low");
-        assertLe(critCount, 20, "crit count too high");
+        assertGe(critCount, 10, "crit count too low");
+        assertLe(critCount, 30, "crit count too high");
     }
 
     function test_chopWoodClampsToCarryCap() public {
         uint32 clanId = _mintClan();
         uint32 csId = _firstCs(clanId);
-        world.setCarryWood(csId, ClanWorldConstants.CLANSMAN_CARRY_CAP - 1e18);
+        world.setCarryWood(csId, ClanWorldConstants.WOOD_CAP - 1e18);
 
         Clansman memory cs = _settleChopWood(clanId, csId);
 
-        assertEq(cs.carryWood, ClanWorldConstants.CLANSMAN_CARRY_CAP, "wood carry cap");
+        assertEq(cs.carryWood, ClanWorldConstants.WOOD_CAP, "wood carry cap");
     }
 
     function test_chopWoodAppliesCooldownPostSettle() public {
