@@ -38,13 +38,14 @@ import {
     RegionOccupant
 } from "./IClanWorld.sol";
 import {StubPool} from "./StubPool.sol";
+import {ReentrancyGuard} from "./util/ReentrancyGuard.sol";
 
 /// @title ClanWorld
 /// @notice Phase 1+2 real engine implementation of IClanWorld v4.
 ///         Implements: world clock, clan lifecycle, lazy settlement, resource gathering,
 ///         deposit, wheat harvest, travel, NOOP bypass, order validation, and market execution.
 ///         Phase 2 is implemented; Phase 3 (bandits, winter damage) remains stubbed.
-contract ClanWorld is IClanWorld {
+contract ClanWorld is IClanWorld, ReentrancyGuard {
     // =========================================================================
     // STORAGE
     // =========================================================================
@@ -873,7 +874,7 @@ contract ClanWorld is IClanWorld {
     ///         3. Eager-settle clans touched by world events (Phase 3 stub).
     ///         4. Resolve world events (season boundary, winter transitions).
     ///         5. Increment tick and publish (seed already written above).
-    function heartbeat() external override {
+    function heartbeat() external override nonReentrant {
         require(block.timestamp >= _world.nextHeartbeatAtTs, "ClanWorld: heartbeat rate limited");
 
         uint64 closedTick = _world.currentTick;
@@ -975,7 +976,7 @@ contract ClanWorld is IClanWorld {
     }
 
     /// @notice Public settlement trigger — lazily settle a clan.
-    function settleClan(uint32 clanId) external override {
+    function settleClan(uint32 clanId) external override nonReentrant {
         _settleClan(clanId);
     }
 
@@ -983,7 +984,7 @@ contract ClanWorld is IClanWorld {
     ///         Internally settles the entire clan (including upkeep) to guarantee
     ///         correct ordering and prevent double-settlement. Callers may call this
     ///         or settleClan interchangeably; both are safe and idempotent.
-    function settleClansman(uint32 csId) external override {
+    function settleClansman(uint32 csId) external override nonReentrant {
         Clansman storage cs = _clansmen[csId];
         if (cs.clansmanId == 0) return;
         _settleClan(cs.clanId);
@@ -999,7 +1000,7 @@ contract ClanWorld is IClanWorld {
     // =========================================================================
 
     /// @notice Mint a new clan and spawn its homebase.
-    function mintClan(address to) external override returns (uint32 clanId, uint256 iftTokenId) {
+    function mintClan(address to) external override nonReentrant returns (uint32 clanId, uint256 iftTokenId) {
         require(to != address(0), "ClanWorld: zero address");
         require(_allClanIds.length < 12, "ClanWorld: max clans");
         clanId = _nextClanId++;
@@ -1079,6 +1080,7 @@ contract ClanWorld is IClanWorld {
     function submitClanOrders(uint32 clanId, ClanOrder[] calldata orders)
         external
         override
+        nonReentrant
         returns (OrderResult[] memory results)
     {
         Clan storage clan = _clans[clanId];
@@ -1695,7 +1697,7 @@ contract ClanWorld is IClanWorld {
 
     /// @notice One-time treasury initialization: register token and pool addresses.
     ///         Must be called before seedPools. Callable only once.
-    function initTreasury(address[6] calldata tokens, address[4] calldata pools) external override {
+    function initTreasury(address[6] calldata tokens, address[4] calldata pools) external override nonReentrant {
         require(!_treasury.poolsSeeded && _treasury.woodToken == address(0), "ClanWorld: treasury already init");
         require(msg.sender == _treasury.treasuryOwner, "ClanWorld: not owner");
 
@@ -1713,7 +1715,7 @@ contract ClanWorld is IClanWorld {
     }
 
     /// @notice Owner-only. Seeds the four Unicorn Town AMM pools.
-    function seedPools(PoolSeedConfig calldata cfg) external override {
+    function seedPools(PoolSeedConfig calldata cfg) external override nonReentrant {
         require(msg.sender == _treasury.treasuryOwner, "ClanWorld: not owner");
         require(!_treasury.poolsSeeded, "ClanWorld: pools already seeded");
         require(_treasury.woodToken != address(0), "ClanWorld: treasury not init");
