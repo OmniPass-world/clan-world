@@ -8,11 +8,20 @@ different from both background shades.
 from __future__ import annotations
 
 import sys
+import argparse
 from collections import Counter
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
+
+
+def compute_content_metrics(arr: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    a = arr.astype(int)
+    R, G, B = a[:, :, 0], a[:, :, 1], a[:, :, 2]
+    saturation = np.maximum(np.maximum(np.abs(R - G), np.abs(G - B)), np.abs(R - B))
+    brightness = (R + G + B) / 3
+    return saturation, brightness
 
 
 def content_mask(arr: np.ndarray, *, sat_max: int = 3, bright_min: int = 225) -> np.ndarray:
@@ -24,10 +33,7 @@ def content_mask(arr: np.ndarray, *, sat_max: int = 3, bright_min: int = 225) ->
     This robustly distinguishes off-white cream sprites from the bg checker
     while still catching dark stone, lava, etc.
     """
-    a = arr.astype(int)
-    R, G, B = a[:, :, 0], a[:, :, 1], a[:, :, 2]
-    saturation = np.maximum(np.maximum(np.abs(R - G), np.abs(G - B)), np.abs(R - B))
-    brightness = (R + G + B) / 3
+    saturation, brightness = compute_content_metrics(arr)
     is_bg = (brightness >= bright_min) & (saturation <= sat_max)
     return ~is_bg
 
@@ -37,7 +43,7 @@ def find_stage_bboxes(
     num_stages: int = 5,
     min_col_pixels: int = 5,
     min_run_width: int = 50,
-):
+) -> tuple[list[tuple[int, int, int, int]], tuple[int, int], int, Image.Image]:
     img = Image.open(path).convert("RGB")
     arr = np.array(img)
     mask = content_mask(arr)
@@ -95,9 +101,8 @@ def find_stage_bboxes(
     return full_bboxes, img.size, chosen_gap, img
 
 
-SOURCE_DIR = Path("/home/claude/.claude/channels/telegram/inbox")
-OUT_DIR = Path("/tmp/wt-base-sprites/apps/web/public/bases")
-FUTURE_DIR = OUT_DIR / "future"
+DEFAULT_SOURCE_DIR = Path("/home/claude/.claude/channels/telegram/inbox")
+DEFAULT_OUT_DIR = Path("/tmp/wt-base-sprites/apps/web/public/bases")
 
 # Mapping decided via vision inspection (see PR description).
 MAPPING = [
@@ -112,16 +117,17 @@ MAPPING = [
 ]
 
 
-def main(dry_run: bool = False) -> None:
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    FUTURE_DIR.mkdir(parents=True, exist_ok=True)
+def main(source_dir: Path, out_dir: Path, dry_run: bool = False) -> None:
+    future_dir = out_dir / "future"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    future_dir.mkdir(parents=True, exist_ok=True)
 
     pad = 4
 
     print(f"{'Source':<46} {'OutBase':<18} {'Future':<7} {'Stages':<7} {'Gap'}")
     print("-" * 96)
     for src_name, base_name, is_future in MAPPING:
-        src = SOURCE_DIR / src_name
+        src = source_dir / src_name
         bboxes, size, gt, img = find_stage_bboxes(src)
         print(f"{src_name:<46} {base_name:<18} {str(is_future):<7} {len(bboxes):<7} {gt}")
         for i, (x1, y1, x2, y2) in enumerate(bboxes, 1):
@@ -130,19 +136,14 @@ def main(dry_run: bool = False) -> None:
         if dry_run:
             continue
 
-        target_dir = FUTURE_DIR if is_future else OUT_DIR
+        target_dir = future_dir if is_future else out_dir
 
         # Convert the checkerboard background to true alpha transparency.
         # The checker is bright (>=225) and near-grayscale; sprites are
         # either coloured or darker. We compute a soft alpha based on how
         # much a pixel deviates from "bright neutral gray".
         rgb_arr = np.array(img)
-        a = rgb_arr.astype(int)
-        R, G, B = a[:, :, 0], a[:, :, 1], a[:, :, 2]
-        saturation = np.maximum(
-            np.maximum(np.abs(R - G), np.abs(G - B)), np.abs(R - B)
-        )
-        brightness = (R + G + B) / 3.0
+        saturation, brightness = compute_content_metrics(rgb_arr)
         # Two factors that drive opacity:
         #   - colour saturation (any sat>=3 means non-bg)
         #   - darkness below 225 (each step below adds opacity)
@@ -163,10 +164,15 @@ def main(dry_run: bool = False) -> None:
             crop.save(out, "PNG", optimize=True)
             crops.append(crop)
 
-        # Default sprite = lv3 (mid progression)
+        # Default sprite = mid progression
         default_out = target_dir / f"{base_name}.png"
-        crops[2].save(default_out, "PNG", optimize=True)
+        crops[len(crops) // 2].save(default_out, "PNG", optimize=True)
 
 
 if __name__ == "__main__":
-    main(dry_run="--dry" in sys.argv)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--source", default=DEFAULT_SOURCE_DIR, type=Path)
+    parser.add_argument("--out", default=DEFAULT_OUT_DIR, type=Path)
+    parser.add_argument("--dry", action="store_true")
+    args = parser.parse_args()
+    main(source_dir=args.source, out_dir=args.out, dry_run=args.dry)
