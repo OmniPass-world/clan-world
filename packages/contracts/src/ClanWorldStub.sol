@@ -22,6 +22,7 @@ import {
     BanditTroop,
     ScheduledMarketAction,
     OtcProposal,
+    VaultTransferProposal,
     DefenseContribution,
     PackedRoute,
     DerivedClanState,
@@ -124,6 +125,19 @@ contract ClanWorldStub is IClanWorld {
     function acceptGoldTransfer(uint256) external override {}
 
     function cancelGoldTransfer(uint256) external override {}
+
+    function proposeVaultTransfer(uint32, uint32, uint256, uint256, uint256, uint256, uint64)
+        external
+        pure
+        override
+        returns (uint256)
+    {
+        return 1;
+    }
+
+    function acceptVaultTransfer(uint256) external override {}
+
+    function cancelVaultTransfer(uint256) external override {}
 
     function transferGold(uint32, uint32, uint256) external override {}
 
@@ -271,6 +285,12 @@ contract ClanWorldStub is IClanWorld {
 
     function getOtcGoldProposal(uint256) external pure override returns (OtcProposal memory) {
         return OtcProposal({from: 0, to: 0, amount: 0, expiryTick: 0, accepted: false, cancelled: false});
+    }
+
+    function getOtcVaultTransferProposal(uint256) external pure override returns (VaultTransferProposal memory) {
+        return VaultTransferProposal({
+            from: 0, to: 0, wood: 0, wheat: 0, fish: 0, iron: 0, expiryTick: 0, accepted: false, cancelled: false
+        });
     }
 
     function getActiveDefenders(uint32) external pure override returns (uint32[] memory) {

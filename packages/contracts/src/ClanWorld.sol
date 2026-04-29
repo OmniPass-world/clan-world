@@ -22,6 +22,7 @@ import {
     BanditTroop,
     ScheduledMarketAction,
     OtcProposal,
+    VaultTransferProposal,
     DefenseContribution,
     PackedRoute,
     DerivedClanState,
@@ -65,6 +66,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     mapping(uint32 => uint8) private _clansmanDefendingRegion; // clansmanId => defended home region
     mapping(uint64 => bytes32) private _tickSeeds; // tick => seed
     mapping(uint256 => OtcProposal) private _otcGoldProposals;
+    mapping(uint256 => VaultTransferProposal) private _otcVaultTransferProposals;
 
     uint32 private _nextClanId;
     uint32 private _nextClansmanId;
@@ -1823,6 +1825,101 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         emit GoldTransferCancelled(proposalId);
     }
 
+    function proposeVaultTransfer(
+        uint32 fromClanId,
+        uint32 toClanId,
+        uint256 woodAmt,
+        uint256 wheatAmt,
+        uint256 fishAmt,
+        uint256 ironAmt,
+        uint64 expiryTick
+    ) external override nonReentrant returns (uint256 proposalId) {
+        Clan storage fromClan = _clans[fromClanId];
+        require(fromClan.clanId != 0, "ClanWorld: clan not found");
+        require(fromClan.owner == msg.sender, "ClanWorld: not clan owner");
+        require(fromClan.clanState == ClanState.ACTIVE, "ClanWorld: clan dead");
+        require(_clans[toClanId].clanId != 0, "ClanWorld: target clan not found");
+        require(_clans[toClanId].clanState == ClanState.ACTIVE, "ClanWorld: target clan dead");
+        if (!_hasVaultResources(fromClan, woodAmt, wheatAmt, fishAmt, ironAmt)) {
+            revert("ERR_NOT_ENOUGH_RESOURCES");
+        }
+
+        proposalId = _nextOtcProposalId++;
+        _otcVaultTransferProposals[proposalId] = VaultTransferProposal({
+            from: fromClanId,
+            to: toClanId,
+            wood: woodAmt,
+            wheat: wheatAmt,
+            fish: fishAmt,
+            iron: ironAmt,
+            expiryTick: expiryTick,
+            accepted: false,
+            cancelled: false
+        });
+
+        emit VaultTransferProposed(proposalId, fromClanId, toClanId, woodAmt, wheatAmt, fishAmt, ironAmt, expiryTick);
+    }
+
+    function acceptVaultTransfer(uint256 proposalId) external override nonReentrant {
+        VaultTransferProposal storage proposal = _otcVaultTransferProposals[proposalId];
+        require(proposal.from != 0, "ClanWorld: proposal not found");
+        require(!proposal.accepted, "ClanWorld: proposal accepted");
+        require(!proposal.cancelled, "ClanWorld: proposal cancelled");
+        require(_world.currentTick <= proposal.expiryTick, "ClanWorld: proposal expired");
+
+        Clan storage fromClan = _clans[proposal.from];
+        Clan storage toClan = _clans[proposal.to];
+        require(fromClan.clanState == ClanState.ACTIVE, "ClanWorld: clan dead");
+        require(toClan.clanState == ClanState.ACTIVE, "ClanWorld: target clan dead");
+        require(toClan.owner == msg.sender, "ClanWorld: not clan owner");
+        if (!_hasVaultResources(fromClan, proposal.wood, proposal.wheat, proposal.fish, proposal.iron)) {
+            revert("ERR_NOT_ENOUGH_RESOURCES");
+        }
+
+        fromClan.vaultWood -= proposal.wood;
+        fromClan.vaultWheat -= proposal.wheat;
+        fromClan.vaultFish -= proposal.fish;
+        fromClan.vaultIron -= proposal.iron;
+        toClan.vaultWood += proposal.wood;
+        toClan.vaultWheat += proposal.wheat;
+        toClan.vaultFish += proposal.fish;
+        toClan.vaultIron += proposal.iron;
+        proposal.accepted = true;
+
+        emit VaultTransferAccepted(
+            proposalId,
+            proposal.from,
+            proposal.to,
+            proposal.wood,
+            proposal.wheat,
+            proposal.fish,
+            proposal.iron,
+            _world.currentTick
+        );
+    }
+
+    function cancelVaultTransfer(uint256 proposalId) external override nonReentrant {
+        VaultTransferProposal storage proposal = _otcVaultTransferProposals[proposalId];
+        require(proposal.from != 0, "ClanWorld: proposal not found");
+        require(!proposal.accepted, "ClanWorld: proposal accepted");
+        require(!proposal.cancelled, "ClanWorld: proposal cancelled");
+
+        Clan storage fromClan = _clans[proposal.from];
+        require(fromClan.owner == msg.sender, "ClanWorld: not clan owner");
+        require(fromClan.clanState == ClanState.ACTIVE, "ClanWorld: clan dead");
+
+        proposal.cancelled = true;
+        emit VaultTransferCancelled(proposalId);
+    }
+
+    function _hasVaultResources(Clan storage clan, uint256 wood, uint256 wheat, uint256 fish, uint256 iron)
+        private
+        view
+        returns (bool)
+    {
+        return clan.vaultWood >= wood && clan.vaultWheat >= wheat && clan.vaultFish >= fish && clan.vaultIron >= iron;
+    }
+
     function transferGold(uint32, uint32, uint256) external pure override {
         revert("OTC transfers not implemented");
     }
@@ -1968,6 +2065,15 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
     function getOtcGoldProposal(uint256 proposalId) external view override returns (OtcProposal memory) {
         return _otcGoldProposals[proposalId];
+    }
+
+    function getOtcVaultTransferProposal(uint256 proposalId)
+        external
+        view
+        override
+        returns (VaultTransferProposal memory)
+    {
+        return _otcVaultTransferProposals[proposalId];
     }
 
     function getActiveDefenders(uint32 targetClanId) external view override returns (uint32[] memory clansmanIds) {
