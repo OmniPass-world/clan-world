@@ -21,6 +21,7 @@ import {
     Mission,
     BanditTroop,
     ScheduledMarketAction,
+    OtcProposal,
     DefenseContribution,
     PackedRoute,
     DerivedClanState,
@@ -63,9 +64,11 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     mapping(uint8 => mapping(uint32 => uint256)) private _defenderCountByRegionClan; // region => clanId => clansmen count
     mapping(uint32 => uint8) private _clansmanDefendingRegion; // clansmanId => defended home region
     mapping(uint64 => bytes32) private _tickSeeds; // tick => seed
+    mapping(uint256 => OtcProposal) private _otcGoldProposals;
 
     uint32 private _nextClanId;
     uint32 private _nextClansmanId;
+    uint256 private _nextOtcProposalId;
     uint32[] private _allClanIds;
 
     // per-clan clansman list: clanId => clansmanId[]
@@ -102,6 +105,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         _treasury.treasuryOwner = msg.sender;
         _nextClanId = 1;
         _nextClansmanId = 1;
+        _nextOtcProposalId = 1;
     }
 
     // =========================================================================
@@ -1756,6 +1760,69 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     // OTC TRANSFERS
     // =========================================================================
 
+    function proposeGoldTransfer(uint32 fromClanId, uint32 toClanId, uint256 amount, uint256 expiryTick)
+        external
+        override
+        nonReentrant
+        returns (uint256 proposalId)
+    {
+        Clan storage fromClan = _clans[fromClanId];
+        require(fromClan.clanId != 0, "ClanWorld: clan not found");
+        require(fromClan.owner == msg.sender, "ClanWorld: not clan owner");
+        require(fromClan.clanState == ClanState.ACTIVE, "ClanWorld: clan dead");
+        require(_clans[toClanId].clanId != 0, "ClanWorld: target clan not found");
+        require(_clans[toClanId].clanState == ClanState.ACTIVE, "ClanWorld: target clan dead");
+        require(expiryTick <= type(uint64).max, "ClanWorld: expiry overflow");
+        if (fromClan.goldBalance < amount) revert("ERR_NOT_ENOUGH_GOLD");
+
+        proposalId = _nextOtcProposalId++;
+        _otcGoldProposals[proposalId] = OtcProposal({
+            from: fromClanId,
+            to: toClanId,
+            amount: amount,
+            expiryTick: uint64(expiryTick),
+            accepted: false,
+            cancelled: false
+        });
+
+        emit GoldTransferProposed(proposalId, fromClanId, toClanId, amount, expiryTick);
+    }
+
+    function acceptGoldTransfer(uint256 proposalId) external override nonReentrant {
+        OtcProposal storage proposal = _otcGoldProposals[proposalId];
+        require(proposal.from != 0, "ClanWorld: proposal not found");
+        require(!proposal.accepted, "ClanWorld: proposal accepted");
+        require(!proposal.cancelled, "ClanWorld: proposal cancelled");
+        require(_world.currentTick <= proposal.expiryTick, "ClanWorld: proposal expired");
+
+        Clan storage fromClan = _clans[proposal.from];
+        Clan storage toClan = _clans[proposal.to];
+        require(fromClan.clanState == ClanState.ACTIVE, "ClanWorld: clan dead");
+        require(toClan.clanState == ClanState.ACTIVE, "ClanWorld: target clan dead");
+        require(toClan.owner == msg.sender, "ClanWorld: not clan owner");
+        if (fromClan.goldBalance < proposal.amount) revert("ERR_NOT_ENOUGH_GOLD");
+
+        fromClan.goldBalance -= proposal.amount;
+        toClan.goldBalance += proposal.amount;
+        proposal.accepted = true;
+
+        emit GoldTransferAccepted(proposalId, proposal.from, proposal.to, proposal.amount, _world.currentTick);
+    }
+
+    function cancelGoldTransfer(uint256 proposalId) external override nonReentrant {
+        OtcProposal storage proposal = _otcGoldProposals[proposalId];
+        require(proposal.from != 0, "ClanWorld: proposal not found");
+        require(!proposal.accepted, "ClanWorld: proposal accepted");
+        require(!proposal.cancelled, "ClanWorld: proposal cancelled");
+
+        Clan storage fromClan = _clans[proposal.from];
+        require(fromClan.owner == msg.sender, "ClanWorld: not clan owner");
+        require(fromClan.clanState == ClanState.ACTIVE, "ClanWorld: clan dead");
+
+        proposal.cancelled = true;
+        emit GoldTransferCancelled(proposalId);
+    }
+
     function transferGold(uint32, uint32, uint256) external pure override {
         revert("OTC transfers not implemented");
     }
@@ -1897,6 +1964,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         returns (ScheduledMarketAction[] memory)
     {
         return _scheduledMarketActions[tick];
+    }
+
+    function getOtcGoldProposal(uint256 proposalId) external view override returns (OtcProposal memory) {
+        return _otcGoldProposals[proposalId];
     }
 
     function getActiveDefenders(uint32 targetClanId) external view override returns (uint32[] memory clansmanIds) {
