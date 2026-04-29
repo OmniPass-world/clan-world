@@ -125,6 +125,12 @@ contract ClanWorldTest is Test {
         world.heartbeat();
     }
 
+    function _advanceTicks(uint256 count) internal {
+        for (uint256 i = 0; i < count; i++) {
+            _advanceTick();
+        }
+    }
+
     function _mintClan() internal returns (uint32 clanId) {
         vm.prank(elder);
         (clanId,) = world.mintClan(elder);
@@ -280,6 +286,87 @@ contract ClanWorldTest is Test {
             assertEq(cs.currentRegion, baseRegion, "clansman should be at homebase");
             assertEq(cs.clanId, clanId, "clansman.clanId should match clan");
         }
+    }
+
+    function test_issue230_derivedClanState_simulatesStarvationWithoutMutatingRaw() public {
+        uint32 clanId = _mintClan();
+
+        _advanceTicks(6);
+
+        DerivedClanState memory derived = world.getDerivedClanState(clanId);
+        assertEq(derived.derivedAtTick, 6, "derived tick");
+        assertTrue(derived.isStarving, "derived clan should be starving");
+        assertEq(derived.clan.lastSettledTick, 6, "derived clan settled to current tick");
+        assertEq(derived.clan.starvationStartsAtTick, 5, "starvation starts at first unpaid upkeep tick");
+        assertEq(derived.clan.vaultWheat, 0, "simulated wheat spent");
+        assertEq(derived.clan.vaultFish, 0, "simulated fish spent");
+
+        Clan memory raw = world.getClan(clanId);
+        assertEq(raw.lastSettledTick, 0, "raw settlement checkpoint unchanged");
+        assertEq(raw.starvationStartsAtTick, 0, "raw starvation flag unchanged");
+        assertEq(raw.vaultWheat, 20e18, "raw wheat unchanged");
+        assertEq(raw.vaultFish, 2e18, "raw fish unchanged");
+    }
+
+    function test_issue230_derivedClansmanState_simulatesArrivalWithoutMutatingRaw() public {
+        uint32 clanId = _mintClan();
+        ClanFullView memory view_ = world.getClanFullView(clanId);
+        uint32 csId = view_.clansmen[0].clansman.clansman.clansmanId;
+
+        _submitOrder(clanId, csId, ClanWorldConstants.REGION_MOUNTAINS, ActionType.MineIron);
+        _advanceTicks(2);
+
+        DerivedClansmanState memory derived = world.getDerivedClansmanState(csId);
+        assertEq(uint8(derived.clansman.state), uint8(ClansmanState.ACTING), "derived clansman arrived");
+        assertEq(derived.clansman.currentRegion, ClanWorldConstants.REGION_MOUNTAINS, "derived current region");
+        assertEq(derived.effectiveRegion, ClanWorldConstants.REGION_MOUNTAINS, "derived effective region");
+        assertTrue(derived.activeMission.active, "mission remains active before settle tick");
+
+        Clansman memory raw = world.getClansman(csId);
+        assertEq(uint8(raw.state), uint8(ClansmanState.TRAVELING), "raw clansman remains unmutated");
+        assertEq(raw.currentRegion, view_.clan.clan.baseRegion, "raw current region unchanged");
+    }
+
+    function test_issue230_fullViewAndLootQuoteUseSimulationButRawStaysCommitted() public {
+        uint32 clanId = _mintClan();
+
+        _advanceTicks(6);
+
+        ClanFullView memory view_ = world.getClanFullView(clanId);
+        assertTrue(view_.clan.isStarving, "full view clan should be starving");
+        assertEq(view_.clan.clan.vaultWheat, 0, "full view simulated wheat spent");
+        assertEq(view_.clan.clan.vaultFish, 0, "full view simulated fish spent");
+        assertEq(world.quoteLootValueSettled(clanId), 20e18, "settled loot quote uses simulated vault");
+        assertEq(world.quoteLootValueRaw(clanId), 44e18, "raw loot quote remains committed storage");
+
+        Clan memory raw = world.getClan(clanId);
+        assertEq(raw.lastSettledTick, 0, "full view did not settle raw clan");
+        assertEq(raw.vaultWheat, 20e18, "full view did not mutate raw wheat");
+        assertEq(raw.vaultFish, 2e18, "full view did not mutate raw fish");
+    }
+
+    function test_issue230_multipleClansSimulateIndependentlyFromDifferentCheckpoints() public {
+        uint32 clanId1 = _mintClan();
+        vm.prank(elder2);
+        (uint32 clanId2,) = world.mintClan(elder2);
+
+        _advanceTicks(2);
+        world.settleClan(clanId1);
+        _advanceTicks(4);
+
+        DerivedClanState memory derived1 = world.getDerivedClanState(clanId1);
+        DerivedClanState memory derived2 = world.getDerivedClanState(clanId2);
+        assertTrue(derived1.isStarving, "clan 1 simulated from later checkpoint");
+        assertTrue(derived2.isStarving, "clan 2 simulated from genesis checkpoint");
+        assertEq(derived1.clan.lastSettledTick, 6, "clan 1 derived to current");
+        assertEq(derived2.clan.lastSettledTick, 6, "clan 2 derived to current");
+
+        Clan memory raw1 = world.getClan(clanId1);
+        Clan memory raw2 = world.getClan(clanId2);
+        assertEq(raw1.lastSettledTick, 2, "clan 1 raw checkpoint unchanged after derived reads");
+        assertEq(raw2.lastSettledTick, 0, "clan 2 raw checkpoint unchanged after derived reads");
+        assertEq(raw1.starvationStartsAtTick, 0, "clan 1 raw starvation unchanged");
+        assertEq(raw2.starvationStartsAtTick, 0, "clan 2 raw starvation unchanged");
     }
 
     // -------------------------------------------------------------------------
