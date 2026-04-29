@@ -1773,10 +1773,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     {
         Clan storage fromClan = _clans[fromClanId];
         require(fromClan.clanId != 0, "ClanWorld: clan not found");
+        require(fromClan.clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
         require(fromClan.owner == msg.sender, "ClanWorld: not clan owner");
-        require(fromClan.clanState == ClanState.ACTIVE, "ClanWorld: clan dead");
         require(_clans[toClanId].clanId != 0, "ClanWorld: target clan not found");
-        require(_clans[toClanId].clanState == ClanState.ACTIVE, "ClanWorld: target clan dead");
+        require(_clans[toClanId].clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
         require(expiryTick <= type(uint64).max, "ClanWorld: expiry overflow");
         if (fromClan.goldBalance < amount) revert("ERR_NOT_ENOUGH_GOLD");
 
@@ -1802,8 +1802,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         Clan storage fromClan = _clans[proposal.from];
         Clan storage toClan = _clans[proposal.to];
-        require(fromClan.clanState == ClanState.ACTIVE, "ClanWorld: clan dead");
-        require(toClan.clanState == ClanState.ACTIVE, "ClanWorld: target clan dead");
+        require(fromClan.clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
+        require(toClan.clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
         require(toClan.owner == msg.sender, "ClanWorld: not clan owner");
         if (fromClan.goldBalance < proposal.amount) revert("ERR_NOT_ENOUGH_GOLD");
 
@@ -1822,7 +1822,6 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         Clan storage fromClan = _clans[proposal.from];
         require(fromClan.owner == msg.sender, "ClanWorld: not clan owner");
-        require(fromClan.clanState == ClanState.ACTIVE, "ClanWorld: clan dead");
 
         proposal.cancelled = true;
         emit GoldTransferCancelled(proposalId);
@@ -1839,10 +1838,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     ) external override nonReentrant returns (uint256 proposalId) {
         Clan storage fromClan = _clans[fromClanId];
         require(fromClan.clanId != 0, "ClanWorld: clan not found");
+        require(fromClan.clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
         require(fromClan.owner == msg.sender, "ClanWorld: not clan owner");
-        require(fromClan.clanState == ClanState.ACTIVE, "ClanWorld: clan dead");
         require(_clans[toClanId].clanId != 0, "ClanWorld: target clan not found");
-        require(_clans[toClanId].clanState == ClanState.ACTIVE, "ClanWorld: target clan dead");
+        require(_clans[toClanId].clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
         if (!_hasVaultResources(fromClan, woodAmt, wheatAmt, fishAmt, ironAmt)) {
             revert("ERR_NOT_ENOUGH_RESOURCES");
         }
@@ -1872,8 +1871,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         Clan storage fromClan = _clans[proposal.from];
         Clan storage toClan = _clans[proposal.to];
-        require(fromClan.clanState == ClanState.ACTIVE, "ClanWorld: clan dead");
-        require(toClan.clanState == ClanState.ACTIVE, "ClanWorld: target clan dead");
+        require(fromClan.clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
+        require(toClan.clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
         require(toClan.owner == msg.sender, "ClanWorld: not clan owner");
         if (!_hasVaultResources(fromClan, proposal.wood, proposal.wheat, proposal.fish, proposal.iron)) {
             revert("ERR_NOT_ENOUGH_RESOURCES");
@@ -1909,7 +1908,6 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         Clan storage fromClan = _clans[proposal.from];
         require(fromClan.owner == msg.sender, "ClanWorld: not clan owner");
-        require(fromClan.clanState == ClanState.ACTIVE, "ClanWorld: clan dead");
 
         proposal.cancelled = true;
         emit VaultTransferCancelled(proposalId);
@@ -1931,10 +1929,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     {
         Clan storage fromClan = _clans[fromClanId];
         require(fromClan.clanId != 0, "ClanWorld: clan not found");
+        require(fromClan.clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
         require(fromClan.owner == msg.sender, "ClanWorld: not clan owner");
-        require(fromClan.clanState == ClanState.ACTIVE, "ClanWorld: clan dead");
         require(_clans[toClanId].clanId != 0, "ClanWorld: target clan not found");
-        require(_clans[toClanId].clanState == ClanState.ACTIVE, "ClanWorld: target clan dead");
+        require(_clans[toClanId].clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
         if (fromClan.blueprintBalance < amount) revert("ERR_NOT_ENOUGH_BLUEPRINT");
 
         proposalId = _nextOtcProposalId++;
@@ -1954,8 +1952,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         Clan storage fromClan = _clans[proposal.from];
         Clan storage toClan = _clans[proposal.to];
-        require(fromClan.clanState == ClanState.ACTIVE, "ClanWorld: clan dead");
-        require(toClan.clanState == ClanState.ACTIVE, "ClanWorld: target clan dead");
+        require(fromClan.clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
+        require(toClan.clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
         require(toClan.owner == msg.sender, "ClanWorld: not clan owner");
         if (fromClan.blueprintBalance < proposal.amount) revert("ERR_NOT_ENOUGH_BLUEPRINT");
 
@@ -1974,7 +1972,6 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         Clan storage fromClan = _clans[proposal.from];
         require(fromClan.owner == msg.sender, "ClanWorld: not clan owner");
-        require(fromClan.clanState == ClanState.ACTIVE, "ClanWorld: clan dead");
 
         proposal.cancelled = true;
         emit BlueprintTransferCancelled(proposalId);
@@ -1993,10 +1990,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     ) external override nonReentrant returns (uint256 proposalId) {
         Clan storage fromClan = _clans[fromClanId];
         require(fromClan.clanId != 0, "ClanWorld: clan not found");
+        require(fromClan.clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
         require(fromClan.owner == msg.sender, "ClanWorld: not clan owner");
-        require(fromClan.clanState == ClanState.ACTIVE, "ClanWorld: clan dead");
         require(_clans[toClanId].clanId != 0, "ClanWorld: target clan not found");
-        require(_clans[toClanId].clanState == ClanState.ACTIVE, "ClanWorld: target clan dead");
+        require(_clans[toClanId].clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
         require(!_isEmptyBundledTransfer(gold, wood, wheat, fish, iron, blueprint), "ClanWorld: empty bundled transfer");
         _requireBundledTransferBalance(fromClan, gold, wood, wheat, fish, iron, blueprint);
 
@@ -2029,8 +2026,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         Clan storage fromClan = _clans[proposal.from];
         Clan storage toClan = _clans[proposal.to];
-        require(fromClan.clanState == ClanState.ACTIVE, "ClanWorld: clan dead");
-        require(toClan.clanState == ClanState.ACTIVE, "ClanWorld: target clan dead");
+        require(fromClan.clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
+        require(toClan.clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
         require(toClan.owner == msg.sender, "ClanWorld: not clan owner");
         _requireBundledTransferBalance(
             fromClan, proposal.gold, proposal.wood, proposal.wheat, proposal.fish, proposal.iron, proposal.blueprint
@@ -2072,7 +2069,6 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         Clan storage fromClan = _clans[proposal.from];
         require(fromClan.owner == msg.sender, "ClanWorld: not clan owner");
-        require(fromClan.clanState == ClanState.ACTIVE, "ClanWorld: clan dead");
 
         proposal.cancelled = true;
         emit BundledTransferCancelled(proposalId);
