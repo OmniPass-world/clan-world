@@ -216,8 +216,19 @@ contract ClanWorldStub is IClanWorld {
     }
 
     function getBandit(uint32) public pure override returns (BanditTroop memory) {
-        return
-            BanditTroop({id: 0, region: 0, state: BanditState.None, targetClanId: 0, tickEnteredState: 0, strength: 0});
+        return BanditTroop({
+            id: 0,
+            region: 0,
+            state: BanditState.None,
+            targetClanId: 0,
+            tickEnteredState: 0,
+            strength: 0,
+            carryWood: 0,
+            carryIron: 0,
+            carryWheat: 0,
+            carryFish: 0,
+            carryGold: 0
+        });
     }
 
     function getBanditTroop(uint32 banditId) external pure override returns (BanditTroop memory) {

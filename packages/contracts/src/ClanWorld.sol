@@ -81,6 +81,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     // =========================================================================
 
     uint256 private constant WHEAT_HARVEST_RATE = 20e18;
+    uint256 private constant RESOURCE_UNIT = 1e18;
     /// @dev Caps market queue work per heartbeat; overflow is deferred to the next tick.
     uint256 public constant MAX_MARKET_ACTIONS_PER_TICK = 32;
     uint256 internal constant DOMAIN_BANDIT_SPAWN = uint256(keccak256("clanworld.bandit.spawn.v1"));
@@ -914,7 +915,12 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             state: BanditState.Spawned,
             targetClanId: 0,
             tickEnteredState: _world.currentTick,
-            strength: strength
+            strength: strength,
+            carryWood: 0,
+            carryIron: 0,
+            carryWheat: 0,
+            carryFish: 0,
+            carryGold: 0
         });
         _banditsByRegion[region].push(id);
         _activeBanditCount += 1;
@@ -1109,11 +1115,108 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         if (defeated) {
             emit BanditDefeated(banditId, targetClanId, closedTick);
+            _distributeBanditLootToDefendingClans(banditId, targetClanId);
             _transitionBanditState(banditId, BanditState.Defeated);
         } else {
             _transitionBanditState(banditId, BanditState.Escaped);
             emit BanditEscaped(banditId, closedTick);
         }
+    }
+
+    function _distributeBanditLootToDefendingClans(uint32 banditId, uint32 targetClanId) internal {
+        BanditTroop storage bandit = _bandits[banditId];
+        uint32[] memory rewardedClanIds = _activeDefendingClanIds(targetClanId);
+        uint256 nDefendingClans = rewardedClanIds.length;
+
+        uint256 perWood;
+        uint256 perIron;
+        uint256 perWheat;
+        uint256 perFish;
+        uint256 perGold;
+        if (nDefendingClans > 0) {
+            perWood = _perClanBanditLootShare(bandit.carryWood, nDefendingClans);
+            perIron = _perClanBanditLootShare(bandit.carryIron, nDefendingClans);
+            perWheat = _perClanBanditLootShare(bandit.carryWheat, nDefendingClans);
+            perFish = _perClanBanditLootShare(bandit.carryFish, nDefendingClans);
+            perGold = _perClanBanditLootShare(bandit.carryGold, nDefendingClans);
+
+            for (uint256 i = 0; i < rewardedClanIds.length; i++) {
+                Clan storage defenderClan = _clans[rewardedClanIds[i]];
+                defenderClan.vaultWood += perWood;
+                defenderClan.vaultIron += perIron;
+                defenderClan.vaultWheat += perWheat;
+                defenderClan.vaultFish += perFish;
+                defenderClan.goldBalance += perGold;
+            }
+        }
+
+        emit LootDistributed(
+            banditId,
+            rewardedClanIds,
+            perWood,
+            perWheat,
+            perFish,
+            perIron,
+            perGold,
+            bandit.carryWood - (perWood * nDefendingClans),
+            bandit.carryWheat - (perWheat * nDefendingClans),
+            bandit.carryFish - (perFish * nDefendingClans),
+            bandit.carryIron - (perIron * nDefendingClans),
+            bandit.carryGold - (perGold * nDefendingClans)
+        );
+    }
+
+    function _perClanBanditLootShare(uint256 loot, uint256 nDefendingClans) internal pure returns (uint256) {
+        if (nDefendingClans == 1) {
+            return loot;
+        }
+        return ((loot / RESOURCE_UNIT) / nDefendingClans) * RESOURCE_UNIT;
+    }
+
+    function _activeDefendingClanIds(uint32 targetClanId) internal view returns (uint32[] memory clanIds) {
+        uint8 targetRegion = _clans[targetClanId].baseRegion;
+        uint32[] storage defendingClans = _defendingClansByRegion[targetRegion];
+        uint256 count;
+
+        for (uint256 i = 0; i < defendingClans.length; i++) {
+            if (_clanHasActiveDefenderForTarget(defendingClans[i], targetClanId, targetRegion)) {
+                count++;
+            }
+        }
+
+        clanIds = new uint32[](count);
+        uint256 out;
+        for (uint256 i = 0; i < defendingClans.length; i++) {
+            uint32 defenderClanId = defendingClans[i];
+            if (_clanHasActiveDefenderForTarget(defenderClanId, targetClanId, targetRegion)) {
+                clanIds[out++] = defenderClanId;
+            }
+        }
+    }
+
+    function _clanHasActiveDefenderForTarget(uint32 defenderClanId, uint32 targetClanId, uint8 targetRegion)
+        internal
+        view
+        returns (bool)
+    {
+        Clan storage defenderClan = _clans[defenderClanId];
+        if (defenderClan.clanState == ClanState.DEAD || _isStarving(defenderClan)) {
+            return false;
+        }
+
+        uint32[] storage clansmanIds = _clanClansmanIds[defenderClanId];
+        for (uint256 i = 0; i < clansmanIds.length; i++) {
+            uint32 clansmanId = clansmanIds[i];
+            Clansman storage cs = _clansmen[clansmanId];
+            Mission storage mission = _missions[clansmanId];
+            if (
+                cs.state == ClansmanState.ACTING && cs.currentRegion == targetRegion && mission.active
+                    && mission.action == ActionType.DefendBase && mission.targetClanId == targetClanId
+            ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     function _totalBanditClansmanDefense(uint32 banditId, uint32 targetClanId, bytes32 tickSeed)
@@ -1794,7 +1897,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         ctx.targetClanId =
             order.action == ActionType.DefendBase && order.targetClanId == 0 ? clanId : order.targetClanId;
 
-        // NOOP bypass: treat 0 as "stay here"; DefendBase requires explicit home region.
+        // NOOP bypass: treat 0 as "stay here"; DefendBase requires the defended base region.
         ctx.isNoop = order.action != ActionType.DefendBase
             && (ctx.gotoRegion == ClanWorldConstants.REGION_NOOP || ctx.gotoRegion == ctx.fromRegion);
         if (ctx.isNoop) {
@@ -2298,8 +2401,12 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         view
         returns (StatusCode)
     {
-        if (gotoRegion != clan.baseRegion) return StatusCode.ERR_INVALID_REGION;
-        if (order.targetClanId != 0 && order.targetClanId != clan.clanId) return StatusCode.ERR_INVALID_TARGET;
+        uint32 targetClanId = order.targetClanId == 0 ? clan.clanId : order.targetClanId;
+        Clan storage targetClan = _clans[targetClanId];
+        if (targetClan.clanId == ClanWorldConstants.CLAN_ID_NULL || targetClan.clanState == ClanState.DEAD) {
+            return StatusCode.ERR_INVALID_TARGET;
+        }
+        if (gotoRegion != targetClan.baseRegion) return StatusCode.ERR_INVALID_REGION;
         return StatusCode.OK;
     }
 
@@ -2431,10 +2538,19 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     function getBandit(uint32 banditId) public view override returns (BanditTroop memory) {
         BanditTroop memory bandit = _bandits[banditId];
         if (bandit.id == ClanWorldConstants.BANDIT_ID_NULL || bandit.state == BanditState.None) {
-            return
-                BanditTroop({
-                    id: 0, region: 0, state: BanditState.None, targetClanId: 0, tickEnteredState: 0, strength: 0
-                });
+            return BanditTroop({
+                id: 0,
+                region: 0,
+                state: BanditState.None,
+                targetClanId: 0,
+                tickEnteredState: 0,
+                strength: 0,
+                carryWood: 0,
+                carryIron: 0,
+                carryWheat: 0,
+                carryFish: 0,
+                carryGold: 0
+            });
         }
         return bandit;
     }
@@ -2699,10 +2815,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             nextActionTick: nextActionTick,
             tier: 0,
             attackPower: _banditStrengthForLegacyEvent(bandit.strength),
-            carryWood: 0,
-            carryIron: 0,
-            carryWheat: 0,
-            carryFish: 0,
+            carryWood: bandit.carryWood,
+            carryIron: bandit.carryIron,
+            carryWheat: bandit.carryWheat,
+            carryFish: bandit.carryFish,
             projectedTargetClanId: bandit.targetClanId,
             projectedTargetLootValue: 0
         });
