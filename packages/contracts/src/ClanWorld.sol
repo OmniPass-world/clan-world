@@ -2297,7 +2297,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     ///         CEI guard: nextHeartbeatAtTs written first to close reentrancy window.
     ///         1. Settle missions completing this tick.
     ///         2. Execute scheduled market actions for closedTick (external calls).
-    ///         3. Eager-settle clans touched by world events this tick.
+    ///         3. Eager-settle bases and defenders in bandit spawn-candidate regions.
     ///         4. Advance bandit timers for the closed tick.
     ///         5. Resolve closed-tick bandit attacks and deaths.
     ///         6. Spawn new bandits if spawn conditions are met.

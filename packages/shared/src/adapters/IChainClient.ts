@@ -25,6 +25,24 @@ export const baseSepolia = defineChain({
 
 export const CLAN_WORLD_ABI = IClanWorldArtifact.abi as Abi;
 
+/**
+ * Parse and validate a clanId string into a uint32-range integer.
+ * Throws descriptive errors for negative, non-integer, empty, or overflow inputs.
+ */
+export function parseClanId(clanId: string, fnName: string): number {
+  if (!/^\d+$/.test(clanId.trim())) {
+    throw new Error(`${fnName}: clanId must be a non-negative decimal integer, got '${clanId}'`);
+  }
+  const parsed = Number.parseInt(clanId.trim(), 10);
+  if (parsed > 0xFFFFFFFF) {
+    throw new Error(`${fnName}: clanId exceeds uint32 max (4294967295), got '${clanId}'`);
+  }
+  if (parsed === 0) {
+    throw new Error(`${fnName}: clanId 0 is reserved (clan IDs start at 1), got '${clanId}'`);
+  }
+  return parsed;
+}
+
 class StubChainClient implements IChainClient {
   async getCurrentTick(): Promise<Tick> {
     return 0;
@@ -76,10 +94,7 @@ class RealChainClient implements IChainClient {
 
   async submitOrders(clanId: string, orders: ClanOrder[]): Promise<{ txHash: string }> {
     // Wave 0: single-Elder only — concurrent nonce coordination deferred to Wave 1
-    const parsedClanId = parseInt(clanId, 10);
-    if (isNaN(parsedClanId) || String(parsedClanId) !== clanId.trim()) {
-      throw new Error(`submitOrders: clanId must be a decimal integer, got '${clanId}'`);
-    }
+    const parsedClanId = parseClanId(clanId, 'submitOrders');
 
     for (const order of orders) {
       if (order.kind === 'mission') {
@@ -164,10 +179,7 @@ class RealChainClient implements IChainClient {
 
   async getClanFullView(clanId: string): Promise<ClanFullView> {
     // safe as Number: game cap ≤12 clans, well within Number.MAX_SAFE_INTEGER
-    const parsedClanId = Number.parseInt(clanId, 10);
-    if (isNaN(parsedClanId) || String(parsedClanId) !== clanId.trim()) {
-      throw new Error(`getClanFullView: clanId must be a decimal integer, got '${clanId}'`);
-    }
+    const parsedClanId = parseClanId(clanId, 'getClanFullView');
     const result = await this.client.readContract({
       address: this.contractAddress,
       abi: CLAN_WORLD_ABI,

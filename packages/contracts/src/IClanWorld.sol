@@ -457,7 +457,9 @@ struct ActiveBanditView {
     uint32 banditId;
     BanditState state;
     uint8 currentRegion;
+    /// @dev Attacks the bandit has already made this state.
     uint8 attackAttemptsMade;
+    /// @dev Attacks the bandit can still make before state transition.
     uint8 maxAttemptsRemaining;
     uint64 stateEnteredTick;
     uint64 nextActionTick;
@@ -470,6 +472,7 @@ struct ActiveBanditView {
     uint256 carryFish;
 
     uint32 projectedTargetClanId; // 0 if no eligible target in current region
+    /// @dev Estimated loot value of the projected target clan (0 if no eligible target).
     uint256 projectedTargetLootValue;
 }
 
