@@ -95,12 +95,30 @@ Projections use ClanWorld's compiled density (~16 B/source line, `via_ir`) appli
 
 > **Mandatory size check:** Before merging any migration PR (PR 2–6), run `forge build --sizes` and confirm each facet's runtime bytes is under 20,000 B (leaving ≥4 KB headroom). If any facet approaches 20 KB, split before merging.
 
+### Cross-facet execution model
+
+EIP-2535 facets are separate deployed contracts. `CoreFacet` cannot call `GatheringFacet._settleCompletingMissions()` as an internal function. There are two patterns for cross-facet execution:
+
+**Pattern A: Shared internal library (preferred for pure/stateless helpers)**  
+Logic that is stateless or has no external-call risk moves into a `library` (e.g., `LibTravel`, `LibGathering`). Libraries are inlined by `via_ir` at the call site — no cross-contract call, no gas overhead, no reentrancy risk. Storage-touching logic in libraries is safe because libraries execute in the caller's storage context via `delegatecall`.
+
+**Pattern B: External self-call through proxy (for state-writing cross-facet dispatch)**  
+`CoreFacet.heartbeat()` calls `IClanWorld(address(this))._executeScheduledMarketActions(tick)`. Under `delegatecall`, `address(this)` is the Diamond proxy. The proxy routes the call to the correct facet. This is an external call — it adds ~700 gas overhead and is subject to reentrancy considerations (see §Heartbeat Failure Model).
+
+**Decision for ClanWorld:**
+- Pure computation helpers (`_buildPath`, `_distMatrix`, `_travelTicks`): Pattern A — move to `LibTravel`
+- Settlement core (`_settleClan`, `_settleCompletingMissions`): Pattern A — move to `LibSettlement` (if stateless enough) OR exposed as external selectors on GatheringFacet (Pattern B)
+- Market execution loop: Pattern B — `_executeScheduledMarketActions` becomes an external selector on MarketFacet, called from heartbeat via `IClanWorld(address(this))`
+- State-reading shared logic (`_poolReserves`): Pattern A — move to `LibMarket` (pure computation against treasury state)
+
+**Note:** Functions in Pattern A (library) do NOT appear in the Diamond's selector table. Functions in Pattern B (external self-calls) DO appear as selectors and can be called by anyone unless access-controlled. All Pattern B functions that modify state must be access-controlled to `address(this)` only.
+
 ### Function assignment by facet
 
 #### CoreFacet — world clock, heartbeat shell, clan lifecycle, order dispatch
 
 From `ClanWorld.sol`:
-- `heartbeat()` — calls into GatheringFacet for `_settleCompletingMissions`, delegates market loop to MarketFacet, calls `_resolveWorldEvents`
+- `heartbeat()` — calls GatheringFacet via Pattern B for `_settleCompletingMissions`, calls MarketFacet via Pattern B for market loop, calls `_resolveWorldEvents` internally
 - `_resolveWorldEvents(uint64 closedTick)`
 - `settleClan(uint32 clanId)` → delegates to `_settleClan` in GatheringFacet
 - `settleClansman(uint32 csId)` → delegates to `_settleClan` in GatheringFacet
@@ -286,12 +304,20 @@ struct AppStorage {
     uint256 reentrancyStatus;                          // 1 = not entered, 2 = entered
 
     // -------------------------------------------------------------------------
+    // Initialization guard + ownership (set atomically in DiamondInit._init())
+    // -------------------------------------------------------------------------
+    bool initialized;                                  // true after first init; prevents re-init
+    address owner;                                     // DiamondCut owner / multisig address
+
+    // -------------------------------------------------------------------------
     // Constants stored at deploy time (not in IClanWorld; inline here for Diamond)
     // -------------------------------------------------------------------------
     // Note: WHEAT_HARVEST_RATE and MAX_MARKET_ACTIONS_PER_TICK are contract-level
     // constants in ClanWorld.sol; keep as Solidity constants in a shared library,
     // not in AppStorage (constants don't occupy storage slots).
 }
+// IMPORTANT: any future field additions go HERE (after `owner`), never above.
+// Append-only — see §Storage Safety.
 ```
 
 **Storage slot:** `LibStorage.appStorage()` uses the deterministic slot:
@@ -340,14 +366,16 @@ Every PR that touches `LibStorage.sol` (or any struct used inside `AppStorage`) 
 
 ```bash
 # From packages/contracts:
-forge inspect ClanWorld storageLayout --json > test/snapshots/storage-layout.json
-# After Diamond migration, the target is the Diamond proxy:
-forge inspect Diamond storageLayout --json > test/snapshots/storage-layout.json
+# Inspect a facet that imports LibStorage — this captures the AppStorage struct layout
+# because the facet declares it as an inline type reference:
+forge inspect CoreFacet storageLayout --json > test/snapshots/storage-layout.json
 ```
 
-The snapshot file is committed to the repo at `packages/contracts/test/snapshots/storage-layout.json`. CI runs a diff check: if the snapshot diverges from `forge inspect` output, the PR fails.
+**Important:** `forge inspect Diamond storageLayout` will NOT capture `AppStorage` because the Diamond proxy accesses it via a hashed slot (`keccak256("clan.world.app.storage.v1")`), not as normal declared contract storage. Always inspect a facet (e.g., `CoreFacet`) that has the `AppStorage` struct in scope — this returns the struct's field layout, which is what matters for slot calculations.
 
-**Enforcement:** A `Makefile` target `make storage-snapshot-check` will be added in PR 2. Until then, enforce manually: every LibStorage change requires the reviewer to run `forge inspect` and confirm slot positions are unchanged for existing fields.
+The snapshot file is committed to the repo at `packages/contracts/test/snapshots/storage-layout.json`. CI runs a diff check: if the snapshot diverges from `forge inspect CoreFacet storageLayout` output, the PR fails.
+
+**Enforcement:** A `Makefile` target `make storage-snapshot-check` will be added in PR 2. Until then, enforce manually: every LibStorage change requires the reviewer to run `forge inspect CoreFacet` and confirm slot positions are unchanged for existing fields.
 
 ### Rule 3: No struct-field reordering, ever
 
@@ -429,6 +457,10 @@ Option B — `heartbeat()` IS `nonReentrant`; `_executeScheduledMarketActions` u
 More complex — avoid unless Option A has a concrete exploit path.
 
 **Recommended: Option A.** Implement in Phase 3. The Development Invariants rule (§Development Invariants) is adjusted to: "every `external` state-writing function MUST be `nonReentrant` UNLESS it is an orchestrator entry-point that is already access-controlled by role/address check."
+
+**External token callback risk with Option A:** `MarketFacet._executeScheduledMarketActions` calls external token contracts (ERC-20 transfers, pool interactions). A malicious ERC-20 token could call back into `heartbeat()` during the transfer. Since `heartbeat()` is NOT `nonReentrant` under Option A, this is a re-entry vector IF the attacker can cause a malicious token to be added to the treasury.
+
+Mitigation: the treasury token set is set at init time and can only be changed by the owner via `initTreasury`. If all treasury tokens are trusted (owner-controlled, vetted ERC-20s), the callback risk is negligible. **Production constraint: only audited ERC-20 tokens should be registered in the treasury.** If the game ever adds user-supplied token addresses, the reentrancy model must be revisited and Option B applied.
 
 **Current scope:** The `try/catch` isolation is NOT implemented in Phase 1 (skeleton) or Phase 2 (CoreFacet migration). It is a Phase 3 follow-up once the facet split is stable. Rationale: the monolith has the same failure mode today; adding isolation during the migration would conflate two architectural changes.
 
@@ -631,9 +663,12 @@ The Diamond migration is an architectural rewrite. "Tests mostly need a new depl
 6. Deploy `ViewsFacet`
 7. Deploy `BanditsFacet` (stub)
 8. Deploy `WintersFacet` (stub)
-9. Deploy `Diamond(owner, initialDiamondCut)` — all facets added in one tx
-10. Verify: call `IDiamondLoupe(diamond).facets()` to confirm all selectors registered
-11. Call `IClanWorld(diamond).initTreasury(...)` (if tokens known at deploy time)
+9. Deploy `DiamondInit` — one-shot initialization contract
+10. Assemble `initialDiamondCut` array (all facets) + encode `DiamondInit.init(owner, tokens, pools)` calldata
+11. Deploy `Diamond(owner, initialDiamondCut, address(diamondInit), initCalldata)` — all facets cut + state initialized atomically in constructor
+12. Verify: call `IDiamondLoupe(diamond).facets()` to confirm all selectors registered
+
+**Note:** `initTreasury()` is NOT called as a separate transaction. Token addresses and pool config are passed to `DiamondInit.init()` which runs atomically in the same tx as `diamondCut`. If token addresses are not known at deploy time (e.g., tokens deployed separately), pass zero addresses to init and use `initTreasury()` as a one-time setup call that checks `s.treasury.initialized == false`.
 
 **Base Sepolia:** The existing `foundry.toml` already has:
 ```toml
@@ -673,10 +708,10 @@ Every facet that imports `LibStorage` or other shared helpers gets that library'
 | PR | Branch | Content | Criteria |
 |---|---|---|---|
 | **PR 1** (this PR) | `feat/issue-337-diamond-design` | Design doc + Diamond skeleton (proxy, LibStorage, interfaces, empty facets) | Liam go/no-go on architecture |
-| **PR 2** | `feat/issue-337-core-facet` | Migrate CoreFacet (heartbeat shell, clan lifecycle, order submission, travel) + `DeployDiamond` helper + storage snapshot CI | All core tests pass; size check clean |
+| **PR 2** | `feat/issue-337-core-facet` | Migrate CoreFacet (heartbeat shell, clan lifecycle, order submission, travel) + `DeployDiamond` helper + storage snapshot CI + **selector collision tests start here** | All core tests pass; size check clean; no selector collisions |
 | **PR 3** | `feat/issue-337-market-gathering` | Migrate MarketFacet + GatheringFacet (settlement engine, gathering, market execution) + heartbeat `try/catch` isolation | Heartbeat + market tests pass; cross-facet reentrancy test passes |
 | **PR 4** | `feat/issue-337-buildings-views` | Migrate BuildingsFacet logic into GatheringFacet + ViewsFacet (all aggregators) | Full test suite passes |
-| **PR 5** | `feat/issue-337-bandits-winters` | BanditsFacet stub + WintersFacet stub with Phase 9/10 landing zones; selector collision tests; upgrade tests | Stubs deploy clean; all new test categories pass |
+| **PR 5** | `feat/issue-337-bandits-winters` | BanditsFacet stub + WintersFacet stub with Phase 9/10 landing zones; upgrade tests | Stubs deploy clean; all new test categories pass |
 | **PR 6** | `feat/issue-337-deploy-sepolia` | `DeployDiamond.s.sol`, invariant tests, Base Sepolia deploy + verification | Deployed + verified on Base Sepolia |
 
 After each PR merges to `dev`, the prior `ClanWorld.sol` monolith remains in the repo until PR 6 is merged — at that point it's archived or removed.
@@ -752,6 +787,27 @@ Both engines returned NEEDS WORK on R1 revision.
 | R2-L2 | LOW | Codex | Delayed Phase 3 heartbeat isolation keeps fragile model during migration | Deferred — acknowledged explicitly in §Heartbeat Failure Model; same failure mode as monolith today |
 | R2-L3 | LOW | Codex + Gemini | Alternatives (minimal dispatcher, logic-only facets, data-first redesign) | Deferred — brief note in §Known Limitations |
 | R2-L4 | LOW | Gemini | `via_ir` retention for per-facet compilation | Deferred — existing Open Question #6 for Liam |
+
+### Round 3 — 2026-04-30
+
+**Engines:** Codex + Gemini Pro (gemini-2.5-pro-preview-05-06)
+
+Both engines returned NEEDS WORK on R2 revision.
+
+**Findings summary:**
+
+| ID | Severity | Engine | Finding | Disposition |
+|---|---|---|---|---|
+| R3-H1 | HIGH | Codex | Cross-facet execution model unspecified — "CoreFacet calls GatheringFacet internally" is impossible across contract boundaries; must be library or external self-call | **ADDRESSED** in §Facet Boundaries — "Cross-facet execution model" subsection added; Pattern A (library) vs Pattern B (external self-call) documented; function assignment updated |
+| R3-H2 | HIGH | Codex | `forge inspect Diamond` won't capture hashed-slot `AppStorage` — wrong inspect target in §Storage Safety | **ADDRESSED** in §Storage Safety Rule 2 — `forge inspect CoreFacet` specified as correct target; rationale explained |
+| R3-H3 | HIGH | Codex | `s.initialized` and `s.owner` referenced in §8 but absent from AppStorage struct definition | **ADDRESSED** — `initialized` and `owner` fields added to AppStorage struct in §4 |
+| R3-H4 | MED→HIGH | Codex | Deploy step 11 contradicts atomic init — post-cut `initTreasury()` call violates §8's front-run protection rule | **ADDRESSED** — deploy sequence rewritten; `DiamondInit` handles treasury atomically; conditional path for unknown-token-at-deploy noted |
+| R3-H5 | HIGH | Gemini | External token callback re-entry risk with Option A (`heartbeat()` exempt from `nonReentrant`) | **ADDRESSED** in §Heartbeat Failure Model — explicit constraint: treasury tokens must be audited; user-supplied token addresses trigger revisit of reentrancy model |
+| R3-M1 | MED | Codex | Selector collision tests deferred to PR 5 — too late, collisions should be caught from PR 2 onward | **ADDRESSED** — migration plan updated; selector collision tests start in PR 2 |
+| R3-L1 | LOW | Codex + Gemini | Stack Too Deep concern (same as R2 H3) — caching mitigation insufficient | MockCoreFacet validation step already added in R2; `via_ir` genuinely helps; defer to implementation |
+| R3-L2 | LOW | Gemini | DiamondCut race condition — emergency 0h bypass could be overwritten by pending 48h cut | Deferred — operational edge case; document in DEPLOYMENT.md (PR 6) |
+| R3-L3 | LOW | Codex + Gemini | "Solve EIP-170 but not runtime scaling/liveness" | Out of scope for this PR; correct observation but architectural restructure not required here |
+| R3-L4 | LOW | Codex | Governance model aspirational not engineered | Pending Liam sign-off on multisig approach (Open Question #1); implementation deferred to PR 6 |
 
 ---
 
