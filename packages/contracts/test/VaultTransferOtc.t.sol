@@ -168,7 +168,7 @@ contract VaultTransferOtcTest is Test {
     function test_proposeVaultTransfer_revertsWhenAllZero() public {
         (uint32 clanA, uint32 clanB,) = _mintThreeClans();
 
-        vm.expectRevert("ERR_ZERO_AMOUNT");
+        vm.expectRevert("ERR_EMPTY_TRANSFER");
         _propose(clanA, clanB, 0, 0, 0, 0, 10);
     }
 
@@ -211,6 +211,22 @@ contract VaultTransferOtcTest is Test {
         _advanceTicks(250);
 
         vm.expectRevert("ClanWorld: must settle first");
+        vm.prank(elderB);
+        world.acceptVaultTransfer(proposalId);
+    }
+
+    function test_acceptVaultTransfer_revertsAfterOwnershipTransfer() public {
+        (uint32 clanA, uint32 clanB,) = _mintThreeClans();
+        world.setVault(clanA, 10e18, 10e18, 10e18, 10e18);
+        uint256 proposalId = _propose(clanA, clanB, 5e18, 0, 0, 0, 100);
+
+        // Transfer clan A to a new owner — nonce bumps
+        address elderD = address(0xD1);
+        vm.prank(elderA);
+        world.transferClanOwnership(clanA, elderD);
+
+        // elderB tries to accept — should revert
+        vm.expectRevert("ERR_PROPOSER_NO_LONGER_OWNER");
         vm.prank(elderB);
         world.acceptVaultTransfer(proposalId);
     }

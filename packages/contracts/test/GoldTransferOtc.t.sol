@@ -143,8 +143,62 @@ contract GoldTransferOtcTest is Test {
     function test_proposeGoldTransfer_revertsWhenZeroAmount() public {
         (uint32 clanA, uint32 clanB,) = _mintThreeClans();
 
-        vm.expectRevert("ERR_ZERO_AMOUNT");
+        vm.expectRevert("ERR_EMPTY_TRANSFER");
         _propose(clanA, clanB, 0, 10);
+    }
+
+    function test_acceptGoldTransfer_revertsAfterOwnershipTransfer() public {
+        (uint32 clanA, uint32 clanB,) = _mintThreeClans();
+        uint256 proposalId = _propose(clanA, clanB, 1e18, 100);
+
+        // Transfer clan A to a new owner
+        address elderD = address(0xD1);
+        vm.prank(elderA);
+        world.transferClanOwnership(clanA, elderD);
+
+        // elderB tries to accept — should revert because nonce changed
+        vm.expectRevert("ERR_PROPOSER_NO_LONGER_OWNER");
+        vm.prank(elderB);
+        world.acceptGoldTransfer(proposalId);
+    }
+
+    function test_acceptGoldTransfer_succeedsWithoutOwnershipChange() public {
+        (uint32 clanA, uint32 clanB,) = _mintThreeClans();
+        uint256 proposalId = _propose(clanA, clanB, 1e18, 100);
+
+        // No ownership change — should succeed
+        vm.prank(elderB);
+        world.acceptGoldTransfer(proposalId);
+
+        assertEq(world.getOtcGoldProposal(proposalId).from, 0, "proposal deleted");
+    }
+
+    function test_transferClanOwnership_incrementsNonce() public {
+        (uint32 clanA,,) = _mintThreeClans();
+        uint64 nonceBefore = world.getClan(clanA).ownerNonce;
+
+        address elderD = address(0xD1);
+        vm.prank(elderA);
+        world.transferClanOwnership(clanA, elderD);
+
+        assertEq(world.getClan(clanA).ownerNonce, nonceBefore + 1, "nonce incremented");
+        assertEq(world.getClan(clanA).owner, elderD, "owner updated");
+    }
+
+    function test_transferClanOwnership_revertsForNonOwner() public {
+        (uint32 clanA,,) = _mintThreeClans();
+
+        vm.expectRevert("ClanWorld: not clan owner");
+        vm.prank(elderB);
+        world.transferClanOwnership(clanA, elderB);
+    }
+
+    function test_transferClanOwnership_revertsForSameOwner() public {
+        (uint32 clanA,,) = _mintThreeClans();
+
+        vm.expectRevert("ClanWorld: same owner");
+        vm.prank(elderA);
+        world.transferClanOwnership(clanA, elderA);
     }
 
     function test_proposeGoldTransfer_revertsWhenSelfTransfer() public {

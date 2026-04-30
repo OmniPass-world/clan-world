@@ -1091,6 +1091,20 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         return (clanId, iftTokenId);
     }
 
+    /// @notice Transfer clan ownership to a new address. Increments ownerNonce,
+    ///         invalidating all outstanding OTC proposals from this clan.
+    function transferClanOwnership(uint32 clanId, address newOwner) external override nonReentrant {
+        Clan storage clan = _clans[clanId];
+        require(clan.clanId != 0, "ClanWorld: clan not found");
+        require(clan.owner == msg.sender, "ClanWorld: not clan owner");
+        require(newOwner != address(0), "ClanWorld: zero address");
+        require(newOwner != clan.owner, "ClanWorld: same owner");
+        address oldOwner = clan.owner;
+        clan.owner = newOwner;
+        clan.ownerNonce++;
+        emit ClanOwnershipTransferred(clanId, oldOwner, newOwner, clan.ownerNonce);
+    }
+
     /// @notice Submit one or more orders for a clan's clansmen. Per-order failures don't revert.
     function submitClanOrders(uint32 clanId, ClanOrder[] calldata orders)
         external
@@ -1774,7 +1788,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         Clan storage fromClan = _clans[fromClanId];
         require(fromClan.clanId != 0, "ClanWorld: clan not found");
         require(fromClanId != toClanId, "ERR_SELF_TRANSFER");
-        require(amount > 0, "ERR_ZERO_AMOUNT");
+        require(amount > 0, "ERR_EMPTY_TRANSFER");
         require(fromClan.clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
         require(fromClan.owner == msg.sender, "ClanWorld: not clan owner");
         require(_clans[toClanId].clanId != 0, "ClanWorld: target clan not found");
@@ -1784,8 +1798,13 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         proposalId = _nextOtcProposalId++;
         _openOtcProposalsByClan[fromClanId]++;
-        _otcGoldProposals[proposalId] =
-            OtcProposal({from: fromClanId, to: toClanId, amount: amount, expiryTick: expiryTick});
+        _otcGoldProposals[proposalId] = OtcProposal({
+            from: fromClanId,
+            to: toClanId,
+            amount: amount,
+            expiryTick: expiryTick,
+            proposerOwnerNonceAtPropose: fromClan.ownerNonce
+        });
 
         emit GoldTransferProposed(proposalId, fromClanId, toClanId, amount, expiryTick);
     }
@@ -1802,6 +1821,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         Clan storage fromClan = _clans[proposal.from];
         Clan storage toClan = _clans[proposal.to];
+        require(fromClan.ownerNonce == proposal.proposerOwnerNonceAtPropose, "ERR_PROPOSER_NO_LONGER_OWNER");
         require(fromClan.clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
         require(toClan.clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
         require(toClan.owner == msg.sender, "ClanWorld: not clan owner");
@@ -1840,7 +1860,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         Clan storage fromClan = _clans[fromClanId];
         require(fromClan.clanId != 0, "ClanWorld: clan not found");
         require(fromClanId != toClanId, "ERR_SELF_TRANSFER");
-        require(woodAmt > 0 || wheatAmt > 0 || fishAmt > 0 || ironAmt > 0, "ERR_ZERO_AMOUNT");
+        require(woodAmt > 0 || wheatAmt > 0 || fishAmt > 0 || ironAmt > 0, "ERR_EMPTY_TRANSFER");
         require(fromClan.clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
         require(fromClan.owner == msg.sender, "ClanWorld: not clan owner");
         require(_clans[toClanId].clanId != 0, "ClanWorld: target clan not found");
@@ -1857,7 +1877,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             wheat: wheatAmt,
             fish: fishAmt,
             iron: ironAmt,
-            expiryTick: expiryTick
+            expiryTick: expiryTick,
+            proposerOwnerNonceAtPropose: fromClan.ownerNonce
         });
 
         emit VaultTransferProposed(proposalId, fromClanId, toClanId, woodAmt, wheatAmt, fishAmt, ironAmt, expiryTick);
@@ -1878,6 +1899,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         Clan storage fromClan = _clans[fromClanId];
         Clan storage toClan = _clans[toClanId];
+        require(fromClan.ownerNonce == proposal.proposerOwnerNonceAtPropose, "ERR_PROPOSER_NO_LONGER_OWNER");
         require(fromClan.clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
         require(toClan.clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
         require(toClan.owner == msg.sender, "ClanWorld: not clan owner");
@@ -1929,7 +1951,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         Clan storage fromClan = _clans[fromClanId];
         require(fromClan.clanId != 0, "ClanWorld: clan not found");
         require(fromClanId != toClanId, "ERR_SELF_TRANSFER");
-        require(amount > 0, "ERR_ZERO_AMOUNT");
+        require(amount > 0, "ERR_EMPTY_TRANSFER");
         require(fromClan.clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
         require(fromClan.owner == msg.sender, "ClanWorld: not clan owner");
         require(_clans[toClanId].clanId != 0, "ClanWorld: target clan not found");
@@ -1939,8 +1961,13 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         proposalId = _nextOtcProposalId++;
         _openOtcProposalsByClan[fromClanId]++;
-        _otcBlueprintTransferProposals[proposalId] =
-            BlueprintTransferProposal({from: fromClanId, to: toClanId, amount: amount, expiryTick: expiryTick});
+        _otcBlueprintTransferProposals[proposalId] = BlueprintTransferProposal({
+            from: fromClanId,
+            to: toClanId,
+            amount: amount,
+            expiryTick: expiryTick,
+            proposerOwnerNonceAtPropose: fromClan.ownerNonce
+        });
 
         emit BlueprintTransferProposed(proposalId, fromClanId, toClanId, amount, expiryTick);
     }
@@ -1957,6 +1984,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         Clan storage fromClan = _clans[fromClanId];
         Clan storage toClan = _clans[toClanId];
+        require(fromClan.ownerNonce == proposal.proposerOwnerNonceAtPropose, "ERR_PROPOSER_NO_LONGER_OWNER");
         require(fromClan.clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
         require(toClan.clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
         require(toClan.owner == msg.sender, "ClanWorld: not clan owner");
@@ -1997,7 +2025,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         Clan storage fromClan = _clans[fromClanId];
         require(fromClan.clanId != 0, "ClanWorld: clan not found");
         require(fromClanId != toClanId, "ERR_SELF_TRANSFER");
-        require(!_isEmptyBundledTransfer(gold, wood, wheat, fish, iron, blueprint), "ERR_ZERO_AMOUNT");
+        require(!_isEmptyBundledTransfer(gold, wood, wheat, fish, iron, blueprint), "ERR_EMPTY_TRANSFER");
         require(fromClan.clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
         require(fromClan.owner == msg.sender, "ClanWorld: not clan owner");
         require(_clans[toClanId].clanId != 0, "ClanWorld: target clan not found");
@@ -2016,7 +2044,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             fish: fish,
             iron: iron,
             blueprint: blueprint,
-            expiryTick: expiryTick
+            expiryTick: expiryTick,
+            proposerOwnerNonceAtPropose: fromClan.ownerNonce
         });
 
         emit BundledTransferProposed(
@@ -2041,6 +2070,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         Clan storage fromClan = _clans[fromClanId];
         Clan storage toClan = _clans[toClanId];
+        require(fromClan.ownerNonce == proposal.proposerOwnerNonceAtPropose, "ERR_PROPOSER_NO_LONGER_OWNER");
         require(fromClan.clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
         require(toClan.clanState != ClanState.DEAD, "ERR_CLAN_DEAD");
         require(toClan.owner == msg.sender, "ClanWorld: not clan owner");

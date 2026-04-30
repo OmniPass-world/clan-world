@@ -124,7 +124,7 @@ contract BlueprintTransferOtcTest is Test {
     function test_proposeBlueprintTransfer_revertsWhenZeroAmount() public {
         (uint32 clanA, uint32 clanB,) = _mintThreeClans();
 
-        vm.expectRevert("ERR_ZERO_AMOUNT");
+        vm.expectRevert("ERR_EMPTY_TRANSFER");
         _propose(clanA, clanB, 0, 10);
     }
 

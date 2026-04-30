@@ -179,7 +179,7 @@ enum StatusCode {
     ERR_SEASON_ENDED,
     ERR_NOT_ENOUGH_GOLD,
     ERR_CARRY_FULL,
-    ERR_ZERO_AMOUNT,
+    ERR_EMPTY_TRANSFER,
     ERR_SELF_TRANSFER,
     ERR_OTC_CAP
 }
@@ -242,6 +242,7 @@ struct Clan {
 
     uint64 lastSettledTick;
     uint64 starvationStartsAtTick; // 0 = none
+    uint64 ownerNonce; // incremented on every ownership transfer; used for OTC stale-proposal invalidation
 
     uint16 coldDamage; // resets to 0 at winter end
 
@@ -338,6 +339,7 @@ struct OtcProposal {
     uint32 to;
     uint256 amount;
     uint64 expiryTick;
+    uint64 proposerOwnerNonceAtPropose; // ownerNonce of fromClan at propose time; accept reverts if changed
 }
 
 struct VaultTransferProposal {
@@ -348,6 +350,7 @@ struct VaultTransferProposal {
     uint256 fish;
     uint256 iron;
     uint64 expiryTick;
+    uint64 proposerOwnerNonceAtPropose; // ownerNonce of fromClan at propose time; accept reverts if changed
 }
 
 struct BlueprintTransferProposal {
@@ -355,6 +358,7 @@ struct BlueprintTransferProposal {
     uint32 to;
     uint256 amount;
     uint64 expiryTick;
+    uint64 proposerOwnerNonceAtPropose; // ownerNonce of fromClan at propose time; accept reverts if changed
 }
 
 struct BundledTransferProposal {
@@ -367,6 +371,7 @@ struct BundledTransferProposal {
     uint256 iron;
     uint256 blueprint;
     uint64 expiryTick;
+    uint64 proposerOwnerNonceAtPropose; // ownerNonce of fromClan at propose time; accept reverts if changed
 }
 
 struct DefenseContribution {
@@ -656,6 +661,11 @@ interface IClanWorldEvents {
     event ColdDamageApplied(uint32 indexed clanId, uint16 oldDamage, uint16 newDamage, uint64 atTick);
     event ClansmanDiedFromCold(uint32 indexed clanId, uint64 atTick);
 
+    // ----- clan ownership -----
+    event ClanOwnershipTransferred(
+        uint32 indexed clanId, address indexed oldOwner, address indexed newOwner, uint64 newOwnerNonce
+    );
+
     // ----- OTC transfers -----
     event GoldTransferProposed(
         uint256 indexed proposalId,
@@ -772,6 +782,10 @@ interface IClanWorld is IClanWorldEvents {
 
     /// @notice Mint a new clan iNFT and spawn its homebase in a valid region.
     function mintClan(address to) external returns (uint32 clanId, uint256 iftTokenId);
+
+    /// @notice Transfer clan ownership to a new address. Increments ownerNonce,
+    ///         invalidating any outstanding OTC proposals from this clan.
+    function transferClanOwnership(uint32 clanId, address newOwner) external;
 
     /// @notice Submit one or more orders for a single clan's clansmen.
     ///         Per-order failures do not revert the tx.
