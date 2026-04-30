@@ -1464,32 +1464,6 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         emit TickAdvanced(closedTick, newTick, newSeed);
     }
 
-    /// @dev Settle missions that complete exactly at `tick` (settlesAtTick == tick).
-    ///      Called from heartbeat before market execution and tick increment.
-    ///      Bounded by 12-clan cap x 4 clansmen = 48 max iterations.
-    function _settleCompletingMissions(uint64 tick) internal {
-        for (uint256 i = 0; i < _allClanIds.length; i++) {
-            uint32 clanId = _allClanIds[i];
-            Clan storage clan = _clans[clanId];
-            if (clan.clanState == ClanState.DEAD) continue;
-
-            uint32[] storage csIds = _clanClansmanIds[clanId];
-            for (uint256 j = 0; j < csIds.length; j++) {
-                Clansman storage cs = _clansmen[csIds[j]];
-                Mission storage m = _missions[cs.clansmanId];
-                if (!m.active) continue;
-                if (cs.state == ClansmanState.DEAD) {
-                    _settleMissionForClansman(clan, cs, clanId, tick, tick + 1);
-                    continue;
-                }
-                if (m.settlesAtTick != tick) continue; // not due this tick
-
-                // Settle this mission using the single-tick range [tick, tick+1).
-                _settleMissionForClansman(clan, cs, clanId, tick, tick + 1);
-            }
-        }
-    }
-
     /// @dev Resolve world events for the tick that was just closed.
     ///      Uses closedTick+1 as the equivalent of the old `newTick` for transition checks.
     function _resolveWorldEvents(uint64 closedTick) internal {
@@ -2514,51 +2488,6 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             released.wheat += monument.wheatCost;
             released.blueprint += monument.blueprintCost;
         }
-    }
-
-    function _hasEarlierWallUpgradeReservation(uint32 clanId, uint32 currentClansmanId, uint8 currentLevel)
-        internal
-        view
-        returns (bool)
-    {
-        uint32[] storage clansmanIds = _clanClansmanIds[clanId];
-        for (uint256 i = 0; i < clansmanIds.length; i++) {
-            uint32 otherId = clansmanIds[i];
-            if (otherId == currentClansmanId) continue;
-            WallUpgradeReservation storage other = _wallUpgradeReservations[otherId];
-            if (other.active && other.clanId == clanId && other.fromLevel == currentLevel) return true;
-        }
-        return false;
-    }
-
-    function _hasEarlierBaseUpgradeReservation(uint32 clanId, uint32 currentClansmanId, uint8 currentLevel)
-        internal
-        view
-        returns (bool)
-    {
-        uint32[] storage clansmanIds = _clanClansmanIds[clanId];
-        for (uint256 i = 0; i < clansmanIds.length; i++) {
-            uint32 otherId = clansmanIds[i];
-            if (otherId == currentClansmanId) continue;
-            BaseUpgradeReservation storage other = _baseUpgradeReservations[otherId];
-            if (other.active && other.clanId == clanId && other.fromLevel == currentLevel) return true;
-        }
-        return false;
-    }
-
-    function _hasEarlierMonumentUpgradeReservation(uint32 clanId, uint32 currentClansmanId, uint8 currentLevel)
-        internal
-        view
-        returns (bool)
-    {
-        uint32[] storage clansmanIds = _clanClansmanIds[clanId];
-        for (uint256 i = 0; i < clansmanIds.length; i++) {
-            uint32 otherId = clansmanIds[i];
-            if (otherId == currentClansmanId) continue;
-            MonumentUpgradeReservation storage other = _monumentUpgradeReservations[otherId];
-            if (other.active && other.clanId == clanId && other.fromLevel == currentLevel) return true;
-        }
-        return false;
     }
 
     function _spendableAfterReleasing(uint256 vault, uint256 reserved, uint256 released)
