@@ -178,13 +178,13 @@ enum StatusCode {
     ERR_MARKET_UNSUPPORTED_TOKEN,
     ERR_IMMEDIATE_MARKET_NOT_ELIGIBLE,
     ERR_MARKET_BUY_OVER_CAPACITY,
-    ERR_MARKET_BUY_MAX_GOLD_EXCEEDED, // Deprecated alias slot; preserve enum ordinal stability.
+    ERR_MARKET_BUY_MAX_GOLD_EXCEEDED, // Deprecated/reserved legacy ordinal (replaced by ERR_MAX_GOLD_IN_EXCEEDED); kept only to preserve enum ordinal stability.
     ERR_WORLD_TICK_MISMATCH,
     ERR_NO_ACTIVE_BANDIT,
     ERR_SEASON_ENDED,
     ERR_NOT_ENOUGH_GOLD,
     ERR_CARRY_FULL,
-    ERR_MARKET_INSUFFICIENT_LIQUIDITY, // Deprecated alias slot; preserve enum ordinal stability.
+    ERR_MARKET_INSUFFICIENT_LIQUIDITY, // Deprecated/reserved legacy ordinal (replaced by ERR_LIQUIDITY_INSUFFICIENT); kept only to preserve enum ordinal stability.
     ERR_LIQUIDITY_INSUFFICIENT,
     ERR_MAX_GOLD_IN_EXCEEDED
 }
