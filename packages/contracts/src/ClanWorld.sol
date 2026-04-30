@@ -42,10 +42,10 @@ import {StubPool} from "./StubPool.sol";
 import {ReentrancyGuard} from "./util/ReentrancyGuard.sol";
 
 /// @title ClanWorld
-/// @notice Phase 1+2 real engine implementation of IClanWorld v4.
+/// @notice Phase 1–9 real engine implementation of IClanWorld v4.
 ///         Implements: world clock, clan lifecycle, lazy settlement, resource gathering,
-///         deposit, wheat harvest, travel, NOOP bypass, order validation, and market execution.
-///         Phase 2 is implemented; Phase 3 (bandits, winter damage) remains stubbed.
+///         deposit, wheat harvest, travel, NOOP bypass, order validation, market execution,
+///         and Phase 9 bandit spawn/attack/resolution.
 contract ClanWorld is IClanWorld, ReentrancyGuard {
     // =========================================================================
     // STORAGE
@@ -2297,9 +2297,12 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     ///         CEI guard: nextHeartbeatAtTs written first to close reentrancy window.
     ///         1. Settle missions completing this tick.
     ///         2. Execute scheduled market actions for closedTick (external calls).
-    ///         3. Eager-settle clans touched by world events (Phase 9 stub).
-    ///         4. Advance bandit timers and resolve closed-tick bandit/world events.
-    ///         5. Increment tick and publish the next tick seed atomically.
+    ///         3. Eager-settle clans touched by world events this tick.
+    ///         4. Advance bandit timers for the closed tick.
+    ///         5. Resolve closed-tick bandit attacks and deaths.
+    ///         6. Spawn new bandits if spawn conditions are met.
+    ///         7. Resolve world events (season boundary, winter transitions).
+    ///         8. Increment tick and publish the next tick seed atomically.
     function heartbeat() external override nonReentrant {
         require(block.timestamp >= _world.nextHeartbeatAtTs, "ClanWorld: heartbeat rate limited");
 
