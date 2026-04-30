@@ -11,6 +11,7 @@ import {
     ClanFullView,
     Clansman,
     ClanOrder,
+    WithdrawResourcesData,
     OrderResult,
     Mission
 } from "../src/IClanWorld.sol";
@@ -56,7 +57,8 @@ contract MissionTimingTest is Test {
             targetClanId: 0,
             marketToken: address(0),
             marketAmount: 0,
-            maxGoldIn: 0
+            maxGoldIn: 0,
+            withdrawResources: WithdrawResourcesData({wood: 0, iron: 0, wheat: 0, fish: 0})
         });
         vm.prank(elder);
         return world.submitClanOrders(clanId, orders);

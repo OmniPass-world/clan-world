@@ -11,6 +11,7 @@ import {
     ActionType,
     StatusCode,
     ClanOrder,
+    WithdrawResourcesData,
     OrderResult,
     Mission,
     PoolSeedConfig
@@ -223,7 +224,8 @@ contract ReentrancyTest is Test {
             targetClanId: 0,
             marketToken: token,
             marketAmount: amount,
-            maxGoldIn: 0
+            maxGoldIn: 0,
+            withdrawResources: WithdrawResourcesData({wood: 0, iron: 0, wheat: 0, fish: 0})
         });
         vm.prank(elder);
         return world.submitClanOrders(clanId, orders);

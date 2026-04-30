@@ -245,6 +245,33 @@
               "name": "maxGoldIn",
               "type": "uint256",
               "internalType": "uint256"
+            },
+            {
+              "name": "withdrawResources",
+              "type": "tuple",
+              "internalType": "struct WithdrawResourcesData",
+              "components": [
+                {
+                  "name": "wood",
+                  "type": "uint256",
+                  "internalType": "uint256"
+                },
+                {
+                  "name": "iron",
+                  "type": "uint256",
+                  "internalType": "uint256"
+                },
+                {
+                  "name": "wheat",
+                  "type": "uint256",
+                  "internalType": "uint256"
+                },
+                {
+                  "name": "fish",
+                  "type": "uint256",
+                  "internalType": "uint256"
+                }
+              ]
             }
           ]
         }
@@ -758,6 +785,33 @@
                           "name": "maxGoldIn",
                           "type": "uint256",
                           "internalType": "uint256"
+                        },
+                        {
+                          "name": "withdrawResources",
+                          "type": "tuple",
+                          "internalType": "struct WithdrawResourcesData",
+                          "components": [
+                            {
+                              "name": "wood",
+                              "type": "uint256",
+                              "internalType": "uint256"
+                            },
+                            {
+                              "name": "iron",
+                              "type": "uint256",
+                              "internalType": "uint256"
+                            },
+                            {
+                              "name": "wheat",
+                              "type": "uint256",
+                              "internalType": "uint256"
+                            },
+                            {
+                              "name": "fish",
+                              "type": "uint256",
+                              "internalType": "uint256"
+                            }
+                          ]
                         }
                       ]
                     },
@@ -867,6 +921,33 @@
                       "name": "maxGoldIn",
                       "type": "uint256",
                       "internalType": "uint256"
+                    },
+                    {
+                      "name": "withdrawResources",
+                      "type": "tuple",
+                      "internalType": "struct WithdrawResourcesData",
+                      "components": [
+                        {
+                          "name": "wood",
+                          "type": "uint256",
+                          "internalType": "uint256"
+                        },
+                        {
+                          "name": "iron",
+                          "type": "uint256",
+                          "internalType": "uint256"
+                        },
+                        {
+                          "name": "wheat",
+                          "type": "uint256",
+                          "internalType": "uint256"
+                        },
+                        {
+                          "name": "fish",
+                          "type": "uint256",
+                          "internalType": "uint256"
+                        }
+                      ]
                     }
                   ]
                 }
@@ -1331,6 +1412,33 @@
                   "name": "maxGoldIn",
                   "type": "uint256",
                   "internalType": "uint256"
+                },
+                {
+                  "name": "withdrawResources",
+                  "type": "tuple",
+                  "internalType": "struct WithdrawResourcesData",
+                  "components": [
+                    {
+                      "name": "wood",
+                      "type": "uint256",
+                      "internalType": "uint256"
+                    },
+                    {
+                      "name": "iron",
+                      "type": "uint256",
+                      "internalType": "uint256"
+                    },
+                    {
+                      "name": "wheat",
+                      "type": "uint256",
+                      "internalType": "uint256"
+                    },
+                    {
+                      "name": "fish",
+                      "type": "uint256",
+                      "internalType": "uint256"
+                    }
+                  ]
                 }
               ]
             },
@@ -2413,6 +2521,33 @@
               "name": "maxGoldIn",
               "type": "uint256",
               "internalType": "uint256"
+            },
+            {
+              "name": "withdrawResources",
+              "type": "tuple",
+              "internalType": "struct WithdrawResourcesData",
+              "components": [
+                {
+                  "name": "wood",
+                  "type": "uint256",
+                  "internalType": "uint256"
+                },
+                {
+                  "name": "iron",
+                  "type": "uint256",
+                  "internalType": "uint256"
+                },
+                {
+                  "name": "wheat",
+                  "type": "uint256",
+                  "internalType": "uint256"
+                },
+                {
+                  "name": "fish",
+                  "type": "uint256",
+                  "internalType": "uint256"
+                }
+              ]
             }
           ]
         }
@@ -3541,6 +3676,55 @@
           "type": "uint64",
           "indexed": false,
           "internalType": "uint64"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "ResourcesWithdrawn",
+      "inputs": [
+        {
+          "name": "clanId",
+          "type": "uint32",
+          "indexed": true,
+          "internalType": "uint32"
+        },
+        {
+          "name": "clansmanId",
+          "type": "uint32",
+          "indexed": true,
+          "internalType": "uint32"
+        },
+        {
+          "name": "woodDelta",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "ironDelta",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "wheatDelta",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "fishDelta",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "tick",
+          "type": "uint32",
+          "indexed": false,
+          "internalType": "uint32"
         }
       ],
       "anonymous": false

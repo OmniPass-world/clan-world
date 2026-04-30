@@ -13,6 +13,7 @@ import {
     StatusCode,
     WorldState,
     ClanOrder,
+    WithdrawResourcesData,
     OrderResult,
     Mission,
     Clan,
@@ -96,7 +97,8 @@ contract HeartbeatOrderingTest is Test {
             targetClanId: 0,
             marketToken: address(0),
             marketAmount: 0,
-            maxGoldIn: 0
+            maxGoldIn: 0,
+            withdrawResources: WithdrawResourcesData({wood: 0, iron: 0, wheat: 0, fish: 0})
         });
         vm.prank(elder);
         return world.submitClanOrders(clanId, orders);
@@ -118,7 +120,8 @@ contract HeartbeatOrderingTest is Test {
             targetClanId: 0,
             marketToken: token,
             marketAmount: amount,
-            maxGoldIn: maxGold
+            maxGoldIn: maxGold,
+            withdrawResources: WithdrawResourcesData({wood: 0, iron: 0, wheat: 0, fish: 0})
         });
         vm.prank(elder);
         return world.submitClanOrders(clanId, orders);
@@ -211,6 +214,13 @@ contract HeartbeatOrderingTest is Test {
         Mission memory depositMission = world.getActiveMission(csId0);
         assertEq(depositMission.settlesAtTick, t0 + 3, "deposit settlesAtTick must be t0+3");
 
+        // Give cs0 carry wood (for deposit) and cs1 carry wood (for sell).
+        // Sell now draws from carry, not vault — zero vault to confirm vault is not involved.
+        world.setCarryWood(csId0, 10e18);
+        world.setCarryWood(csId1, 5e18);
+        world.setVaultWood(clanId, 0);
+        assertEq(world.getClan(clanId).vaultWood, 0, "vault wood must be 0 before test tick");
+
         // cs1: at Forest. Submit MarketSell to UT. Forest→UT = 2 ticks.
         // settlesAtTick = t0+3. Same tick as deposit settles.
         OrderResult[] memory r1 = _submitMarketOrder(clanId, csId1, ActionType.MarketSell, address(woodToken), 5e18, 0);
@@ -218,13 +228,6 @@ contract HeartbeatOrderingTest is Test {
         Mission memory sellMission = world.getActiveMission(csId1);
         assertEq(sellMission.arrivalTick, t0 + 2, "sell arrivalTick must be t0+2");
         assertEq(sellMission.settlesAtTick, t0 + 3, "sell settlesAtTick must be t0+3");
-
-        // Give cs0 carry wood (for deposit) and cs1 carry wood (for sell).
-        // Sell now draws from carry, not vault — zero vault to confirm vault is not involved.
-        world.setCarryWood(csId0, 10e18);
-        world.setCarryWood(csId1, 5e18);
-        world.setVaultWood(clanId, 0);
-        assertEq(world.getClan(clanId).vaultWood, 0, "vault wood must be 0 before test tick");
 
         uint256 goldBefore = world.getClan(clanId).goldBalance;
 

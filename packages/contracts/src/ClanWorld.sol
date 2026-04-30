@@ -26,6 +26,7 @@ import {
     DerivedClanState,
     DerivedClansmanState,
     ClanOrder,
+    WithdrawResourcesData,
     OrderResult,
     PoolSeedConfig,
     LeaderboardEntry,
@@ -456,6 +457,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             // Deposit event ABI intentionally stores the current tick as uint32.
             // forge-lint: disable-next-line(unsafe-typecast)
             _doDeposit(clan, cs, m, clanId, uint32(tick));
+        } else if (action == ActionType.WithdrawResources) {
+            // Withdraw event ABI intentionally mirrors ResourcesDeposited's uint32 tick.
+            // forge-lint: disable-next-line(unsafe-typecast)
+            _doWithdrawResources(clan, cs, m, clanId, uint32(tick));
         } else if (action == ActionType.Wait) {
             // NOOP — worker stays ACTING (continuous), no transition needed
             // Wait mission is effectively persistent until interrupted
@@ -467,7 +472,6 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             // Phase 1 stub: check homebase, check resources; if ok, stub success
             _doBuilding(clan, cs, m, clanId, tick, action);
         } else if (action == ActionType.MarketBuy || action == ActionType.MarketSell) {
-            _enqueueScheduledMarketAction(clanId, cs.clansmanId, m);
             _completeMission(cs, m);
         }
     }
@@ -696,6 +700,34 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         cs.carryFish = 0;
 
         emit ResourcesDeposited(clanId, cs.clansmanId, woodDelta, ironDelta, wheatDelta, fishDelta, tick);
+        _completeMission(cs, m);
+    }
+
+    function _doWithdrawResources(Clan storage clan, Clansman storage cs, Mission storage m, uint32 clanId, uint32 tick)
+        internal
+    {
+        if (cs.currentRegion != clan.baseRegion) {
+            _completeMission(cs, m);
+            return;
+        }
+
+        WithdrawResourcesData memory req = m.withdrawResources;
+        if (!_hasWithdrawRequest(req) || !_hasVaultResources(clan, req) || !_hasCarryCapacityForWithdraw(cs, req)) {
+            _completeMission(cs, m);
+            return;
+        }
+
+        clan.vaultWood -= req.wood;
+        clan.vaultIron -= req.iron;
+        clan.vaultWheat -= req.wheat;
+        clan.vaultFish -= req.fish;
+
+        cs.carryWood += req.wood;
+        cs.carryIron += req.iron;
+        cs.carryWheat += req.wheat;
+        cs.carryFish += req.fish;
+
+        emit ResourcesWithdrawn(clanId, cs.clansmanId, req.wood, req.iron, req.wheat, req.fish, tick);
         _completeMission(cs, m);
     }
 
@@ -1222,7 +1254,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             }
             _clearDefender(cs.clansmanId);
 
-            result.status = StatusCode.OK;
+            result.status =
+                order.action == ActionType.MarketSell && marketStatus != StatusCode.OK ? marketStatus : StatusCode.OK;
             result.cooldownEndsAtTs = cs.cooldownEndsAtTs;
             result.missionNonce = ctx.newNonce;
             result.marketMode = MarketExecutionMode.Immediate;
@@ -1282,6 +1315,9 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         result.cooldownEndsAtTs = cs.cooldownEndsAtTs;
         result.missionNonce = ctx.newNonce;
         result.marketMode = isMarketAction ? MarketExecutionMode.Scheduled : MarketExecutionMode.None;
+        if (isMarketAction) {
+            _enqueueScheduledMarketAction(clanId, cs.clansmanId, existingM);
+        }
         return result;
     }
 
@@ -1310,6 +1346,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         m.marketToken = order.marketToken;
         m.marketAmount = order.marketAmount;
         m.maxGoldIn = order.maxGoldIn;
+        m.withdrawResources = order.withdrawResources;
 
         if (m.marketMode == MarketExecutionMode.Scheduled) {
             _marketMissionCommitSequence[cs.clansmanId] = _world.nextCommitSequence++;
@@ -1610,10 +1647,22 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     }
 
     function _addToCarry(Clansman storage cs, address token, uint256 amount) internal {
-        if (token == _treasury.woodToken) { cs.carryWood += amount; return; }
-        if (token == _treasury.ironToken) { cs.carryIron += amount; return; }
-        if (token == _treasury.wheatToken) { cs.carryWheat += amount; return; }
-        if (token == _treasury.fishToken) { cs.carryFish += amount; return; }
+        if (token == _treasury.woodToken) {
+            cs.carryWood += amount;
+            return;
+        }
+        if (token == _treasury.ironToken) {
+            cs.carryIron += amount;
+            return;
+        }
+        if (token == _treasury.wheatToken) {
+            cs.carryWheat += amount;
+            return;
+        }
+        if (token == _treasury.fishToken) {
+            cs.carryFish += amount;
+            return;
+        }
     }
 
     /// @dev Check a clan vault balance without mutating storage.
@@ -1623,6 +1672,31 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         if (token == _treasury.wheatToken) return clan.vaultWheat >= amount;
         if (token == _treasury.fishToken) return clan.vaultFish >= amount;
         return false;
+    }
+
+    function _hasWithdrawRequest(WithdrawResourcesData memory req) internal pure returns (bool) {
+        return req.wood > 0 || req.iron > 0 || req.wheat > 0 || req.fish > 0;
+    }
+
+    function _hasVaultResources(Clan storage clan, WithdrawResourcesData memory req) internal view returns (bool) {
+        return clan.vaultWood >= req.wood && clan.vaultIron >= req.iron && clan.vaultWheat >= req.wheat
+            && clan.vaultFish >= req.fish;
+    }
+
+    function _hasCarryCapacityForWithdraw(Clansman storage cs, WithdrawResourcesData memory req)
+        internal
+        view
+        returns (bool)
+    {
+        return req.wood <= _remainingCapacity(cs.carryWood, ClanWorldConstants.WOOD_CAP)
+            && req.iron <= _remainingCapacity(cs.carryIron, ClanWorldConstants.IRON_CAP)
+            && req.wheat <= _remainingCapacity(cs.carryWheat, ClanWorldConstants.WHEAT_CAP)
+            && req.fish <= _remainingCapacity(cs.carryFish, ClanWorldConstants.FISH_CAP);
+    }
+
+    function _remainingCapacity(uint256 carried, uint256 cap) internal pure returns (uint256) {
+        if (carried >= cap) return 0;
+        return cap - carried;
     }
 
     function _handleMarketFailure(
@@ -2030,9 +2104,16 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         if (action == ActionType.None) return StatusCode.ERR_INVALID_ACTION;
 
-        // DepositResources: must go to homebase
+        // DepositResources / WithdrawResources: must go to homebase
         if (action == ActionType.DepositResources) {
             if (gotoRegion != clan.baseRegion) return StatusCode.ERR_INVALID_REGION;
+        }
+        if (action == ActionType.WithdrawResources) {
+            if (gotoRegion != clan.baseRegion) return StatusCode.ERR_NOT_AT_HOMEBASE;
+            WithdrawResourcesData memory req = order.withdrawResources;
+            if (!_hasWithdrawRequest(req)) return StatusCode.ERR_EMPTY_CARGO;
+            if (!_hasVaultResources(clan, req)) return StatusCode.ERR_MISSING_RESOURCES;
+            if (!_hasCarryCapacityForWithdraw(cs, req)) return StatusCode.ERR_CARRY_FULL;
         }
 
         // BuildWall / UpgradeBase / UpgradeMonument: must go to homebase
@@ -2095,6 +2176,9 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             // Over-capacity buys are rejected at submission; no partial fills or overflow refunds.
             if (action == ActionType.MarketBuy && order.marketAmount > _remainingCarryForToken(cs, tok)) {
                 return StatusCode.ERR_CARRY_FULL;
+            }
+            if (action == ActionType.MarketSell && !_hasCarryBalance(cs, tok, order.marketAmount)) {
+                return StatusCode.ERR_MISSING_RESOURCES;
             }
             // Immediate market orders execute during submitClanOrders when the
             // worker is waiting in Unicorn Town and off cooldown. Other valid
@@ -2266,7 +2350,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             return 4;
         }
 
-        if (action == ActionType.DepositResources) {
+        if (action == ActionType.DepositResources || action == ActionType.WithdrawResources) {
             return DEPOSIT_DURATION_TICKS;
         }
 

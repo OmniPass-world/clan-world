@@ -139,6 +139,7 @@ enum ActionType {
     FishDeepSea,
     HarvestWheat,
     DepositResources,
+    WithdrawResources,
     BuildWall,
     UpgradeBase,
     UpgradeMonument,
@@ -302,6 +303,8 @@ struct Mission {
     address marketToken; // market token for buy/sell
     uint256 marketAmount; // exact-in for sell, exact-out for buy
     uint256 maxGoldIn; // market_buy only, 0 otherwise
+
+    WithdrawResourcesData withdrawResources; // WithdrawResources only
 }
 
 struct BanditTroop {
@@ -368,6 +371,20 @@ struct DerivedClansmanState {
 // WRITE INPUT / OUTPUT STRUCTS
 // =============================================================================
 
+struct DepositResourcesData {
+    uint256 wood;
+    uint256 iron;
+    uint256 wheat;
+    uint256 fish;
+}
+
+struct WithdrawResourcesData {
+    uint256 wood;
+    uint256 iron;
+    uint256 wheat;
+    uint256 fish;
+}
+
 struct ClanOrder {
     uint32 clansmanId;
     uint8 gotoRegion;
@@ -377,6 +394,8 @@ struct ClanOrder {
     address marketToken;
     uint256 marketAmount;
     uint256 maxGoldIn;
+
+    WithdrawResourcesData withdrawResources;
 }
 
 struct OrderResult {
@@ -539,6 +558,15 @@ interface IClanWorldEvents {
         uint64 atTick
     );
     event ResourcesDeposited(
+        uint32 indexed clanId,
+        uint32 indexed clansmanId,
+        uint256 woodDelta,
+        uint256 ironDelta,
+        uint256 wheatDelta,
+        uint256 fishDelta,
+        uint32 tick
+    );
+    event ResourcesWithdrawn(
         uint32 indexed clanId,
         uint32 indexed clansmanId,
         uint256 woodDelta,

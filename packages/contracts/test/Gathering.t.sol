@@ -12,6 +12,7 @@ import {
     Mission,
     ClanFullView,
     ClanOrder,
+    WithdrawResourcesData,
     OrderResult
 } from "../src/IClanWorld.sol";
 
@@ -59,7 +60,8 @@ contract GatheringTest is Test {
             targetClanId: 0,
             marketToken: address(0),
             marketAmount: 0,
-            maxGoldIn: 0
+            maxGoldIn: 0,
+            withdrawResources: WithdrawResourcesData({wood: 0, iron: 0, wheat: 0, fish: 0})
         });
 
         vm.prank(elder);
