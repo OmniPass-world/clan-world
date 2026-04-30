@@ -1445,6 +1445,60 @@ contract ClanWorldTest is Test {
         assertEq(world.getScheduledMarketActionsForTick(executeAtTick).length, 0, "queue should be deleted");
     }
 
+    function test_scheduledMarketSell_missingCarryEmitsFailureOnce() public {
+        ClanWorldTestHarness harness = new ClanWorldTestHarness();
+        world = harness;
+        address woodAddr = _setupMarket();
+        uint32 clanId = _mintClan();
+        uint32 csId = _firstCs(clanId);
+        harness.setClansmanForTest(csId, ClansmanState.WAITING, ClanWorldConstants.REGION_FOREST, 0);
+        harness.setCarry(csId, 2e18, 0, 0, 0);
+
+        OrderResult[] memory r = _submitMarketOrder(clanId, csId, ActionType.MarketSell, woodAddr, 1e18, 0);
+        assertEq(uint8(r[0].status), uint8(StatusCode.OK), "sell order should be accepted");
+
+        Mission memory m = world.getActiveMission(csId);
+        uint64 executeAtTick = m.settlesAtTick;
+        uint256 goldBefore = world.getClan(clanId).goldBalance;
+        harness.setCarry(csId, 0, 0, 0, 0);
+
+        _advanceUntilNextHeartbeatCloses(executeAtTick);
+        bytes32 failedSig =
+            keccak256("MarketActionFailed(uint32,uint32,uint8,uint8,uint8,uint64)");
+
+        vm.recordLogs();
+        _advanceTick();
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        uint256 failedCount;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter != address(world) || logs[i].topics.length == 0 || logs[i].topics[0] != failedSig) {
+                continue;
+            }
+            (
+                uint32 eventCsId,
+                ActionType eventAction,
+                MarketExecutionMode eventMode,
+                StatusCode eventReason,
+                uint64 eventTick
+            ) = abi.decode(logs[i].data, (uint32, ActionType, MarketExecutionMode, StatusCode, uint64));
+            if (
+                eventCsId == csId && eventAction == ActionType.MarketSell
+                    && eventMode == MarketExecutionMode.Scheduled && eventReason == StatusCode.ERR_MISSING_RESOURCES
+                    && eventTick == executeAtTick
+            ) {
+                failedCount++;
+            }
+        }
+
+        Clansman memory cs = world.getClansman(csId);
+        assertEq(failedCount, 1, "failed scheduled sell should emit once");
+        assertEq(world.getClan(clanId).goldBalance, goldBefore, "failed sell should not credit gold");
+        assertGt(cs.cooldownEndsAtTs, block.timestamp, "failed scheduled sell should consume cooldown");
+        assertEq(uint8(cs.state), uint8(ClansmanState.WAITING), "failed scheduled worker waits");
+        assertEq(world.getScheduledMarketActionsForTick(executeAtTick).length, 0, "queue should be deleted");
+    }
+
     // -------------------------------------------------------------------------
     // Test 14: scheduledMarket_deletedAfterHeartbeat
     // -------------------------------------------------------------------------

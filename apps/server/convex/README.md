@@ -1,7 +1,26 @@
-# Welcome to your Convex functions directory!
+# ClanWorld Convex Functions
 
-Write your Convex functions here.
-See https://docs.convex.dev/functions for more.
+This directory hosts the Convex backend functions, including the heartbeat
+webhook and the future chain indexer.
+
+## Market Event Indexer Notes
+
+Phase 6 market events intentionally use compact resource ids rather than token
+addresses:
+
+- `ImmediateMarketActionExecuted`: `resourceIn` and `resourceOut` are `uint8`
+  resource ids; `4` is gold.
+- `ScheduledMarketActionExecuted`: same resource-id encoding, plus
+  `settledAtTick`.
+- `MarketActionFailed`: includes `MarketExecutionMode mode`; indexers should
+  persist it to distinguish immediate failures from scheduled queue failures.
+- `ScheduledMarketActionCommitted`: optional pending-queue signal. Indexers may
+  use it for live queue rendering, or fall back to
+  `getScheduledMarketActionsForTick`.
+
+The canonical ABI lives in `packages/contracts/abi/IClanWorld.json`.
+
+## Convex Reference
 
 A query function that takes two arguments looks like:
 
