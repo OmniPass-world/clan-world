@@ -141,7 +141,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     uint8 private constant WALL_MAX_LEVEL = 5;
     uint8 private constant BASE_MAX_LEVEL = 5;
     uint8 private constant MONUMENT_MAX_LEVEL = 10;
-    uint256 public constant MAX_CLAN_SCAN_FOR_RANKING = 24;
+    uint256 private constant MAX_CLANS = 12;
+    // Scan cap: 2× the mint cap — covers all live clans plus headroom for Phase 11 growth.
+    // Derived from MAX_CLANS so the invariant holds by construction: if the cap grows, the scan window grows with it.
+    uint256 public constant MAX_CLAN_SCAN_FOR_RANKING = MAX_CLANS * 2;
     uint256 private constant WHEAT_HARVEST_RATE = 20e18;
     /// @dev Caps market queue work per heartbeat; overflow is deferred to the next tick.
     uint256 public constant MAX_MARKET_ACTIONS_PER_TICK = 32;
@@ -1557,7 +1560,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     /// @notice Mint a new clan and spawn its homebase.
     function mintClan(address to) external override nonReentrant returns (uint32 clanId, uint256 iftTokenId) {
         require(to != address(0), "ClanWorld: zero address");
-        require(_allClanIds.length < 12, "ClanWorld: max clans");
+        require(_allClanIds.length < MAX_CLANS, "ClanWorld: max clans");
         clanId = _nextClanId++;
         iftTokenId = uint256(clanId); // Phase 1 placeholder; real iNFT is Phase 7
 
@@ -2919,8 +2922,9 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     }
 
     /// @notice Return live clan rankings sorted by score descending, with clanId ascending for exact ties.
-    /// @dev Scans at most MAX_CLAN_SCAN_FOR_RANKING clan ids to keep gas bounded. The current mint cap is 12,
-    ///      so the 24-clan scan cap covers all live clans plus headroom for Phase 11. Each clan simulation is capped
+    /// @dev Scans at most MAX_CLAN_SCAN_FOR_RANKING (= MAX_CLANS * 2) clan ids to keep gas bounded.
+    ///      The scan cap is derived from MAX_CLANS so it automatically covers all live clans when the mint cap grows.
+    ///      Each clan simulation is capped
     ///      at 200 ticks to match mutating settlement and bound RPC time for passive clans.
     function getRankings() external view override returns (uint32[] memory clanIdsRanked, uint256[] memory scores) {
         uint256 scanCount = _allClanIds.length;
