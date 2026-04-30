@@ -29,6 +29,8 @@ The previous plan (`clanworld-eip170-split-plan.md`) proposed extracting interna
 
 Diamond (EIP-2535) solves the problem at the root: each facet is an independent contract (≤24,576 B) that shares storage through a deterministic pointer. There is no `delegatecall`-over-library fragility, no inlining guesswork, no 1 KB margin. The ABI surface (`IClanWorld`) stays byte-stable.
 
+**No live state migration required.** ClanWorld has NOT been deployed to production — the monolith exceeds the 24,576 B EIP-170 limit and cannot be deployed at all. The Diamond is a fresh first deployment. There is no existing on-chain user state to migrate.
+
 **Off-chain compatibility note:** The Diamond proxy is deployed at a new address. All off-chain consumers (indexers, frontends, bots) must update their contract address. Additionally: (1) events are emitted with `address = Diamond proxy`, not the facet — indexers that filter by contract address need no change if they target the proxy; (2) revert strings bubble through the proxy unchanged; (3) gas profiles change (~700 gas overhead per external call through proxy). Off-chain gas estimation scripts must be recalibrated after migration.
 
 The reference implementation (Nick Mudgen's Diamond-3) is battle-tested in production (Aavegotchi, DeFi protocols). The pattern is well-understood by Solidity auditors.
@@ -317,10 +319,15 @@ struct AppStorage {
     uint256 reentrancyStatus;                          // 1 = not entered, 2 = entered
 
     // -------------------------------------------------------------------------
-    // Initialization guard + ownership (set atomically in DiamondInit._init())
+    // Initialization guard (set atomically in DiamondInit._init())
     // -------------------------------------------------------------------------
     bool initialized;                                  // true after first init; prevents re-init
-    address owner;                                     // DiamondCut owner / multisig address
+
+    // NOTE: ownership is NOT stored in AppStorage. Diamond-3's LibDiamond has its own
+    // storage slot for the contract owner (used for diamondCut authorization). App-level
+    // access control (e.g., who can call initTreasury, seedPools) checks LibDiamond.owner()
+    // directly. Do NOT add a duplicate `owner` field to AppStorage — two ownership records
+    // create split-brain bugs during emergency cuts and ownership transfers.
 
     // -------------------------------------------------------------------------
     // Constants stored at deploy time (not in IClanWorld; inline here for Diamond)
@@ -543,14 +550,14 @@ The Diamond standard's `diamondCut` function accepts `_init` (address) and `_cal
 // DiamondInit.sol — deployed as a separate contract, used once
 contract DiamondInit {
     function init(
-        address owner,
         address[6] calldata tokens,
         address[4] calldata pools
     ) external {
         AppStorage storage s = LibStorage.appStorage();
         require(!s.initialized, "ClanWorld: already initialized");
         s.initialized = true;
-        s.owner = owner;
+        // Ownership is set in the Diamond constructor (LibDiamond.setContractOwner),
+        // not here. DiamondInit only sets game-state initial values.
         // ... set initial treasury, world config ...
     }
 }
@@ -587,11 +594,14 @@ If a bad `diamondCut` ships (wrong function selector mapping, broken facet bytec
 
 ### Ownership transfer
 
-Diamond owner key transfer:
-1. New owner prepares transfer via `Ownable.transferOwnership(newOwner)` (or multisig equivalent)
+Diamond-3 stores contract owner in `LibDiamond` at a dedicated storage slot (separate from `AppStorage`). Ownership governs who can call `diamondCut`. Transfer procedure:
+
+1. Current owner calls `LibDiamond.setContractOwner(newOwner)` (or equivalent on the Diamond's cut facet)
 2. 48h timelock applies (functional upgrade tier)
-3. New owner accepts transfer
+3. New owner address is now authorized for `diamondCut`
 4. Update `packages/contracts/DEPLOYMENT.md` with new owner address
+
+**Single ownership record:** Only `LibDiamond` is the source of truth for ownership. Do NOT maintain a duplicate `AppStorage.owner`. App-level guarded functions (like `initTreasury`) call `LibDiamond.contractOwner()` to check authorization.
 
 Never transfer ownership to address(0) without first confirming immutable-diamond intent and removing the DiamondCut facet.
 
@@ -681,7 +691,7 @@ The Diamond migration is an architectural rewrite. "Tests mostly need a new depl
 7. Deploy `BanditsFacet` (stub)
 8. Deploy `WintersFacet` (stub)
 9. Deploy `DiamondInit` — one-shot initialization contract
-10. Assemble `initialDiamondCut` array (all facets) + encode `DiamondInit.init(owner, tokens, pools)` calldata
+10. Assemble `initialDiamondCut` array (all facets) + encode `DiamondInit.init(tokens, pools)` calldata
 11. Deploy `Diamond(owner, initialDiamondCut, address(diamondInit), initCalldata)` — all facets cut + state initialized atomically in constructor
 12. Verify: call `IDiamondLoupe(diamond).facets()` to confirm all selectors registered
 
@@ -804,6 +814,20 @@ Both engines returned NEEDS WORK on R1 revision.
 | R2-L2 | LOW | Codex | Delayed Phase 3 heartbeat isolation keeps fragile model during migration | Deferred — acknowledged explicitly in §Heartbeat Failure Model; same failure mode as monolith today |
 | R2-L3 | LOW | Codex + Gemini | Alternatives (minimal dispatcher, logic-only facets, data-first redesign) | Deferred — brief note in §Known Limitations |
 | R2-L4 | LOW | Gemini | `via_ir` retention for per-facet compilation | Deferred — existing Open Question #6 for Liam |
+
+### Round 5 — 2026-04-30
+
+**Engines:** Codex + Gemini Pro (gemini-2.5-pro-preview-05-06)
+
+Both engines returned NEEDS WORK but R5 findings were primarily continued philosophical opposition to Diamond complexity and repetition of addressed concerns. Two concrete doc fixes identified.
+
+**New findings summary:**
+
+| ID | Severity | Engine | Finding | Disposition |
+|---|---|---|---|---|
+| R5-H1 | HIGH | Codex | Ownership model inconsistent — `AppStorage.owner` vs `LibDiamond` owner creates split-brain during emergency cuts | **ADDRESSED** — `AppStorage.owner` field removed from struct; NOTE added explaining Diamond-3 `LibDiamond` is the single ownership record; DiamondInit code sample fixed; Operational Safety ownership section updated |
+| R5-H2 | HIGH | Codex | No state migration story — "game reset not viable" conflicts with new-address deployment | **ADDRESSED** — §Executive Summary clarifies ClanWorld has never been deployed to production (over EIP-170 limit); Diamond is fresh first deployment; no live state migration needed |
+| R5-L1–L10 | LOW | Both | Repeated concerns: AppStorage blast radius, reentrancy Option A, timeline optimism, alternatives, CI enforcement | All previously addressed; engines continuing to raise same issues from prior rounds |
 
 ### Round 4 — 2026-04-30
 
