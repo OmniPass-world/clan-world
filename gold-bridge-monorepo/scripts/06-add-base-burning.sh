@@ -12,8 +12,8 @@ export BASESCAN_API_KEY="${BASESCAN_API_KEY:-${BASE_SCAN_API_KEY:-}}"
 export BASE_SCAN_API_KEY="${BASE_SCAN_API_KEY:-${BASESCAN_API_KEY:-}}"
 
 cd "$ROOT_DIR/$NTT_PROJECT_DIR"
-args=(add-chain "$NTT_BASE_CHAIN" --latest --mode burning --token "$BASE_TOKEN_ADDRESS")
+args=(add-chain "$NTT_BASE_CHAIN" --latest --mode burning --token "$BASE_TOKEN_ADDRESS" --yes)
 if optional_bool_true "${NTT_SKIP_VERIFY:-false}"; then
-  args+=(-skip-verify)
+  args+=(--skip-verify)
 fi
 ntt "${args[@]}"

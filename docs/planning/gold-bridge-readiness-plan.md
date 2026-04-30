@@ -2,7 +2,7 @@
 
 Living plan for getting Solana-canonical GOLD bridged to Base with Wormhole NTT, then replacing ClanWorld's current deployed/native GOLD ERC20 with the Base-side bridged GOLD token.
 
-Last updated: 2026-04-30 06:25 EDT
+Last updated: 2026-04-30 06:55 EDT
 
 ## Goal
 
@@ -13,7 +13,7 @@ Solana GOLD remains the canonical asset. Wormhole NTT locks GOLD on Solana, mint
 - Standalone bridge scaffold: about 70% ready.
 - Bridge token readiness: Base GOLD is now fixed at 9 decimals with the NTT mint/burn/minter surface and ordinary ERC-20 allowance pulls for later ClanWorld compatibility.
 - ClanWorld integration: intentionally deferred. Do not modify existing ClanWorld contracts/scripts/tests until the bridge and token deployment flow are proven.
-- Current phase: testnet deployment proof. Solana devnet GOLD and Solana NTT locking mode are configured; Base Sepolia is blocked until the generated Base deployer has ETH.
+- Current phase: testnet bridge proof complete. Solana devnet GOLD, Base Sepolia GOLD, NTT locking/burning config, minter handoff, web config export, and tiny two-way transfer proof are complete.
 
 ## Phase 1 Execution Plan: Bridge Repo Correctness and Tooling
 
@@ -137,7 +137,7 @@ Findings:
 
 ## Phase 4 Execution Plan: Testnet Bridge Deployment Proof
 
-Status: Blocked on Base Sepolia ETH
+Status: Completed
 
 Objective: deploy the 9-decimal Base GOLD token, configure Wormhole NTT with Solana locking mode and Base burning mode, then prove tiny transfers in both directions.
 
@@ -162,20 +162,20 @@ Progress:
 - [x] Ran `pnpm doctor` with Foundry/Solana/NTT on PATH; passed.
 - [x] Fund Solana devnet deployer with SOL.
 - [x] Create 9-decimal Solana devnet GOLD mint or set `SOLANA_TOKEN_MINT` to an existing mint.
-- [ ] Fund Base Sepolia deployer with ETH.
-- [ ] Run `pnpm deploy:base-token`.
+- [x] Fund Base Sepolia deployer with ETH.
+- [x] Run `pnpm deploy:base-token`.
 - [x] Run `pnpm ntt:init`.
 - [x] Run `pnpm ntt:overrides`.
 - [x] Run `pnpm ntt:add-solana`.
-- [ ] Run `pnpm ntt:add-base`.
-- [ ] Configure conservative rate limits in `ntt/deployment.json`.
-- [ ] Run `pnpm ntt:push`.
-- [ ] Run `pnpm ntt:addresses`.
-- [ ] Run `pnpm base:set-minter`.
-- [ ] Run `pnpm web:export-config`.
-- [ ] Execute tiny Solana -> Base transfer.
-- [ ] Execute tiny Base -> Solana transfer.
-- [ ] Record tx hashes and final deployed addresses.
+- [x] Run `pnpm ntt:add-base`.
+- [x] Configure conservative rate limits in `ntt/deployment.json`.
+- [x] Run `pnpm ntt:push`.
+- [x] Run `pnpm ntt:addresses`.
+- [x] Run `pnpm base:set-minter`.
+- [x] Run `pnpm web:export-config`.
+- [x] Execute tiny Solana -> Base transfer.
+- [x] Execute tiny Base -> Solana transfer.
+- [x] Record tx hashes and final deployed addresses.
 
 Current generated test addresses:
 
@@ -184,11 +184,20 @@ Current generated test addresses:
 - Solana devnet GOLD mint: `6NLCfbAzMyykwjwifAZr8WRBTPsb8u5s1uAVvGBGGa4r`
 - Solana NTT manager/program: `EQpZrkhQzc68x2qXV9imPstACEGEJJuXTQ8S2fAXpZva`
 - Solana Wormhole transceiver: `Gtim3284zCdputS7dVgugx426Mce323Q7VJwhd46xR2P`
+- Base Sepolia GOLD token: `0x57A893ACE218ccCf6A0958b5354Aaad58777806F`
+- Base Sepolia NTT manager: `0x3df4e9Cd48B7c8290F80546547854ac8C82Dc276`
+- Base Sepolia Wormhole transceiver: `0x787aA04c0F27843DC9e612887FD7C60f102E3fE6`
 
-Blockers:
+Transfer proof:
 
-- Base Sepolia deployer balance is `0`.
-- Without Base Sepolia ETH, Base token deployment, Base NTT deployment, minter handoff, and transfer proofs cannot proceed.
+- Solana -> Base amount: `1.000000000` GOLD.
+- Solana -> Base source tx: `5Q5kZFvU1W9yKdpG8GDqdr8sBeK5v9mmenjXZ8K9c3xj3f656QrW35XC9LkgAaUpPrRGurSu46dVbNsixc6WV8aA`.
+- Solana -> Base Wormholescan: `https://wormholescan.io/#/tx/5Q5kZFvU1W9yKdpG8GDqdr8sBeK5v9mmenjXZ8K9c3xj3f656QrW35XC9LkgAaUpPrRGurSu46dVbNsixc6WV8aA?network=Testnet`.
+- Base -> Solana amount: `0.500000000` GOLD.
+- Base -> Solana approve tx: `0xc861fe52d3b92a38f4374729dee79e25a75aa0a10b7280347549dd3f31e7a07b`.
+- Base -> Solana transfer tx: `0xe2dd6ab8003134a3a0d8a5a4ba17b331600aa50b71ef0ae6e47dd98ddcf32c22`.
+- Base -> Solana Wormholescan: `https://wormholescan.io/#/tx/0xe2dd6ab8003134a3a0d8a5a4ba17b331600aa50b71ef0ae6e47dd98ddcf32c22?network=Testnet`.
+- Post-proof balances: Solana deployer has `999999.5` devnet GOLD; Base deployer has `0.500000000` Base GOLD.
 
 Findings:
 
@@ -196,6 +205,11 @@ Findings:
 - The local NTT project currently lives outside the worktree at `../../clan-world-gold-bridge-ntt-local` relative to `gold-bridge-monorepo`.
 - NTT's Solana package required Solana CLI `1.18.26` and Anchor CLI `0.29.0`. The deployment flow switched Solana from Agave `3.1.14` to `1.18.26`; Anchor `0.29.0` was installed with AVM.
 - The first Solana NTT build is slow on a fresh host because it compiles the Solana program and test/runtime dependencies before deployment.
+- `pnpm ntt:add-base` needed `--skip-verify` instead of `-skip-verify`.
+- Base NTT add-chain simulation reported a token `decimals()` `NotActivated` fork/simulation issue even though `cast call decimals()` succeeded on-chain. For this testnet deployment, the command had to continue without simulation.
+- `pnpm ntt:push` needed `ETH_PRIVATE_KEY` exported and the Solana `--payer` supplied.
+- The transfer helper now passes Solana payer, EVM private key, RPC overrides, and optional destination msg value. Base -> Solana needed `TEST_TRANSFER_DESTINATION_MSG_VALUE=10000000`.
+- Executor ETAs on Wormhole testnet can be very long and noisy. The CLI still found VAAs for both test transfers and balances confirmed both directions.
 
 ## Component 1: Bridge Repo Correctness and Tooling
 
@@ -236,38 +250,40 @@ Gotchas:
 
 ## Component 2: Wormhole NTT Deployment and Transfer Proof
 
-Status: Not started
+Status: Completed on testnet
 
 Purpose: prove the bridge itself works before touching ClanWorld economics.
 
 Checklist:
 
-- [ ] Fill `.env` for Solana devnet and Base Sepolia.
-- [ ] Confirm exact Solana GOLD test mint or create a devnet test mint that mirrors production decimals.
-- [ ] Deploy Base GOLD representation token.
-- [ ] Run `pnpm ntt:init`.
-- [ ] Run `pnpm ntt:overrides`.
-- [ ] Add Solana in locking mode.
-- [ ] Add Base in burning mode.
-- [ ] Configure conservative rate limits in `ntt/deployment.json`.
-- [ ] Run `pnpm ntt:push`.
-- [ ] Set Base token minter to Base NTT manager.
-- [ ] Export frontend config with `pnpm web:export-config`.
-- [ ] Execute tiny Solana -> Base transfer.
-- [ ] Execute tiny Base -> Solana transfer.
-- [ ] Record tx hashes, NTT manager addresses, transceiver addresses, token addresses, and Wormholescan links.
+- [x] Fill `.env` for Solana devnet and Base Sepolia.
+- [x] Confirm exact Solana GOLD test mint or create a devnet test mint that mirrors production decimals.
+- [x] Deploy Base GOLD representation token.
+- [x] Run `pnpm ntt:init`.
+- [x] Run `pnpm ntt:overrides`.
+- [x] Add Solana in locking mode.
+- [x] Add Base in burning mode.
+- [x] Configure conservative rate limits in `ntt/deployment.json`.
+- [x] Run `pnpm ntt:push`.
+- [x] Set Base token minter to Base NTT manager.
+- [x] Export frontend config with `pnpm web:export-config`.
+- [x] Execute tiny Solana -> Base transfer.
+- [x] Execute tiny Base -> Solana transfer.
+- [x] Record tx hashes, NTT manager addresses, transceiver addresses, token addresses, and Wormholescan links.
 
 Findings:
 
 - The scaffold's NTT direction is correct for an existing immutable Solana token: Solana locking mode, Base burning mode.
 - Public Wormhole docs align with the planned CLI commands for SVM locking and EVM burning.
+- Testnet proof used Solana devnet and Base Sepolia with a fresh 9-decimal devnet GOLD mint.
+- The Base token minter is now the Base NTT manager, not the deployer.
 
 Gotchas:
 
 - Solana official testnet is not the target for NTT testing; use Solana devnet with `WORMHOLE_NETWORK=Testnet`.
 - Solana mainnet deployment should use a paid/private RPC, not the public endpoint.
 - Rate-limit precision must be confirmed against the current NTT CLI/docs and not guessed from token decimals alone.
-- This repo has no real `ntt/deployment.json` yet, so all NTT addresses are unknown placeholders until deployment.
+- Local deployment artifacts and private keys are intentionally ignored. The live local NTT project sits outside the repo, while the frontend generated config records the public deployed addresses.
 
 ## Component 3: ClanWorld Base GOLD Replacement
 
@@ -400,6 +416,23 @@ Gotchas:
 - 2026-04-30 EDT: Ran `pnpm ntt:overrides`; wrote RPC overrides.
 - 2026-04-30 EDT: Installed Anchor with AVM and selected `anchor-cli 0.29.0` after NTT reported that exact version requirement.
 - 2026-04-30 EDT: Ran `pnpm ntt:add-solana`; succeeded. Solana locking mode added with manager/program `EQpZrkhQzc68x2qXV9imPstACEGEJJuXTQ8S2fAXpZva` and Wormhole transceiver `Gtim3284zCdputS7dVgugx426Mce323Q7VJwhd46xR2P`.
+- 2026-04-30 EDT: Funded bridge Base Sepolia deployer with `2 ETH` from the main repo deployer. Funding tx: `0x9e64c39228dfca8dc9c3d3d50ef8d34bc1482f2c785f4e41d25d2ef4586a1e79`.
+- 2026-04-30 EDT: Ran `pnpm deploy:base-token`; deployed Base Sepolia GOLD `0x57A893ACE218ccCf6A0958b5354Aaad58777806F`. Deploy tx: `0x91a79c8bcbdb404a2cd74aff85fcdd53bcb5b82d6dacd596efdaf5fc8885fcb6`.
+- 2026-04-30 EDT: Verified Base GOLD `decimals() == 9`, owner deployer, and initial minter deployer.
+- 2026-04-30 EDT: Patched `scripts/06-add-base-burning.sh` to use `--skip-verify` and `--yes`.
+- 2026-04-30 EDT: Ran `pnpm ntt:add-base`; deployed Base Sepolia NTT manager `0x3df4e9Cd48B7c8290F80546547854ac8C82Dc276` and transceiver `0x787aA04c0F27843DC9e612887FD7C60f102E3fE6`.
+- 2026-04-30 EDT: Set conservative local NTT limits to `100.000000000` GOLD each direction.
+- 2026-04-30 EDT: Patched `scripts/11-ntt-push.sh` to export `ETH_PRIVATE_KEY`, pass Solana `--payer`, and use `--yes`.
+- 2026-04-30 EDT: Ran `pnpm ntt:push`; deployment config pushed successfully.
+- 2026-04-30 EDT: Ran `pnpm base:set-minter`; Base GOLD minter set to Base NTT manager. Tx: `0xab29d0e5a98fa6d1c9241bdcb837cb9135220e68b9c50b712ed765ea30e5ac29`.
+- 2026-04-30 EDT: Ran `pnpm web:export-config`; generated frontend config with live testnet addresses.
+- 2026-04-30 EDT: Patched `scripts/12-test-transfer.sh` to pass Solana payer, EVM signer env, RPC overrides, and optional destination msg value.
+- 2026-04-30 EDT: Ran Solana -> Base test transfer of `1` GOLD. Source tx: `5Q5kZFvU1W9yKdpG8GDqdr8sBeK5v9mmenjXZ8K9c3xj3f656QrW35XC9LkgAaUpPrRGurSu46dVbNsixc6WV8aA`.
+- 2026-04-30 EDT: Ran Base -> Solana test transfer of `0.5` GOLD. Approve tx: `0xc861fe52d3b92a38f4374729dee79e25a75aa0a10b7280347549dd3f31e7a07b`; transfer tx: `0xe2dd6ab8003134a3a0d8a5a4ba17b331600aa50b71ef0ae6e47dd98ddcf32c22`.
+- 2026-04-30 EDT: Confirmed post-proof balances: Solana deployer `999999.5` devnet GOLD; Base deployer `0.500000000` Base GOLD.
+- 2026-04-30 EDT: Ran `pnpm review`; passed.
+- 2026-04-30 EDT: Ran `PATH="/home/claude/.foundry/bin:$PATH" pnpm test:contracts`; passed, 6 tests.
+- 2026-04-30 EDT: Ran `pnpm --filter @gold-bridge/web typecheck`; passed.
 
 ## Open Questions
 
