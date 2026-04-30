@@ -1084,7 +1084,9 @@ contract ClanWorldTest is Test {
         Clan memory afterClan = world.getClan(clanId);
         Clansman memory cs = world.getClansman(csId);
 
-        assertEq(uint8(r[0].status), uint8(StatusCode.OK), "failed immediate action is still accepted");
+        assertEq(
+            uint8(r[0].status), uint8(StatusCode.ERR_LIQUIDITY_INSUFFICIENT), "failed immediate buy should propagate"
+        );
         assertEq(
             uint8(r[0].marketMode), uint8(MarketExecutionMode.Immediate), "failed immediate action stays immediate"
         );
@@ -1115,7 +1117,9 @@ contract ClanWorldTest is Test {
         Clan memory afterClan = world.getClan(clanId);
         Clansman memory cs = world.getClansman(csId);
 
-        assertEq(uint8(r[0].status), uint8(StatusCode.OK), "failed immediate action is still accepted");
+        assertEq(
+            uint8(r[0].status), uint8(StatusCode.ERR_MAX_GOLD_IN_EXCEEDED), "failed immediate buy should propagate"
+        );
         assertEq(uint8(r[0].marketMode), uint8(MarketExecutionMode.Immediate), "failed buy should report immediate");
         assertEq(afterClan.vaultWood, beforeClan.vaultWood, "failed buy should not credit resources");
         assertEq(afterClan.goldBalance, beforeClan.goldBalance, "failed buy should not debit gold");
@@ -1144,7 +1148,7 @@ contract ClanWorldTest is Test {
         Clan memory afterClan = world.getClan(clanId);
         Clansman memory cs = world.getClansman(csId);
 
-        assertEq(uint8(r[0].status), uint8(StatusCode.OK), "failed immediate action is still accepted");
+        assertEq(uint8(r[0].status), uint8(StatusCode.ERR_NOT_ENOUGH_GOLD), "failed immediate buy should propagate");
         assertEq(uint8(r[0].marketMode), uint8(MarketExecutionMode.Immediate), "failed buy should report immediate");
         assertEq(afterClan.vaultWood, beforeClan.vaultWood, "failed buy should not credit resources");
         assertEq(afterClan.goldBalance, beforeClan.goldBalance, "failed buy should not debit gold");

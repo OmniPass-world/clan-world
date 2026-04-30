@@ -139,14 +139,14 @@ enum ActionType {
     FishDeepSea,
     HarvestWheat,
     DepositResources,
-    WithdrawResources,
     BuildWall,
     UpgradeBase,
     UpgradeMonument,
     DefendBase,
     MarketBuy,
     MarketSell,
-    Wait
+    Wait,
+    WithdrawResources
 }
 
 enum MarketExecutionMode {

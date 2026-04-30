@@ -10,6 +10,34 @@ import { privateKeyToAccount } from 'viem/accounts';
 import type { ClanFullView, ClanOrder, Tick } from '../types';
 import { readEnv } from './_env';
 
+export function uintValue(value: unknown): bigint {
+  if (typeof value === 'bigint') {
+    return value;
+  }
+
+  if (typeof value === 'number') {
+    if (!Number.isInteger(value)) {
+      throw new Error(`uintValue: non-integer number ${value}`);
+    }
+    if (!Number.isSafeInteger(value)) {
+      throw new Error(`uintValue: unsafe integer number ${value}`);
+    }
+    if (value < 0) {
+      throw new Error(`uintValue: negative number ${value}`);
+    }
+    return BigInt(value);
+  }
+
+  if (typeof value === 'string') {
+    if (!/^\d+$/.test(value)) {
+      throw new Error(`uintValue: not a positive integer string: ${value}`);
+    }
+    return BigInt(value);
+  }
+
+  throw new Error(`uintValue: unsupported type ${typeof value}`);
+}
+
 export interface IChainClient {
   getCurrentTick(): Promise<Tick>;
   submitOrders(
@@ -374,8 +402,8 @@ class RealChainClient implements IChainClient {
           typeof o.payload.withdrawResources === 'object'
             ? (o.payload.withdrawResources as Record<string, unknown>)
             : o.payload;
-        const uintValue = (value: unknown): bigint =>
-          value === undefined || value === null ? 0n : BigInt(String(value));
+        const optionalUintValue = (value: unknown): bigint =>
+          value === undefined || value === null ? 0n : uintValue(value);
         return {
           clansmanId: Number(o.payload.clansmanId),
           gotoRegion: Number(o.payload.gotoRegion),
@@ -386,10 +414,10 @@ class RealChainClient implements IChainClient {
           marketAmount: 0n,
           maxGoldIn: 0n,
           withdrawResources: {
-            wood: uintValue(withdraw.wood),
-            iron: uintValue(withdraw.iron),
-            wheat: uintValue(withdraw.wheat),
-            fish: uintValue(withdraw.fish),
+            wood: optionalUintValue(withdraw.wood),
+            iron: optionalUintValue(withdraw.iron),
+            wheat: optionalUintValue(withdraw.wheat),
+            fish: optionalUintValue(withdraw.fish),
           },
         };
       });

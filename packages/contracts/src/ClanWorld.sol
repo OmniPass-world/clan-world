@@ -1254,8 +1254,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             }
             _clearDefender(cs.clansmanId);
 
-            result.status =
-                order.action == ActionType.MarketSell && marketStatus != StatusCode.OK ? marketStatus : StatusCode.OK;
+            result.status = marketStatus;
             result.cooldownEndsAtTs = cs.cooldownEndsAtTs;
             result.missionNonce = ctx.newNonce;
             result.marketMode = MarketExecutionMode.Immediate;
