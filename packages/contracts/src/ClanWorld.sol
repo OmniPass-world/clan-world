@@ -141,7 +141,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     uint8 private constant WALL_MAX_LEVEL = 5;
     uint8 private constant BASE_MAX_LEVEL = 5;
     uint8 private constant MONUMENT_MAX_LEVEL = 10;
-    uint256 public constant MAX_CLAN_SCAN_FOR_RANKING = 24;
+    uint256 private constant MAX_CLANS = 12;
+    // Scan cap: 2× the mint cap — covers all live clans plus headroom for Phase 11 growth.
+    // Derived from MAX_CLANS so the invariant holds by construction: if the cap grows, the scan window grows with it.
+    uint256 public constant MAX_CLAN_SCAN_FOR_RANKING = MAX_CLANS * 2;
     uint256 private constant WHEAT_HARVEST_RATE = 20e18;
     /// @dev Caps market queue work per heartbeat; overflow is deferred to the next tick.
     uint256 public constant MAX_MARKET_ACTIONS_PER_TICK = 32;
@@ -845,9 +848,6 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         uint8 old = clan.wallLevel;
         clan.wallLevel = old + 1;
         emit WallLevelChanged(clanId, old, clan.wallLevel, tick);
-        // Phase 8 event ABI uses uint32; season tick horizons are far below this cap.
-        // forge-lint: disable-next-line(unsafe-typecast)
-        emit WallUpgraded(clanId, clan.wallLevel, uint32(tick));
         return true;
     }
 
@@ -884,9 +884,6 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         uint8 old = clan.baseLevel;
         clan.baseLevel = old + 1;
         emit BaseLevelChanged(clanId, old, clan.baseLevel, tick);
-        // Phase 8 event ABI uses uint32; season tick horizons are far below this cap.
-        // forge-lint: disable-next-line(unsafe-typecast)
-        emit BaseUpgraded(clanId, clan.baseLevel, uint32(tick));
         return true;
     }
 
@@ -933,9 +930,6 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         clan.monumentLevel = old + 1;
         recordMonumentReachTick(clanId, clan.monumentLevel, tick);
         emit MonumentLevelChanged(clanId, old, clan.monumentLevel, tick);
-        // Phase 8 event ABI uses uint32; season tick horizons are far below this cap.
-        // forge-lint: disable-next-line(unsafe-typecast)
-        emit MonumentUpgraded(clanId, clan.monumentLevel, uint32(tick));
         return true;
     }
 
@@ -1461,32 +1455,6 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         emit TickAdvanced(closedTick, newTick, newSeed);
     }
 
-    /// @dev Settle missions that complete exactly at `tick` (settlesAtTick == tick).
-    ///      Called from heartbeat before market execution and tick increment.
-    ///      Bounded by 12-clan cap x 4 clansmen = 48 max iterations.
-    function _settleCompletingMissions(uint64 tick) internal {
-        for (uint256 i = 0; i < _allClanIds.length; i++) {
-            uint32 clanId = _allClanIds[i];
-            Clan storage clan = _clans[clanId];
-            if (clan.clanState == ClanState.DEAD) continue;
-
-            uint32[] storage csIds = _clanClansmanIds[clanId];
-            for (uint256 j = 0; j < csIds.length; j++) {
-                Clansman storage cs = _clansmen[csIds[j]];
-                Mission storage m = _missions[cs.clansmanId];
-                if (!m.active) continue;
-                if (cs.state == ClansmanState.DEAD) {
-                    _settleMissionForClansman(clan, cs, clanId, tick, tick + 1);
-                    continue;
-                }
-                if (m.settlesAtTick != tick) continue; // not due this tick
-
-                // Settle this mission using the single-tick range [tick, tick+1).
-                _settleMissionForClansman(clan, cs, clanId, tick, tick + 1);
-            }
-        }
-    }
-
     /// @dev Resolve world events for the tick that was just closed.
     ///      Uses closedTick+1 as the equivalent of the old `newTick` for transition checks.
     function _resolveWorldEvents(uint64 closedTick) internal {
@@ -1557,7 +1525,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     /// @notice Mint a new clan and spawn its homebase.
     function mintClan(address to) external override nonReentrant returns (uint32 clanId, uint256 iftTokenId) {
         require(to != address(0), "ClanWorld: zero address");
-        require(_allClanIds.length < 12, "ClanWorld: max clans");
+        require(_allClanIds.length < MAX_CLANS, "ClanWorld: max clans");
         clanId = _nextClanId++;
         iftTokenId = uint256(clanId); // Phase 1 placeholder; real iNFT is Phase 7
 
@@ -2513,51 +2481,6 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         }
     }
 
-    function _hasEarlierWallUpgradeReservation(uint32 clanId, uint32 currentClansmanId, uint8 currentLevel)
-        internal
-        view
-        returns (bool)
-    {
-        uint32[] storage clansmanIds = _clanClansmanIds[clanId];
-        for (uint256 i = 0; i < clansmanIds.length; i++) {
-            uint32 otherId = clansmanIds[i];
-            if (otherId == currentClansmanId) continue;
-            WallUpgradeReservation storage other = _wallUpgradeReservations[otherId];
-            if (other.active && other.clanId == clanId && other.fromLevel == currentLevel) return true;
-        }
-        return false;
-    }
-
-    function _hasEarlierBaseUpgradeReservation(uint32 clanId, uint32 currentClansmanId, uint8 currentLevel)
-        internal
-        view
-        returns (bool)
-    {
-        uint32[] storage clansmanIds = _clanClansmanIds[clanId];
-        for (uint256 i = 0; i < clansmanIds.length; i++) {
-            uint32 otherId = clansmanIds[i];
-            if (otherId == currentClansmanId) continue;
-            BaseUpgradeReservation storage other = _baseUpgradeReservations[otherId];
-            if (other.active && other.clanId == clanId && other.fromLevel == currentLevel) return true;
-        }
-        return false;
-    }
-
-    function _hasEarlierMonumentUpgradeReservation(uint32 clanId, uint32 currentClansmanId, uint8 currentLevel)
-        internal
-        view
-        returns (bool)
-    {
-        uint32[] storage clansmanIds = _clanClansmanIds[clanId];
-        for (uint256 i = 0; i < clansmanIds.length; i++) {
-            uint32 otherId = clansmanIds[i];
-            if (otherId == currentClansmanId) continue;
-            MonumentUpgradeReservation storage other = _monumentUpgradeReservations[otherId];
-            if (other.active && other.clanId == clanId && other.fromLevel == currentLevel) return true;
-        }
-        return false;
-    }
-
     function _spendableAfterReleasing(uint256 vault, uint256 reserved, uint256 released)
         internal
         pure
@@ -2919,8 +2842,9 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     }
 
     /// @notice Return live clan rankings sorted by score descending, with clanId ascending for exact ties.
-    /// @dev Scans at most MAX_CLAN_SCAN_FOR_RANKING clan ids to keep gas bounded. The current mint cap is 12,
-    ///      so the 24-clan scan cap covers all live clans plus headroom for Phase 11. Each clan simulation is capped
+    /// @dev Scans at most MAX_CLAN_SCAN_FOR_RANKING (= MAX_CLANS * 2) clan ids to keep gas bounded.
+    ///      The scan cap is derived from MAX_CLANS so it automatically covers all live clans when the mint cap grows.
+    ///      Each clan simulation is capped
     ///      at 200 ticks to match mutating settlement and bound RPC time for passive clans.
     function getRankings() external view override returns (uint32[] memory clanIdsRanked, uint256[] memory scores) {
         uint256 scanCount = _allClanIds.length;
