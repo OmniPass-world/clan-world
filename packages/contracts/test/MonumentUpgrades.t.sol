@@ -28,6 +28,22 @@ contract MonumentUpgradeHarness is ClanWorld {
     function setMonumentLevel(uint32 clanId, uint8 level) external {
         _clans[clanId].monumentLevel = level;
     }
+
+    function setCurrentTick(uint64 tick) external {
+        _world.currentTick = tick;
+        _world.nextHeartbeatAtTick = tick + 1;
+    }
+
+    function settleClanAndGetStoredScore(uint32 clanId)
+        external
+        returns (uint256 score, uint256 lootValue, uint8 monumentLevel)
+    {
+        _settleClan(clanId);
+        Clan memory clan = _clans[clanId];
+        (score,,) = _getClanScoreFromClan(clanId, clan);
+        lootValue = _lootValueRaw(clan);
+        monumentLevel = clan.monumentLevel;
+    }
 }
 
 contract MonumentUpgradesTest is Test {
@@ -210,5 +226,28 @@ contract MonumentUpgradesTest is Test {
 
         assertEq(world.getClan(clanA).monumentLevel, 1, "clan A monument");
         assertEq(world.getClan(clanB).monumentLevel, 0, "clan B monument");
+    }
+
+    function test_upgradeMonument_simHidesRefundedReservationFromLaterRetry() public {
+        uint32 clanId = _mintClan(elder);
+        uint32 firstCsId = _csAt(clanId, 0);
+        uint32 secondCsId = _csAt(clanId, 1);
+        world.setVault(clanId, 500e18, 500e18, 500e18, 100e18);
+        world.setBlueprint(clanId, 5e18);
+
+        OrderResult[] memory second = _submitOrder(elder, clanId, secondCsId, ActionType.UpgradeMonument);
+        assertEq(uint8(second[0].status), uint8(StatusCode.OK), "second clansman queues level 1");
+        OrderResult[] memory first = _submitOrder(elder, clanId, firstCsId, ActionType.UpgradeMonument);
+        assertEq(uint8(first[0].status), uint8(StatusCode.OK), "first clansman queues level 2");
+
+        world.setCurrentTick(world.getActionDuration(ActionType.UpgradeMonument) + 2);
+        uint256 simLoot = world.quoteLootValueSettled(clanId);
+        (uint256 simScore,,) = world.getClanScore(clanId);
+
+        (uint256 realScore, uint256 realLoot, uint8 monumentLevel) = world.settleClanAndGetStoredScore(clanId);
+
+        assertEq(monumentLevel, 1, "real refunds stale level-2 reservation");
+        assertEq(realLoot, simLoot, "sim and real loot match");
+        assertEq(realScore, simScore, "sim and real score match");
     }
 }

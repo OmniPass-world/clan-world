@@ -283,6 +283,28 @@ contract WallUpgradesTest is Test {
         assertTrue(world.getActiveMission(firstCsId).active, "failed upgrade remains pending for retry pass");
     }
 
+    function test_upgradeWall_simHidesRefundedReservationFromLaterRetry() public {
+        uint32 clanId = _mintClan(elder);
+        uint32 firstCsId = _csAt(clanId, 0);
+        uint32 secondCsId = _csAt(clanId, 1);
+        world.setVault(clanId, 100e18, 100e18, 100e18, 100e18);
+
+        OrderResult[] memory second = _submitOrder(elder, clanId, secondCsId, ActionType.UpgradeWall);
+        assertEq(uint8(second[0].status), uint8(StatusCode.OK), "second clansman queues level 1");
+        OrderResult[] memory first = _submitOrder(elder, clanId, firstCsId, ActionType.UpgradeWall);
+        assertEq(uint8(first[0].status), uint8(StatusCode.OK), "first clansman queues level 2");
+
+        world.setCurrentTick(world.getActionDuration(ActionType.UpgradeWall) + 2);
+        uint256 simLoot = world.quoteLootValueSettled(clanId);
+        (uint256 simScore,,) = world.getClanScore(clanId);
+
+        (uint256 realScore, uint256 realLoot, uint8 wallLevel) = world.settleClanAndGetStoredScore(clanId);
+
+        assertEq(wallLevel, 1, "real refunds stale level-2 reservation");
+        assertEq(realLoot, simLoot, "sim and real loot match");
+        assertEq(realScore, simScore, "sim and real score match");
+    }
+
     function test_deprecatedBuildWallFlightedMissionCompletes() public {
         uint32 clanId = _mintClan(elder);
         uint32 csId = _firstCs(clanId);

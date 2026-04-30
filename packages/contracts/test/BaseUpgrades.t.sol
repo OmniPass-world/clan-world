@@ -20,6 +20,22 @@ contract BaseUpgradeHarness is ClanWorld {
         _clans[clanId].vaultWheat = wheat;
         _clans[clanId].vaultFish = fish;
     }
+
+    function setCurrentTick(uint64 tick) external {
+        _world.currentTick = tick;
+        _world.nextHeartbeatAtTick = tick + 1;
+    }
+
+    function settleClanAndGetStoredScore(uint32 clanId)
+        external
+        returns (uint256 score, uint256 lootValue, uint8 baseLevel)
+    {
+        _settleClan(clanId);
+        Clan memory clan = _clans[clanId];
+        (score,,) = _getClanScoreFromClan(clanId, clan);
+        lootValue = _lootValueRaw(clan);
+        baseLevel = clan.baseLevel;
+    }
 }
 
 contract BaseUpgradesTest is Test {
@@ -177,5 +193,27 @@ contract BaseUpgradesTest is Test {
 
         assertEq(world.getClan(clanA).baseLevel, 2, "clan A base");
         assertEq(world.getClan(clanB).baseLevel, 1, "clan B base");
+    }
+
+    function test_upgradeBase_simHidesRefundedReservationFromLaterRetry() public {
+        uint32 clanId = _mintClan(elder);
+        uint32 firstCsId = _csAt(clanId, 0);
+        uint32 secondCsId = _csAt(clanId, 1);
+        world.setVault(clanId, 500e18, 500e18, 500e18, 100e18);
+
+        OrderResult[] memory second = _submitOrder(elder, clanId, secondCsId, ActionType.UpgradeBase);
+        assertEq(uint8(second[0].status), uint8(StatusCode.OK), "second clansman queues level 2");
+        OrderResult[] memory first = _submitOrder(elder, clanId, firstCsId, ActionType.UpgradeBase);
+        assertEq(uint8(first[0].status), uint8(StatusCode.OK), "first clansman queues level 3");
+
+        world.setCurrentTick(world.getActionDuration(ActionType.UpgradeBase) + 2);
+        uint256 simLoot = world.quoteLootValueSettled(clanId);
+        (uint256 simScore,,) = world.getClanScore(clanId);
+
+        (uint256 realScore, uint256 realLoot, uint8 baseLevel) = world.settleClanAndGetStoredScore(clanId);
+
+        assertEq(baseLevel, 2, "real refunds stale level-3 reservation");
+        assertEq(realLoot, simLoot, "sim and real loot match");
+        assertEq(realScore, simScore, "sim and real score match");
     }
 }
