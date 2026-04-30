@@ -91,7 +91,7 @@ contract BundledTransferOtcTest is Test {
 
         _assertBalances(clanA, 91e18, 72e18, 63e18, 54e18, 45e18, 36e18, "from debited");
         _assertBalances(clanB, 19e18, 19e18, 19e18, 19e18, 19e18, 19e18, "to credited");
-        assertTrue(world.getOtcBundledTransferProposal(proposalId).accepted, "proposal accepted");
+        assertEq(world.getOtcBundledTransferProposal(proposalId).from, 0, "proposal deleted");
     }
 
     function test_acceptBundledTransfer_revertsAndLeavesAllComponentsWhenGoldInsufficient() public {
@@ -146,8 +146,8 @@ contract BundledTransferOtcTest is Test {
         vm.prank(elderA);
         world.cancelBundledTransfer(proposalId);
 
-        assertTrue(world.getOtcBundledTransferProposal(proposalId).cancelled, "proposal cancelled");
-        vm.expectRevert("ClanWorld: proposal cancelled");
+        assertEq(world.getOtcBundledTransferProposal(proposalId).from, 0, "proposal deleted");
+        vm.expectRevert("ClanWorld: proposal not found");
         vm.prank(elderB);
         world.acceptBundledTransfer(proposalId);
     }
@@ -155,8 +155,15 @@ contract BundledTransferOtcTest is Test {
     function test_proposeBundledTransfer_revertsWhenEmpty() public {
         (uint32 clanA, uint32 clanB,) = _mintThreeClans();
 
-        vm.expectRevert("ClanWorld: empty bundled transfer");
+        vm.expectRevert("ERR_ZERO_AMOUNT");
         _propose(clanA, clanB, 0, 0, 0, 0, 0, 0, 10);
+    }
+
+    function test_proposeBundledTransfer_revertsWhenSelfTransfer() public {
+        (uint32 clanA,,) = _mintThreeClans();
+
+        vm.expectRevert("ERR_SELF_TRANSFER");
+        _propose(clanA, clanA, 1e18, 0, 0, 0, 0, 0, 10);
     }
 
     function test_bundledTransfer_twoClanNoInterference() public {

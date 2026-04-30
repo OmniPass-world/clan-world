@@ -178,7 +178,10 @@ enum StatusCode {
     ERR_NO_ACTIVE_BANDIT,
     ERR_SEASON_ENDED,
     ERR_NOT_ENOUGH_GOLD,
-    ERR_CARRY_FULL
+    ERR_CARRY_FULL,
+    ERR_ZERO_AMOUNT,
+    ERR_SELF_TRANSFER,
+    ERR_OTC_CAP
 }
 
 // =============================================================================
@@ -583,7 +586,7 @@ interface IClanWorldEvents {
         uint256 ironDelta,
         uint256 wheatDelta,
         uint256 fishDelta,
-        uint32 tick
+        uint64 atTick
     );
 
     // ----- building -----

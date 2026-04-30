@@ -62,7 +62,7 @@ contract BlueprintTransferOtcTest is Test {
 
         assertEq(world.getClan(clanA).blueprintBalance, 7e18, "from debited");
         assertEq(world.getClan(clanB).blueprintBalance, 5e18, "to credited");
-        assertTrue(world.getOtcBlueprintTransferProposal(proposalId).accepted, "proposal accepted");
+        assertEq(world.getOtcBlueprintTransferProposal(proposalId).from, 0, "proposal deleted");
     }
 
     function test_acceptBlueprintTransfer_revertsWhenBalanceChangedAfterProposal() public {
@@ -103,8 +103,8 @@ contract BlueprintTransferOtcTest is Test {
         vm.prank(elderA);
         world.cancelBlueprintTransfer(proposalId);
 
-        assertTrue(world.getOtcBlueprintTransferProposal(proposalId).cancelled, "proposal cancelled");
-        vm.expectRevert("ClanWorld: proposal cancelled");
+        assertEq(world.getOtcBlueprintTransferProposal(proposalId).from, 0, "proposal deleted");
+        vm.expectRevert("ClanWorld: proposal not found");
         vm.prank(elderB);
         world.acceptBlueprintTransfer(proposalId);
     }
@@ -121,6 +121,20 @@ contract BlueprintTransferOtcTest is Test {
 
         assertEq(world.getClan(clanB).blueprintBalance, 4e18, "unrelated clan unchanged");
         assertEq(world.getClan(clanC).blueprintBalance, 7e18, "target clan credited");
+    }
+
+    function test_proposeBlueprintTransfer_revertsWhenZeroAmount() public {
+        (uint32 clanA, uint32 clanB,) = _mintThreeClans();
+
+        vm.expectRevert("ERR_ZERO_AMOUNT");
+        _propose(clanA, clanB, 0, 10);
+    }
+
+    function test_proposeBlueprintTransfer_revertsWhenSelfTransfer() public {
+        (uint32 clanA,,) = _mintThreeClans();
+
+        vm.expectRevert("ERR_SELF_TRANSFER");
+        _propose(clanA, clanA, 1e18, 10);
     }
 
     function _mintThreeClans() internal returns (uint32 clanA, uint32 clanB, uint32 clanC) {

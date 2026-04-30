@@ -3,7 +3,17 @@ pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {ClanWorld} from "../src/ClanWorld.sol";
-import {ClanWorldConstants, Clan, ClanState, VaultTransferProposal} from "../src/IClanWorld.sol";
+import {
+    ActionType,
+    ClanWorldConstants,
+    Clan,
+    ClanFullView,
+    ClanOrder,
+    ClanState,
+    OrderResult,
+    StatusCode,
+    VaultTransferProposal
+} from "../src/IClanWorld.sol";
 
 contract VaultTransferHarness is ClanWorld {
     function setVault(uint32 clanId, uint256 wood, uint256 wheat, uint256 fish, uint256 iron) external {
@@ -11,6 +21,13 @@ contract VaultTransferHarness is ClanWorld {
         _clans[clanId].vaultWheat = wheat;
         _clans[clanId].vaultFish = fish;
         _clans[clanId].vaultIron = iron;
+    }
+
+    function setCarry(uint32 clansmanId, uint256 wood, uint256 wheat, uint256 fish, uint256 iron) external {
+        _clansmen[clansmanId].carryWood = wood;
+        _clansmen[clansmanId].carryWheat = wheat;
+        _clansmen[clansmanId].carryFish = fish;
+        _clansmen[clansmanId].carryIron = iron;
     }
 }
 
@@ -81,7 +98,7 @@ contract VaultTransferOtcTest is Test {
         assertEq(toAfter.vaultWheat, 27e18, "to wheat credited");
         assertEq(toAfter.vaultFish, 14e18, "to fish credited");
         assertEq(toAfter.vaultIron, 16e18, "to iron credited");
-        assertTrue(world.getOtcVaultTransferProposal(proposalId).accepted, "proposal accepted");
+        assertEq(world.getOtcVaultTransferProposal(proposalId).from, 0, "proposal deleted");
     }
 
     function test_acceptVaultTransfer_revertsAndLeavesAllResourcesWhenOneResourceInsufficient() public {
@@ -128,10 +145,62 @@ contract VaultTransferOtcTest is Test {
         vm.prank(elderA);
         world.cancelVaultTransfer(proposalId);
 
-        assertTrue(world.getOtcVaultTransferProposal(proposalId).cancelled, "proposal cancelled");
-        vm.expectRevert("ClanWorld: proposal cancelled");
+        assertEq(world.getOtcVaultTransferProposal(proposalId).from, 0, "proposal deleted");
+        vm.expectRevert("ClanWorld: proposal not found");
         vm.prank(elderB);
         world.acceptVaultTransfer(proposalId);
+    }
+
+    function test_acceptVaultTransfer_settlesPendingUpkeepBeforeDebit() public {
+        (uint32 clanA, uint32 clanB,) = _mintThreeClans();
+        world.setVault(clanA, 0, 1e18, 0, 0);
+        world.setVault(clanB, 0, 0, 0, 0);
+        uint256 proposalId = _propose(clanA, clanB, 0, 1e18, 0, 0, 10);
+
+        _advanceTick();
+
+        vm.expectRevert("ERR_NOT_ENOUGH_RESOURCES");
+        vm.prank(elderB);
+        world.acceptVaultTransfer(proposalId);
+
+        assertEq(world.getClan(clanB).vaultWheat, 0, "target not credited on failed accept");
+    }
+
+    function test_proposeVaultTransfer_revertsWhenAllZero() public {
+        (uint32 clanA, uint32 clanB,) = _mintThreeClans();
+
+        vm.expectRevert("ERR_ZERO_AMOUNT");
+        _propose(clanA, clanB, 0, 0, 0, 0, 10);
+    }
+
+    function test_proposeVaultTransfer_revertsWhenSelfTransfer() public {
+        (uint32 clanA,,) = _mintThreeClans();
+
+        vm.expectRevert("ERR_SELF_TRANSFER");
+        _propose(clanA, clanA, 1e18, 0, 0, 0, 10);
+    }
+
+    function test_acceptVaultTransfer_settlesPendingDepositBeforeDebit() public {
+        (uint32 clanA, uint32 clanB,) = _mintThreeClans();
+        uint32 csId = _firstClansman(clanA);
+        uint8 homeRegion = world.getClan(clanA).baseRegion;
+
+        world.setVault(clanA, 0, 100e18, 100e18, 100e18);
+        world.setVault(clanB, 0, 0, 0, 0);
+        world.setCarry(csId, 5e18, 0, 0, 0);
+
+        OrderResult[] memory results = _submitDeposit(clanA, csId, homeRegion);
+        assertEq(uint8(results[0].status), uint8(StatusCode.OK), "deposit accepted");
+
+        uint256 proposalId = _propose(clanA, clanB, 5e18, 0, 0, 0, 10);
+        _advanceTick();
+        _advanceTick();
+
+        vm.prank(elderB);
+        world.acceptVaultTransfer(proposalId);
+
+        assertEq(world.getClan(clanA).vaultWood, 0, "pending deposit settled then debited");
+        assertEq(world.getClan(clanB).vaultWood, 5e18, "target credited from settled deposit");
     }
 
     function test_vaultTransfer_twoClanNoInterference() public {
@@ -180,6 +249,30 @@ contract VaultTransferOtcTest is Test {
     ) internal returns (uint256 proposalId) {
         vm.prank(elderA);
         proposalId = world.proposeVaultTransfer(fromClanId, toClanId, wood, wheat, fish, iron, expiryTick);
+    }
+
+    function _firstClansman(uint32 clanId) internal view returns (uint32) {
+        ClanFullView memory view_ = world.getClanFullView(clanId);
+        return view_.clansmen[0].clansman.clansman.clansmanId;
+    }
+
+    function _submitDeposit(uint32 clanId, uint32 clansmanId, uint8 homeRegion)
+        internal
+        returns (OrderResult[] memory)
+    {
+        ClanOrder[] memory orders = new ClanOrder[](1);
+        orders[0] = ClanOrder({
+            clansmanId: clansmanId,
+            gotoRegion: homeRegion,
+            action: ActionType.DepositResources,
+            targetClanId: 0,
+            marketToken: address(0),
+            marketAmount: 0,
+            maxGoldIn: 0
+        });
+
+        vm.prank(elderA);
+        return world.submitClanOrders(clanId, orders);
     }
 
     function _advanceTick() internal {

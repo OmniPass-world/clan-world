@@ -142,10 +142,10 @@ contract DeadClanOtcTest is Test {
         vm.prank(elderA);
         world.cancelBundledTransfer(bundledProposal);
 
-        assertTrue(world.getOtcGoldProposal(goldProposal).cancelled, "gold cancelled");
-        assertTrue(world.getOtcVaultTransferProposal(vaultProposal).cancelled, "vault cancelled");
-        assertTrue(world.getOtcBlueprintTransferProposal(blueprintProposal).cancelled, "blueprint cancelled");
-        assertTrue(world.getOtcBundledTransferProposal(bundledProposal).cancelled, "bundled cancelled");
+        assertEq(world.getOtcGoldProposal(goldProposal).from, 0, "gold deleted");
+        assertEq(world.getOtcVaultTransferProposal(vaultProposal).from, 0, "vault deleted");
+        assertEq(world.getOtcBlueprintTransferProposal(blueprintProposal).from, 0, "blueprint deleted");
+        assertEq(world.getOtcBundledTransferProposal(bundledProposal).from, 0, "bundled deleted");
     }
 
     function test_unrelatedClanDeathDoesNotBlockOtherClanOtc() public {
