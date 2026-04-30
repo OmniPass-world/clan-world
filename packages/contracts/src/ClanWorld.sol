@@ -65,6 +65,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     mapping(uint32 => BanditTroop) internal _bandits;
     mapping(uint8 => uint32[]) internal _banditsByRegion; // region => bandit IDs
     mapping(uint8 => BanditSpawnState) internal _banditSpawnByRegion;
+    mapping(uint32 => uint8) private _banditAttackAttempts;
     mapping(uint64 => bytes32) private _tickSeeds; // tick => seed
 
     uint32 private _nextClanId;
@@ -91,7 +92,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     uint16 internal constant BANDIT_SPAWN_PROBABILITY_INCREMENT_BPS = 1000;
     uint16 internal constant BANDIT_SPAWN_MAX_PROBABILITY_BPS = 8000;
     uint8 internal constant MAX_BANDITS_PER_REGION = 3;
-    uint8 internal constant MAX_TOTAL_BANDITS = 8;
+    uint8 internal constant MAX_TOTAL_BANDITS = 1;
     uint8 internal constant MAX_CLANS = 12;
     /// @dev Bandit spawn weights are a heartbeat-time heuristic. V1 has
     ///      MAX_CLANS = 12, so scanning 8 clans per tick covers the live cap in
@@ -107,6 +108,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     uint256 internal constant MAX_BANDIT_EAGER_SETTLE_DEFENDER_SCAN_PER_REGION = 48;
     uint32 internal constant MIN_BANDIT_SPAWN_STRENGTH = 100;
     uint32 internal constant BANDIT_SPAWN_STRENGTH_SPREAD = 151;
+    uint32 internal constant DEFEND_BASE_DEFENSE = 10;
+    uint32 internal constant WAITING_HOME_DEFENSE = 5;
     uint32 internal constant CLANSMAN_MAX_DEFENSE_DAMAGE = 100;
     uint32 internal constant WALL_HP_PER_LEVEL = 100;
     uint32 internal constant BASE_HP_PER_LEVEL = 25;
@@ -1589,6 +1592,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         }
 
         emit BanditStateChanged(id, oldState, newState, bandit.region, _world.currentTick);
+
+        if (oldState == BanditState.Resting && newState == BanditState.Camped) {
+            _moveBanditToRampageNextRegion(id);
+        }
     }
 
     function _isValidBanditTransition(BanditTroop storage bandit, BanditState newState) internal view returns (bool) {
@@ -1607,13 +1614,14 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
     function _canBanditLeaveCamped(BanditTroop storage bandit, BanditState newState) internal view returns (bool) {
         return newState == BanditState.Escaped
+            || newState == BanditState.Resting
             || (newState == BanditState.Attacking
                 && bandit.targetClanId != ClanWorldConstants.CLAN_ID_NULL
                 && _world.currentTick >= bandit.tickEnteredState + ClanWorldConstants.BANDIT_CAMP_TICKS);
     }
 
     function _canBanditLeaveAttacking(BanditState newState) internal pure returns (bool) {
-        return newState == BanditState.Defeated || newState == BanditState.Escaped;
+        return newState == BanditState.Defeated || newState == BanditState.Escaped || newState == BanditState.Resting;
     }
 
     function _canBanditLeaveEscaped(BanditState newState) internal pure returns (bool) {
@@ -1624,6 +1632,39 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         return newState == BanditState.Escaped
             || (newState == BanditState.Camped
                 && _world.currentTick >= bandit.tickEnteredState + ClanWorldConstants.BANDIT_REST_TICKS);
+    }
+
+    function _moveBanditToRampageNextRegion(uint32 id) internal {
+        BanditTroop storage bandit = _bandits[id];
+        uint8 fromRegion = bandit.region;
+        uint8 toRegion = _nextRampageRegion(fromRegion);
+        if (fromRegion == toRegion) {
+            return;
+        }
+
+        uint32[] storage fromBandits = _banditsByRegion[fromRegion];
+        for (uint256 i = 0; i < fromBandits.length; i++) {
+            if (fromBandits[i] == id) {
+                fromBandits[i] = fromBandits[fromBandits.length - 1];
+                fromBandits.pop();
+                break;
+            }
+        }
+
+        bandit.region = toRegion;
+        _banditsByRegion[toRegion].push(id);
+        emit BanditMoved(id, fromRegion, toRegion, _world.currentTick);
+
+        _eagerSettleBanditCandidateRegion(toRegion);
+    }
+
+    function _nextRampageRegion(uint8 currentRegion) internal pure returns (uint8) {
+        if (currentRegion == ClanWorldConstants.REGION_FOREST) return ClanWorldConstants.REGION_MOUNTAINS;
+        if (currentRegion == ClanWorldConstants.REGION_MOUNTAINS) return ClanWorldConstants.REGION_EAST_FARMS;
+        if (currentRegion == ClanWorldConstants.REGION_EAST_FARMS) return ClanWorldConstants.REGION_EAST_DOCKS;
+        if (currentRegion == ClanWorldConstants.REGION_EAST_DOCKS) return ClanWorldConstants.REGION_WEST_DOCKS;
+        if (currentRegion == ClanWorldConstants.REGION_WEST_DOCKS) return ClanWorldConstants.REGION_WEST_FARMS;
+        return ClanWorldConstants.REGION_FOREST;
     }
 
     function _deleteBandit(uint32 id) internal {
@@ -1639,6 +1680,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         }
 
         delete _bandits[id];
+        delete _banditAttackAttempts[id];
         if (_activeBanditCount > 0) {
             _activeBanditCount -= 1;
         }
@@ -1648,7 +1690,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     }
 
     function _findOldestActiveBandit() internal view returns (uint32 oldestBanditId) {
-        // V1 caps live troops at MAX_TOTAL_BANDITS = 8, so scanning the region
+        // V1 caps live troops at MAX_TOTAL_BANDITS, so scanning the region
         // indexes is bounded even though storage mappings cannot be enumerated.
         for (uint8 region = ClanWorldConstants.REGION_FOREST; region <= ClanWorldConstants.REGION_DEEP_SEA; region++) {
             uint32[] storage regionBandits = _banditsByRegion[region];
@@ -1669,9 +1711,11 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         require(_world.currentTick == closedTick, "ClanWorld: bandit advance tick mismatch");
         for (uint8 region = ClanWorldConstants.REGION_FOREST; region <= ClanWorldConstants.REGION_DEEP_SEA; region++) {
             uint32[] storage regionBandits = _banditsByRegion[region];
-            for (uint256 i = 0; i < regionBandits.length; i++) {
+            uint256 i = 0;
+            while (i < regionBandits.length) {
                 uint32 banditId = regionBandits[i];
                 BanditTroop storage bandit = _bandits[banditId];
+                uint8 regionBefore = bandit.region;
                 if (bandit.state == BanditState.Spawned && closedTick > bandit.tickEnteredState) {
                     _transitionBanditState(banditId, BanditState.Camped);
                 } else if (
@@ -1680,8 +1724,11 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
                 ) {
                     uint32 targetClanId = _pickBanditAttackTarget(bandit);
                     if (targetClanId == ClanWorldConstants.CLAN_ID_NULL) {
-                        _transitionBanditState(banditId, BanditState.Escaped);
-                        emit BanditEscaped(banditId, closedTick);
+                        if (_recordBanditAttackAttempt(banditId) >= ClanWorldConstants.BANDIT_MAX_ATTACK_ATTEMPTS) {
+                            _terminalEscapeBandit(banditId, closedTick);
+                            continue;
+                        }
+                        _transitionBanditState(banditId, BanditState.Resting);
                     } else {
                         _transitionBanditToAttacking(banditId, targetClanId);
                     }
@@ -1696,6 +1743,14 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
                 ) {
                     _transitionBanditState(banditId, BanditState.Camped);
                 }
+
+                if (_bandits[banditId].id == ClanWorldConstants.BANDIT_ID_NULL) {
+                    continue;
+                }
+                if (regionBefore != _bandits[banditId].region) {
+                    continue;
+                }
+                i++;
             }
         }
     }
@@ -1732,6 +1787,20 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         uint256 selected = RNG.rngBounded(_world.currentTickSeed, DOMAIN_BANDIT_TARGET_PICK, bandit.id, tiedCount);
         return tiedClanIds[selected];
+    }
+
+    function _recordBanditAttackAttempt(uint32 banditId) internal returns (uint8 attemptsMade) {
+        attemptsMade = _banditAttackAttempts[banditId] + 1;
+        _banditAttackAttempts[banditId] = attemptsMade;
+    }
+
+    function _terminalEscapeBandit(uint32 banditId, uint64 closedTick) internal {
+        BanditTroop storage bandit = _bandits[banditId];
+        BanditState oldState = bandit.state;
+        emit BanditStateChanged(banditId, oldState, BanditState.Escaped, bandit.region, closedTick);
+        _burnBanditCarry(banditId);
+        emit BanditEscaped(banditId, closedTick);
+        _deleteBandit(banditId);
     }
 
     function _banditStrengthForLegacyEvent(uint32 strength) internal pure returns (uint16) {
@@ -1798,13 +1867,18 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         bytes32 tickSeed = _world.currentTickSeed;
         uint32 banditAttackPower = bandit.strength;
-        uint32 totalClansmanDefense = _totalBanditClansmanDefense(banditId, targetClanId, tickSeed);
+        uint32 totalClansmanDefense = _totalBanditClansmanDefense(targetClanId);
         bool defeated = uint256(totalClansmanDefense) >= uint256(banditAttackPower) * 2;
 
         uint32 wallDamage;
         uint32 baseAbsorbed;
         uint32 clansmanDamageAbsorbed;
+        uint256 stolenWood;
+        uint256 stolenIron;
+        uint256 stolenWheat;
+        uint256 stolenFish;
         if (!defeated) {
+            (stolenWood, stolenIron, stolenWheat, stolenFish) = _stealBanditVaultLoot(bandit, targetClan);
             uint32 incomingDamage =
                 banditAttackPower > totalClansmanDefense ? banditAttackPower - totalClansmanDefense : 0;
             (incomingDamage, wallDamage) = _applyBanditWallDamage(targetClan, targetClanId, banditId, incomingDamage);
@@ -1821,10 +1895,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             _uint16Clamp(banditAttackPower),
             _uint16Clamp(totalDefense),
             targetClan.wallLevel,
-            0,
-            0,
-            0,
-            0,
+            stolenWood,
+            stolenIron,
+            stolenWheat,
+            stolenFish,
             closedTick
         );
 
@@ -1835,35 +1909,70 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             emit BlueprintEarned(targetClanId, banditId, BLUEPRINT_UNIT, closedTick);
             _transitionBanditState(banditId, BanditState.Defeated);
         } else {
-            _transitionBanditState(banditId, BanditState.Escaped);
-            emit BanditEscaped(banditId, closedTick);
+            if (_recordBanditAttackAttempt(banditId) >= ClanWorldConstants.BANDIT_MAX_ATTACK_ATTEMPTS) {
+                _terminalEscapeBandit(banditId, closedTick);
+            } else {
+                _transitionBanditState(banditId, BanditState.Resting);
+            }
         }
     }
 
     function _distributeBanditLootToDefendingClans(uint32 banditId, uint32 targetClanId) internal {
         BanditTroop storage bandit = _bandits[banditId];
-        uint32[] memory rewardedClanIds = _activeDefendingClanIds(targetClanId);
-        uint256 nDefendingClans = rewardedClanIds.length;
+        DefenseContribution[] memory contributions = _banditDefenseContributions(targetClanId);
+        uint256 nDefenders = contributions.length;
+        uint32[] memory rewardedClanIds = new uint32[](nDefenders);
+
+        uint256 dropWood = _banditLootDrop(bandit.carryWood);
+        uint256 dropIron = _banditLootDrop(bandit.carryIron);
+        uint256 dropWheat = _banditLootDrop(bandit.carryWheat);
+        uint256 dropFish = _banditLootDrop(bandit.carryFish);
+        uint256 dropGold = _banditLootDrop(bandit.carryGold);
 
         uint256 perWood;
         uint256 perIron;
         uint256 perWheat;
         uint256 perFish;
         uint256 perGold;
-        if (nDefendingClans > 0) {
-            perWood = _perClanBanditLootShare(bandit.carryWood, nDefendingClans);
-            perIron = _perClanBanditLootShare(bandit.carryIron, nDefendingClans);
-            perWheat = _perClanBanditLootShare(bandit.carryWheat, nDefendingClans);
-            perFish = _perClanBanditLootShare(bandit.carryFish, nDefendingClans);
-            perGold = _perClanBanditLootShare(bandit.carryGold, nDefendingClans);
+        uint256 distributedWood;
+        uint256 distributedIron;
+        uint256 distributedWheat;
+        uint256 distributedFish;
+        uint256 distributedGold;
+        if (nDefenders > 0) {
+            perWood = _perDefenderBanditLootShare(dropWood, nDefenders);
+            perIron = _perDefenderBanditLootShare(dropIron, nDefenders);
+            perWheat = _perDefenderBanditLootShare(dropWheat, nDefenders);
+            perFish = _perDefenderBanditLootShare(dropFish, nDefenders);
+            perGold = _perDefenderBanditLootShare(dropGold, nDefenders);
 
-            for (uint256 i = 0; i < rewardedClanIds.length; i++) {
-                Clan storage defenderClan = _clans[rewardedClanIds[i]];
-                defenderClan.vaultWood += perWood;
-                defenderClan.vaultIron += perIron;
-                defenderClan.vaultWheat += perWheat;
-                defenderClan.vaultFish += perFish;
-                defenderClan.goldBalance += perGold;
+            for (uint256 i = 0; i < contributions.length; i++) {
+                uint32 clansmanId = contributions[i].clansmanId;
+                uint32 clanId = contributions[i].clanId;
+                rewardedClanIds[i] = clanId;
+
+                Clansman storage defender = _clansmen[clansmanId];
+                uint256 addedWood = _addClansmanCarryCapped(defender.carryWood, perWood, ClanWorldConstants.WOOD_CAP);
+                uint256 addedIron = _addClansmanCarryCapped(defender.carryIron, perIron, ClanWorldConstants.IRON_CAP);
+                uint256 addedWheat =
+                    _addClansmanCarryCapped(defender.carryWheat, perWheat, ClanWorldConstants.WHEAT_CAP);
+                uint256 addedFish = _addClansmanCarryCapped(defender.carryFish, perFish, ClanWorldConstants.FISH_CAP);
+
+                defender.carryWood += addedWood;
+                defender.carryIron += addedIron;
+                defender.carryWheat += addedWheat;
+                defender.carryFish += addedFish;
+                _clans[clanId].goldBalance += perGold;
+
+                distributedWood += addedWood;
+                distributedIron += addedIron;
+                distributedWheat += addedWheat;
+                distributedFish += addedFish;
+                distributedGold += perGold;
+
+                emit LootDistributedToDefender(
+                    banditId, clanId, clansmanId, addedWood, addedIron, addedWheat, addedFish
+                );
             }
         }
 
@@ -1875,19 +1984,76 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             perFish,
             perIron,
             perGold,
-            bandit.carryWood - (perWood * nDefendingClans),
-            bandit.carryWheat - (perWheat * nDefendingClans),
-            bandit.carryFish - (perFish * nDefendingClans),
-            bandit.carryIron - (perIron * nDefendingClans),
-            bandit.carryGold - (perGold * nDefendingClans)
+            bandit.carryWood - distributedWood,
+            bandit.carryWheat - distributedWheat,
+            bandit.carryFish - distributedFish,
+            bandit.carryIron - distributedIron,
+            bandit.carryGold - distributedGold
         );
     }
 
-    function _perClanBanditLootShare(uint256 loot, uint256 nDefendingClans) internal pure returns (uint256) {
-        if (nDefendingClans == 1) {
+    function _burnBanditCarry(uint32 banditId) internal {
+        BanditTroop storage bandit = _bandits[banditId];
+        uint32[] memory rewardedClanIds = new uint32[](0);
+        emit LootDistributed(
+            banditId,
+            rewardedClanIds,
+            0,
+            0,
+            0,
+            0,
+            0,
+            bandit.carryWood,
+            bandit.carryWheat,
+            bandit.carryFish,
+            bandit.carryIron,
+            bandit.carryGold
+        );
+    }
+
+    function _stealBanditVaultLoot(BanditTroop storage bandit, Clan storage targetClan)
+        internal
+        returns (uint256 stolenWood, uint256 stolenIron, uint256 stolenWheat, uint256 stolenFish)
+    {
+        stolenWood = _banditStealAmount(targetClan.vaultWood);
+        stolenIron = _banditStealAmount(targetClan.vaultIron);
+        stolenWheat = _banditStealAmount(targetClan.vaultWheat);
+        stolenFish = _banditStealAmount(targetClan.vaultFish);
+
+        targetClan.vaultWood -= stolenWood;
+        targetClan.vaultIron -= stolenIron;
+        targetClan.vaultWheat -= stolenWheat;
+        targetClan.vaultFish -= stolenFish;
+
+        bandit.carryWood += stolenWood;
+        bandit.carryIron += stolenIron;
+        bandit.carryWheat += stolenWheat;
+        bandit.carryFish += stolenFish;
+    }
+
+    function _banditStealAmount(uint256 vaultAmount) internal pure returns (uint256) {
+        return (vaultAmount * ClanWorldConstants.BANDIT_BASE_STEAL_BPS) / 10000;
+    }
+
+    function _banditLootDrop(uint256 carryAmount) internal pure returns (uint256) {
+        return (carryAmount * ClanWorldConstants.BANDIT_DROP_TO_DEFENDERS_BPS) / 10000;
+    }
+
+    function _perDefenderBanditLootShare(uint256 loot, uint256 nDefenders) internal pure returns (uint256) {
+        if (nDefenders == 1) {
             return loot;
         }
-        return ((loot / RESOURCE_UNIT) / nDefendingClans) * RESOURCE_UNIT;
+        return ((loot / RESOURCE_UNIT) / nDefenders) * RESOURCE_UNIT;
+    }
+
+    function _addClansmanCarryCapped(uint256 currentCarry, uint256 amount, uint256 carryCap)
+        internal
+        pure
+        returns (uint256)
+    {
+        if (currentCarry >= carryCap) return 0;
+        uint256 remaining = carryCap - currentCarry;
+        return amount < remaining ? amount : remaining;
     }
 
     function _activeDefendingClanIds(uint32 targetClanId) internal view returns (uint32[] memory clanIds) {
@@ -1911,6 +2077,90 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         }
     }
 
+    function _banditDefenseContributions(uint32 targetClanId)
+        internal
+        view
+        returns (DefenseContribution[] memory contributions)
+    {
+        uint256 count = _countBanditDefenseContributions(targetClanId);
+        contributions = new DefenseContribution[](count);
+        uint256 out;
+
+        uint8 targetRegion = _clans[targetClanId].baseRegion;
+        uint32[] storage defendingClans = _defendingClansByRegion[targetRegion];
+        for (uint256 i = 0; i < defendingClans.length; i++) {
+            uint32 defenderClanId = defendingClans[i];
+            Clan storage defenderClan = _clans[defenderClanId];
+            if (defenderClan.clanState == ClanState.DEAD || _isStarving(defenderClan)) {
+                continue;
+            }
+
+            uint32[] storage clansmanIds = _clanClansmanIds[defenderClanId];
+            for (uint256 j = 0; j < clansmanIds.length; j++) {
+                uint32 clansmanId = clansmanIds[j];
+                Clansman storage cs = _clansmen[clansmanId];
+                Mission storage mission = _missions[clansmanId];
+                if (_isExplicitBanditDefender(cs, mission, targetClanId, targetRegion)) {
+                    contributions[out++] = DefenseContribution({
+                        clansmanId: clansmanId,
+                        clanId: defenderClanId,
+                        defensePoints: uint16(DEFEND_BASE_DEFENSE)
+                    });
+                }
+            }
+        }
+
+        Clan storage targetClan = _clans[targetClanId];
+        if (targetClan.clanState != ClanState.DEAD && !_isStarving(targetClan)) {
+            uint32[] storage targetClansmen = _clanClansmanIds[targetClanId];
+            for (uint256 i = 0; i < targetClansmen.length; i++) {
+                uint32 clansmanId = targetClansmen[i];
+                Clansman storage cs = _clansmen[clansmanId];
+                if (cs.state == ClansmanState.WAITING && cs.currentRegion == targetRegion) {
+                    contributions[out++] = DefenseContribution({
+                        clansmanId: clansmanId,
+                        clanId: targetClanId,
+                        defensePoints: uint16(WAITING_HOME_DEFENSE)
+                    });
+                }
+            }
+        }
+    }
+
+    function _countBanditDefenseContributions(uint32 targetClanId) internal view returns (uint256 count) {
+        uint8 targetRegion = _clans[targetClanId].baseRegion;
+        uint32[] storage defendingClans = _defendingClansByRegion[targetRegion];
+        for (uint256 i = 0; i < defendingClans.length; i++) {
+            uint32 defenderClanId = defendingClans[i];
+            Clan storage defenderClan = _clans[defenderClanId];
+            if (defenderClan.clanState == ClanState.DEAD || _isStarving(defenderClan)) {
+                continue;
+            }
+
+            uint32[] storage clansmanIds = _clanClansmanIds[defenderClanId];
+            for (uint256 j = 0; j < clansmanIds.length; j++) {
+                Clansman storage cs = _clansmen[clansmanIds[j]];
+                Mission storage mission = _missions[clansmanIds[j]];
+                if (_isExplicitBanditDefender(cs, mission, targetClanId, targetRegion)) {
+                    count++;
+                }
+            }
+        }
+
+        Clan storage targetClan = _clans[targetClanId];
+        if (targetClan.clanState == ClanState.DEAD || _isStarving(targetClan)) {
+            return count;
+        }
+
+        uint32[] storage targetClansmen = _clanClansmanIds[targetClanId];
+        for (uint256 i = 0; i < targetClansmen.length; i++) {
+            Clansman storage cs = _clansmen[targetClansmen[i]];
+            if (cs.state == ClansmanState.WAITING && cs.currentRegion == targetRegion) {
+                count++;
+            }
+        }
+    }
+
     function _clanHasActiveDefenderForTarget(uint32 defenderClanId, uint32 targetClanId, uint8 targetRegion)
         internal
         view
@@ -1926,43 +2176,27 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             uint32 clansmanId = clansmanIds[i];
             Clansman storage cs = _clansmen[clansmanId];
             Mission storage mission = _missions[clansmanId];
-            if (
-                cs.state == ClansmanState.ACTING && cs.currentRegion == targetRegion && mission.active
-                    && mission.action == ActionType.DefendBase && mission.targetClanId == targetClanId
-            ) {
+            if (_isExplicitBanditDefender(cs, mission, targetClanId, targetRegion)) {
                 return true;
             }
         }
         return false;
     }
 
-    function _totalBanditClansmanDefense(uint32 banditId, uint32 targetClanId, bytes32 tickSeed)
-        internal
-        view
-        returns (uint32 totalDefense)
-    {
-        uint8 targetRegion = _clans[targetClanId].baseRegion;
-        uint32[] storage defendingClans = _defendingClansByRegion[targetRegion];
+    function _isExplicitBanditDefender(
+        Clansman storage cs,
+        Mission storage mission,
+        uint32 targetClanId,
+        uint8 targetRegion
+    ) internal view returns (bool) {
+        return cs.state == ClansmanState.ACTING && cs.currentRegion == targetRegion && mission.active
+            && mission.action == ActionType.DefendBase && mission.targetClanId == targetClanId;
+    }
 
-        for (uint256 i = 0; i < defendingClans.length; i++) {
-            uint32 defenderClanId = defendingClans[i];
-            Clan storage defenderClan = _clans[defenderClanId];
-            if (defenderClan.clanState == ClanState.DEAD || _isStarving(defenderClan)) {
-                continue;
-            }
-
-            uint32[] storage clansmanIds = _clanClansmanIds[defenderClanId];
-            for (uint256 j = 0; j < clansmanIds.length; j++) {
-                uint32 clansmanId = clansmanIds[j];
-                Clansman storage cs = _clansmen[clansmanId];
-                Mission storage mission = _missions[clansmanId];
-                if (
-                    cs.state == ClansmanState.ACTING && cs.currentRegion == targetRegion && mission.active
-                        && mission.action == ActionType.DefendBase && mission.targetClanId == targetClanId
-                ) {
-                    totalDefense += _clansmanDefenseDamageRoll(tickSeed, banditId, clansmanId);
-                }
-            }
+    function _totalBanditClansmanDefense(uint32 targetClanId) internal view returns (uint32 totalDefense) {
+        DefenseContribution[] memory contributions = _banditDefenseContributions(targetClanId);
+        for (uint256 i = 0; i < contributions.length; i++) {
+            totalDefense += contributions[i].defensePoints;
         }
     }
 
@@ -3553,6 +3787,9 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         BanditTroop memory bandit = _bandits[_world.activeBanditId];
         uint64 nextActionTick = 0;
         bool exists = bandit.id != ClanWorldConstants.BANDIT_ID_NULL && bandit.state != BanditState.None;
+        uint8 attemptsMade = exists ? _banditAttackAttempts[bandit.id] : 0;
+        uint8 maxAttemptsRemaining =
+            exists ? ClanWorldConstants.BANDIT_MAX_ATTACK_ATTEMPTS - attemptsMade : 0;
         if (exists) {
             if (bandit.state == BanditState.Spawned) {
                 nextActionTick = bandit.tickEnteredState + 1;
@@ -3568,8 +3805,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             banditId: bandit.id,
             state: bandit.state,
             currentRegion: bandit.region,
-            attackAttemptsMade: 0,
-            maxAttemptsRemaining: 0,
+            attackAttemptsMade: attemptsMade,
+            maxAttemptsRemaining: maxAttemptsRemaining,
             stateEnteredTick: bandit.tickEnteredState,
             nextActionTick: nextActionTick,
             tier: 0,
