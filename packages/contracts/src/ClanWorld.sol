@@ -3568,8 +3568,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             }
         }
 
-        /// @dev attackAttemptsMade, maxAttemptsRemaining, projectedTargetLootValue are projected
-        ///      fields not yet implemented; always returned as 0.
+        // attackAttemptsMade, maxAttemptsRemaining, projectedTargetLootValue are projected
+        // fields not yet implemented; always returned as 0.
         return ActiveBanditView({
             exists: exists,
             banditId: bandit.id,

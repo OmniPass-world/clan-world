@@ -596,8 +596,9 @@ interface IClanWorldEvents {
         uint64 atTick
     );
     event BanditDefeated(uint32 indexed banditId, uint32 indexed targetClanId, uint64 atTick);
-    /// @dev atTick / tick is the closedTick from the heartbeat for replay-determinism;
-    ///      use this value when replaying events to reconstruct state at a specific tick.
+    /// @dev atTick / tick is the caller-provided tick for replay-determinism:
+    ///      closedTick in heartbeat context, or historical settlement tick in lazy-settlement context.
+    ///      Always use this value (not block.timestamp) when reconstructing state at a specific tick.
     event BanditEscaped(uint32 indexed banditId, uint64 atTick);
     event BanditTargetDied(uint32 indexed banditId, uint32 indexed deadClanId, uint64 tick);
     event WallDamagedByBandit(uint32 indexed clanId, uint8 newLevel, uint32 indexed banditId);
