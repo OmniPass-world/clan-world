@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "scripts": {
     "build": "if command -v forge >/dev/null 2>&1; then forge build; else echo 'forge not installed; skipping (install via foundryup)'; fi",
-    "check:abi": "if command -v forge >/dev/null 2>&1; then forge build && diff -u out/IClanWorld.sol/IClanWorld.json abi/IClanWorld.json; else echo 'forge not installed; skipping ABI drift check'; fi",
-    "test": "if command -v forge >/dev/null 2>&1; then forge build && diff -u out/IClanWorld.sol/IClanWorld.json abi/IClanWorld.json && forge test;  else echo 'forge not installed; skipping'; fi",
+    "check:abi": "forge_bin=$(command -v forge || command -v \"$HOME/.foundry/bin/forge\" || true); if [ -n \"$forge_bin\" ]; then command -v jq >/dev/null 2>&1 || { echo 'jq not installed; cannot check ABI'; exit 1; }; \"$forge_bin\" build && tmp_out=$(mktemp) && tmp_abi=$(mktemp) && jq . out/IClanWorld.sol/IClanWorld.json > \"$tmp_out\" && jq . abi/IClanWorld.json > \"$tmp_abi\" && diff -u \"$tmp_abi\" abi/IClanWorld.json && diff -u \"$tmp_out\" \"$tmp_abi\"; status=$?; rm -f \"$tmp_out\" \"$tmp_abi\"; exit $status; else echo 'forge not installed; skipping ABI drift check'; fi",
+    "test": "forge_bin=$(command -v forge || command -v \"$HOME/.foundry/bin/forge\" || true); if [ -n \"$forge_bin\" ]; then pnpm run check:abi && \"$forge_bin\" test;  else echo 'forge not installed; skipping'; fi",
     "typecheck": "echo 'no TS in contracts package'",
     "lint": "echo 'lint stub'",
     "clean": "rm -rf out cache .turbo"
