@@ -13,6 +13,11 @@ export interface OrderResult {
 
 export interface SubmitOrdersResult {
   txHash: string;
+  /**
+   * Per-order statuses returned by pre-send contract simulation.
+   * These are useful for client-side expectations, but are not chain-authoritative
+   * finalized outcomes for the submitted transaction.
+   */
   results: OrderResult[];
 }
 
