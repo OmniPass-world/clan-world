@@ -3404,23 +3404,22 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
     function quoteLootValueSettled(uint32 clanId) external view override returns (uint256) {
         SettlementSimulation memory sim = _simulateSettleToTick(clanId, _world.currentTick);
-        return _lootValueRaw(sim.clan);
+        // memory struct — inline to avoid ambiguity with the storage overload below
+        return sim.clan.vaultWood + sim.clan.vaultWheat + sim.clan.vaultFish * 2 + sim.clan.vaultIron * 4;
     }
 
     /// @dev Compute loot value per v4 spec §6.9: wood=1, wheat=1, fish=2, iron=4 points.
+    ///      Storage overload: avoids full storage→memory struct copy on hot paths.
     function _lootValueRaw(Clan storage clan) internal view returns (uint256) {
-        return clan.vaultWood + clan.vaultWheat + clan.vaultFish * 2 + clan.vaultIron * 4;
-    }
-
-    /// @dev Memory overload for derived/simulated clan views (e.g. SettlementSimulation).
-    function _lootValueRaw(Clan memory clan) internal pure returns (uint256) {
         return clan.vaultWood + clan.vaultWheat + clan.vaultFish * 2 + clan.vaultIron * 4;
     }
 
     function _derivedClanStateFromSimulation(Clan memory clan) internal view returns (DerivedClanState memory) {
         bool starving = clan.starvationStartsAtTick != 0 && clan.starvationStartsAtTick <= _world.currentTick;
+        // memory struct — inline to avoid ambiguity with the storage overload of _lootValueRaw
+        uint256 lootValue = clan.vaultWood + clan.vaultWheat + clan.vaultFish * 2 + clan.vaultIron * 4;
         return DerivedClanState({
-            clan: clan, isStarving: starving, lootValue: _lootValueRaw(clan), derivedAtTick: _world.currentTick
+            clan: clan, isStarving: starving, lootValue: lootValue, derivedAtTick: _world.currentTick
         });
     }
 
