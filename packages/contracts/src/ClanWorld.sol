@@ -75,7 +75,6 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     // =========================================================================
 
     uint64 private constant DEPOSIT_DURATION_TICKS = 1;
-    uint256 private constant WHEAT_HARVEST_RATE = 20e18;
     /// @dev Caps market queue work per heartbeat; overflow is deferred to the next tick.
     uint256 public constant MAX_MARKET_ACTIONS_PER_TICK = 32;
 
@@ -453,9 +452,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         } else if (action == ActionType.HarvestWheat) {
             _gatherWheat(clan, cs, m, clanId, tick, starving);
         } else if (action == ActionType.DepositResources) {
-            // Deposit event ABI intentionally stores the current tick as uint32.
-            // forge-lint: disable-next-line(unsafe-typecast)
-            _doDeposit(clan, cs, m, clanId, uint32(tick));
+            _doDeposit(clan, cs, m, clanId, tick);
         } else if (action == ActionType.Wait) {
             // NOOP — worker stays ACTING (continuous), no transition needed
             // Wait mission is effectively persistent until interrupted
@@ -524,7 +521,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             _completeMission(cs, m);
             return;
         }
-        uint256 yield = ClanWorldConstants.IRON_BASE_YIELD;
+        uint256 yield = ClanWorldConstants.IRON_YIELD_PER_TICK * uint256(getActionDuration(ActionType.MineIron));
         if (starving) yield = yield / 2;
         if (yield > remaining) yield = remaining;
         cs.carryIron += yield;
@@ -568,7 +565,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         uint256 fishRoll = uint256(fishRng) % 10000;
         uint256 yield = 0;
         if (fishRoll < ClanWorldConstants.FISH_DOCKS_BPS) {
-            yield = 1e18;
+            yield = ClanWorldConstants.FISH_YIELD_PER_TICK * uint256(getActionDuration(ActionType.FishDocks));
         }
         if (starving) yield = yield / 2;
         if (yield > remaining) yield = remaining;
@@ -599,7 +596,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         uint256 fishRoll = uint256(fishRng) % 10000;
         uint256 yield = 0;
         if (fishRoll < ClanWorldConstants.FISH_DEEP_BPS) {
-            yield = 1e18;
+            yield = ClanWorldConstants.FISH_YIELD_PER_TICK * uint256(getActionDuration(ActionType.FishDeepSea));
         }
         if (starving) yield = yield / 2;
         if (yield > remaining) yield = remaining;
@@ -646,7 +643,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             return;
         }
 
-        uint256 yield = WHEAT_HARVEST_RATE;
+        uint256 yield = ClanWorldConstants.WHEAT_YIELD_PER_TICK * uint256(getActionDuration(ActionType.HarvestWheat));
         if (starving) yield = yield / 2;
         if (yield > remaining) yield = remaining;
         if (yield > plot.remainingWheat) yield = plot.remainingWheat;
@@ -667,7 +664,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         // else continuous
     }
 
-    function _doDeposit(Clan storage clan, Clansman storage cs, Mission storage m, uint32 clanId, uint32 tick)
+    function _doDeposit(Clan storage clan, Clansman storage cs, Mission storage m, uint32 clanId, uint64 tick)
         internal
     {
         // Must be at homebase region
@@ -1613,7 +1610,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         // DepositResources: must go to homebase
         if (action == ActionType.DepositResources) {
-            if (gotoRegion != clan.baseRegion) return StatusCode.ERR_INVALID_REGION;
+            if (gotoRegion != clan.baseRegion) return StatusCode.ERR_NOT_AT_HOMEBASE;
         }
 
         // BuildWall / UpgradeBase / UpgradeMonument: must go to homebase

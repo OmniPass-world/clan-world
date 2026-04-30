@@ -508,7 +508,7 @@ contract ClanWorldTest is Test {
         _advanceTickHarness(harness);
         _advanceTickHarness(harness);
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 depositedTopic = keccak256("ResourcesDeposited(uint32,uint32,uint256,uint256,uint256,uint256,uint32)");
+        bytes32 depositedTopic = keccak256("ResourcesDeposited(uint32,uint32,uint256,uint256,uint256,uint256,uint64)");
 
         for (uint256 i = 0; i < logs.length; i++) {
             assertTrue(logs[i].topics[0] != depositedTopic, "empty deposit emits no ResourcesDeposited event");
@@ -553,7 +553,7 @@ contract ClanWorldTest is Test {
 
         OrderResult[] memory r = _submitOrderHarness(harness, clanId, csId, nonHomeRegion, ActionType.DepositResources);
 
-        assertEq(uint8(r[0].status), uint8(StatusCode.ERR_INVALID_REGION), "deposit must target home region");
+        assertEq(uint8(r[0].status), uint8(StatusCode.ERR_NOT_AT_HOMEBASE), "deposit must target home region");
     }
 
     function test_depositResources_eventHasCorrectDeltas() public {
@@ -569,6 +569,42 @@ contract ClanWorldTest is Test {
         vm.expectEmit(true, true, false, true);
         emit IClanWorldEvents.ResourcesDeposited(clanId, csId, 5e18, 2e18, 1e18, 3e18, 1);
         _advanceTickHarness(harness);
+    }
+
+    // M6: ResourcesDeposited atTick reflects the settlement tick, not tick 0 or submission tick
+    function test_depositResources_eventAtTickIsSettleTick() public {
+        (ClanWorldTestHarness harness, uint32 clanId, uint32 csId) = _setupHarness();
+        uint8 homeRegion = harness.getClan(clanId).baseRegion;
+
+        harness.setCarry(csId, 3e18, 0, 0, 0);
+        OrderResult[] memory r = _submitOrderHarness(harness, clanId, csId, homeRegion, ActionType.DepositResources);
+        assertEq(uint8(r[0].status), uint8(StatusCode.OK), "deposit order accepted");
+
+        Mission memory m = harness.getActiveMission(csId);
+        uint64 settleTick = m.settlesAtTick;
+
+        // Advance until currentTick == settleTick (the tick that will be closed on next heartbeat)
+        while (harness.getWorldState().currentTick < settleTick) {
+            _advanceTickHarness(harness);
+        }
+
+        // The next heartbeat closes settleTick — record logs and verify atTick
+        vm.recordLogs();
+        _advanceTickHarness(harness);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        bytes32 expectedTopic0 = keccak256("ResourcesDeposited(uint32,uint32,uint256,uint256,uint256,uint256,uint64)");
+        bool found = false;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].topics[0] == expectedTopic0) {
+                // Non-indexed params: woodDelta, ironDelta, wheatDelta, fishDelta, atTick (5 x uint256/uint64)
+                (, , , , uint64 emittedTick) =
+                    abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint64));
+                assertEq(emittedTick, settleTick, "M6: atTick must equal settleTick");
+                found = true;
+            }
+        }
+        assertTrue(found, "M6: ResourcesDeposited event must be emitted at settleTick");
     }
 
     function test_quoteTravel_outOfBounds_returnsZero() public {
