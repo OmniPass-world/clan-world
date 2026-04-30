@@ -355,7 +355,10 @@ contract BanditAttackResolutionTest is Test {
 
         Clan memory unaffectedBefore = world.getClan(unaffectedClanId);
         uint32 banditId = _forceAttack(targetClanId, 100);
-        uint64 expectedBanditAbortTick = world.getWorldState().currentTick;
+        // closedTick semantics (#328b): _abortBanditAttacksForDeadTarget now uses the
+        // caller-provided settlement tick (when the last clansman dies), not _world.currentTick.
+        // Clan has 4 clansmen dying one-per-tick from winterStart; last dies at winterStart+3.
+        uint64 expectedBanditAbortTick = deathFromTick + 3;
 
         vm.recordLogs();
         world.settleClan(targetClanId);
