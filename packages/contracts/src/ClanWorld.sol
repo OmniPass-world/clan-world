@@ -557,7 +557,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         }
 
         _releaseDefendersForDeadTarget(clanId, baseRegion);
-        _abortBanditAttacksForDeadTarget(clanId, excludedBanditId);
+        _abortBanditAttacksForDeadTarget(clanId, excludedBanditId, tick);
 
         emit ClanEliminated(clanId, tick);
     }
@@ -587,10 +587,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         }
     }
 
-    function _abortBanditAttacksForDeadTarget(uint32 deadClanId, uint32 excludedBanditId) internal {
-        // Match _transitionBanditState's event stamp; heartbeat keeps currentTick
-        // equal to the closed tick while aborting linked bandit attacks.
-        uint64 currentTick = _world.currentTick;
+    function _abortBanditAttacksForDeadTarget(uint32 deadClanId, uint32 excludedBanditId, uint64 tick) internal {
+        // Uses caller-provided tick for replay-determinism; matches closedTick from heartbeat context.
         for (uint8 region = ClanWorldConstants.REGION_FOREST; region <= ClanWorldConstants.REGION_DEEP_SEA; region++) {
             uint32[] storage regionBandits = _banditsByRegion[region];
             for (uint256 i = 0; i < regionBandits.length; i++) {
@@ -600,8 +598,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
                 BanditTroop storage bandit = _bandits[banditId];
                 if (bandit.state == BanditState.Attacking && bandit.targetClanId == deadClanId) {
                     _transitionBanditState(banditId, BanditState.Escaped);
-                    emit BanditEscaped(banditId, currentTick);
-                    emit BanditTargetDied(banditId, deadClanId, currentTick);
+                    emit BanditEscaped(banditId, tick);
+                    emit BanditTargetDied(banditId, deadClanId, tick);
                 }
             }
         }
@@ -3563,13 +3561,15 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             }
         }
 
+        /// @dev attackAttemptsMade, maxAttemptsRemaining, projectedTargetLootValue are projected
+        ///      fields not yet implemented; always returned as 0.
         return ActiveBanditView({
             exists: exists,
             banditId: bandit.id,
             state: bandit.state,
             currentRegion: bandit.region,
-            attackAttemptsMade: 0,
-            maxAttemptsRemaining: 0,
+            attackAttemptsMade: 0, // projected — not tracked in current implementation
+            maxAttemptsRemaining: 0, // projected — not tracked in current implementation
             stateEnteredTick: bandit.tickEnteredState,
             nextActionTick: nextActionTick,
             tier: 0,
@@ -3579,7 +3579,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             carryWheat: bandit.carryWheat,
             carryFish: bandit.carryFish,
             projectedTargetClanId: bandit.targetClanId,
-            projectedTargetLootValue: 0
+            projectedTargetLootValue: 0 // projected — loot estimation not implemented
         });
     }
 
