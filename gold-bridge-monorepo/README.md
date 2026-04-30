@@ -34,6 +34,8 @@ Wormhole NTT is a framework for native token transfers without liquidity pools. 
 - `ntt`: placeholder directory; the init script replaces it with a real Wormhole NTT project.
 - `docs`: deeper deployment, operations, architecture, testing, and security notes.
 
+For the shortest tested deployment path, see `docs/testnet-runbook.md`.
+
 ## Prerequisites
 
 Install these locally:
