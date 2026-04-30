@@ -2,7 +2,7 @@
 
 Living plan for getting Solana-canonical GOLD bridged to Base with Wormhole NTT, then replacing ClanWorld's current deployed/native GOLD ERC20 with the Base-side bridged GOLD token.
 
-Last updated: 2026-04-30 04:29 EDT
+Last updated: 2026-04-30 05:38 EDT
 
 ## Goal
 
@@ -13,7 +13,7 @@ Solana GOLD remains the canonical asset. Wormhole NTT locks GOLD on Solana, mint
 - Standalone bridge scaffold: about 70% ready.
 - Bridge token readiness: Base GOLD is now fixed at 9 decimals with the NTT mint/burn/minter surface and ordinary ERC-20 allowance pulls for later ClanWorld compatibility.
 - ClanWorld integration: intentionally deferred. Do not modify existing ClanWorld contracts/scripts/tests until the bridge and token deployment flow are proven.
-- Current phase: bridge/token pre-testnet validation. Web typecheck/build pass; contract tests now cover the 9-decimal Base GOLD token and ClanWorld-compatible ERC-20 pull behavior; no real NTT deployment or successful transfer proof yet.
+- Current phase: testnet deployment prep. Tooling is installed and a local ignored `.env` exists, but real deployment is blocked until the Solana devnet deployer has SOL and the Base Sepolia deployer has ETH.
 
 ## Phase 1 Execution Plan: Bridge Repo Correctness and Tooling
 
@@ -134,6 +134,59 @@ Findings:
 - Wormhole's EVM NTT docs require burn-and-mint tokens to implement `burn(uint256)` and `mint(address,uint256)`, with minter authority handed to the NTT manager after deployment.
 - The token does not need ClanWorld-specific code. A plain 9-decimal ERC-20 surface is the right bridge-layer boundary.
 - If ClanWorld wants internal e18 accounting later, conversion should happen in the ClanWorld integration layer, not inside the bridge token.
+
+## Phase 4 Execution Plan: Testnet Bridge Deployment Proof
+
+Status: Blocked on testnet funds
+
+Objective: deploy the 9-decimal Base GOLD token, configure Wormhole NTT with Solana locking mode and Base burning mode, then prove tiny transfers in both directions.
+
+Scope:
+
+- Work only in `gold-bridge-monorepo`.
+- Use Solana devnet and Base Sepolia.
+- Create or use a 9-decimal Solana devnet GOLD mint.
+- Deploy the Base 9-decimal `GoldBridgeToken`.
+- Initialize and push NTT deployment config.
+- Export the bridge UI config after real addresses exist.
+- Do not touch ClanWorld integration yet.
+
+Progress:
+
+- [x] Installed NTT CLI: `ntt v1.7.0`.
+- [x] Installed Solana/Agave CLI: `solana-cli 3.1.14`.
+- [x] Confirmed `spl-token-cli 5.5.0` is available.
+- [x] Created ignored local `.env` in `gold-bridge-monorepo`.
+- [x] Created ignored throwaway Solana devnet deployer keypair.
+- [x] Created ignored throwaway Base Sepolia deployer wallet.
+- [x] Ran `pnpm doctor` with Foundry/Solana/NTT on PATH; passed.
+- [ ] Fund Solana devnet deployer with SOL.
+- [ ] Create 9-decimal Solana devnet GOLD mint or set `SOLANA_TOKEN_MINT` to an existing mint.
+- [ ] Fund Base Sepolia deployer with ETH.
+- [ ] Run `pnpm deploy:base-token`.
+- [ ] Run `pnpm ntt:init`.
+- [ ] Run `pnpm ntt:overrides`.
+- [ ] Run `pnpm ntt:add-solana`.
+- [ ] Run `pnpm ntt:add-base`.
+- [ ] Configure conservative rate limits in `ntt/deployment.json`.
+- [ ] Run `pnpm ntt:push`.
+- [ ] Run `pnpm ntt:addresses`.
+- [ ] Run `pnpm base:set-minter`.
+- [ ] Run `pnpm web:export-config`.
+- [ ] Execute tiny Solana -> Base transfer.
+- [ ] Execute tiny Base -> Solana transfer.
+- [ ] Record tx hashes and final deployed addresses.
+
+Current generated test addresses:
+
+- Solana devnet deployer: `BJmjhXs5h6d8o15kK1YppkiJExu6FWBDJyJFUyfp9L2p`
+- Base Sepolia deployer: `0x96E3054A6Bd6b6d8710dE3029D3bA2EbCb930B5D`
+
+Blockers:
+
+- Solana devnet faucet returned rate-limit errors for `2 SOL` and `0.5 SOL` requests from this host. Current Solana deployer balance is `0 SOL`.
+- Base Sepolia deployer balance is `0`.
+- Without those funds, token mint creation, Base token deployment, NTT deployment, and transfer proofs cannot proceed.
 
 ## Component 1: Bridge Repo Correctness and Tooling
 
@@ -324,6 +377,12 @@ Gotchas:
 - 2026-04-30 EDT: Ran `pnpm --filter @gold-bridge/web build`; passed with large Wormhole dependency chunk warnings.
 - 2026-04-30 EDT: Ran `PATH="/home/claude/.foundry/bin:$PATH" pnpm test:contracts` in `gold-bridge-monorepo`; passed, 6 tests.
 - 2026-04-30 EDT: Ran `PATH="/home/claude/.foundry/bin:$PATH" pnpm build` in `gold-bridge-monorepo`; passed with Foundry modifier-size lint notes and large Wormhole dependency chunk warnings.
+- 2026-04-30 EDT: Installed NTT CLI via `scripts/01-install-ntt-cli.sh`; `ntt v1.7.0`.
+- 2026-04-30 EDT: Installed Solana/Agave CLI via Anza stable installer; `solana-cli 3.1.14`, `spl-token-cli 5.5.0`.
+- 2026-04-30 EDT: Created ignored local deployment files in `gold-bridge-monorepo`: `.env`, `keys/solana-devnet-deployer.json`, `keys/evm-base-sepolia-deployer.json`, and `artifacts/local-addresses.txt`.
+- 2026-04-30 EDT: Ran `PATH="/home/claude/.local/share/solana/install/active_release/bin:/home/claude/.foundry/bin:$PATH" bash scripts/00-doctor.sh`; passed with `.env` present.
+- 2026-04-30 EDT: Tried Solana devnet airdrops of `2 SOL` and `0.5 SOL`; both failed due faucet rate limits.
+- 2026-04-30 EDT: Checked generated deployer balances; Solana deployer has `0 SOL`, Base Sepolia deployer has `0`.
 
 ## Open Questions
 
