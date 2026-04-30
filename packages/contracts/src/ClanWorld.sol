@@ -79,8 +79,14 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
     uint64 private constant DEPOSIT_DURATION_TICKS = 1;
     uint256 private constant WHEAT_HARVEST_RATE = 20e18;
-    uint256 public constant INITIAL_RESOURCE_POOL_SEED = 100_000e18;
-    uint256 public constant INITIAL_GOLD_POOL_SEED = 50_000e18;
+    uint256 public constant INITIAL_WOOD_POOL_SEED = 1_000e18;
+    uint256 public constant INITIAL_WHEAT_POOL_SEED = 1_000e18;
+    uint256 public constant INITIAL_FISH_POOL_SEED = 500e18;
+    uint256 public constant INITIAL_IRON_POOL_SEED = 250e18;
+    uint256 public constant INITIAL_GOLD_SEED_FOR_WOOD = 500e18;
+    uint256 public constant INITIAL_GOLD_SEED_FOR_WHEAT = 700e18;
+    uint256 public constant INITIAL_GOLD_SEED_FOR_FISH = 600e18;
+    uint256 public constant INITIAL_GOLD_SEED_FOR_IRON = 800e18;
     // =========================================================================
     // CONSTRUCTOR
     // =========================================================================
@@ -1330,7 +1336,9 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         m.executesAtTick = ctx.arrivalTick;
         m.settlesAtTick = order.action == ActionType.DefendBase
             ? type(uint64).max
-            : _addTicksClamped(ctx.arrivalTick, getActionDuration(order.action));
+            : (order.action == ActionType.MarketBuy || order.action == ActionType.MarketSell)
+                ? ctx.arrivalTick
+                : _addTicksClamped(ctx.arrivalTick, getActionDuration(order.action));
         m.startRegion = ctx.fromRegion;
         m.targetRegion = ctx.gotoRegion;
         m.action = order.action;
@@ -2171,6 +2179,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
                     && tok != _treasury.fishToken
             ) {
                 return StatusCode.ERR_MARKET_UNSUPPORTED_TOKEN;
+            }
+            // MarketBuy uses maxGoldIn as its explicit slippage bound; zero would mean no protection.
+            if (action == ActionType.MarketBuy && order.maxGoldIn == 0) {
+                return StatusCode.ERR_SLIPPAGE_REQUIRED;
             }
             // Over-capacity buys are rejected at submission; no partial fills or overflow refunds.
             if (action == ActionType.MarketBuy && order.marketAmount > _remainingCarryForToken(cs, tok)) {

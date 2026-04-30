@@ -152,31 +152,37 @@ contract HeartbeatOrderingTest is Test {
         address[4] memory pools = [address(woodPool), address(wheatPool), address(fishPool), address(ironPool)];
         world.initTreasury(tokens, pools);
 
-        uint256 resSeed = world.INITIAL_RESOURCE_POOL_SEED();
-        uint256 goldSeed = world.INITIAL_GOLD_POOL_SEED();
-        uint256 totalGoldSeed = goldSeed * 4;
+        uint256 woodSeed = world.INITIAL_WOOD_POOL_SEED();
+        uint256 wheatSeed = world.INITIAL_WHEAT_POOL_SEED();
+        uint256 fishSeed = world.INITIAL_FISH_POOL_SEED();
+        uint256 ironSeed = world.INITIAL_IRON_POOL_SEED();
+        uint256 goldForWood = world.INITIAL_GOLD_SEED_FOR_WOOD();
+        uint256 goldForWheat = world.INITIAL_GOLD_SEED_FOR_WHEAT();
+        uint256 goldForFish = world.INITIAL_GOLD_SEED_FOR_FISH();
+        uint256 goldForIron = world.INITIAL_GOLD_SEED_FOR_IRON();
+        uint256 totalGoldSeed = goldForWood + goldForWheat + goldForFish + goldForIron;
 
-        woodToken.seedTreasury(address(this), resSeed);
-        wheatToken.seedTreasury(address(this), resSeed);
-        fishToken.seedTreasury(address(this), resSeed);
-        ironToken.seedTreasury(address(this), resSeed);
+        woodToken.seedTreasury(address(this), woodSeed);
+        wheatToken.seedTreasury(address(this), wheatSeed);
+        fishToken.seedTreasury(address(this), fishSeed);
+        ironToken.seedTreasury(address(this), ironSeed);
         goldToken.seedTreasury(address(this), totalGoldSeed);
 
-        woodToken.approve(address(world), resSeed);
-        wheatToken.approve(address(world), resSeed);
-        fishToken.approve(address(world), resSeed);
-        ironToken.approve(address(world), resSeed);
+        woodToken.approve(address(world), woodSeed);
+        wheatToken.approve(address(world), wheatSeed);
+        fishToken.approve(address(world), fishSeed);
+        ironToken.approve(address(world), ironSeed);
         goldToken.approve(address(world), totalGoldSeed);
 
         PoolSeedConfig memory cfg = PoolSeedConfig({
-            woodSeed: resSeed,
-            wheatSeed: resSeed,
-            fishSeed: resSeed,
-            ironSeed: resSeed,
-            goldSeedForWood: goldSeed,
-            goldSeedForWheat: goldSeed,
-            goldSeedForFish: goldSeed,
-            goldSeedForIron: goldSeed
+            woodSeed: woodSeed,
+            wheatSeed: wheatSeed,
+            fishSeed: fishSeed,
+            ironSeed: ironSeed,
+            goldSeedForWood: goldForWood,
+            goldSeedForWheat: goldForWheat,
+            goldSeedForFish: goldForFish,
+            goldSeedForIron: goldForIron
         });
         world.seedPools(cfg);
     }
@@ -189,7 +195,7 @@ contract HeartbeatOrderingTest is Test {
     //   - cs0 is placed at Unicorn Town (region 3). Deposit to homebase Forest
     //     (region 1) = 2 ticks travel. arrivalTick = T0+2, settlesAtTick = T0+3.
     //   - cs1 at Forest submits MarketSell to UT (region 3) = 2 ticks travel.
-    //     settlesAtTick = T0+3. (Same tick as cs0 settles.)
+    //     settlesAtTick = T0+2, matching the market action's arrival tick.
     //   - vault starts at 0; cs0 has carry wood.
     //   - Heartbeat at T0+2: Step 1 deposits cs0 carry wood to vault, Step 2 sells
     //     it. Gold increases only if Step 1 ran first (vault was 0 before Step 1).
@@ -222,18 +228,16 @@ contract HeartbeatOrderingTest is Test {
         assertEq(world.getClan(clanId).vaultWood, 0, "vault wood must be 0 before test tick");
 
         // cs1: at Forest. Submit MarketSell to UT. Forest→UT = 2 ticks.
-        // settlesAtTick = t0+3. Same tick as deposit settles.
+        // Market actions execute at the heartbeat closing their arrival tick.
         OrderResult[] memory r1 = _submitMarketOrder(clanId, csId1, ActionType.MarketSell, address(woodToken), 5e18, 0);
         assertEq(uint8(r1[0].status), uint8(StatusCode.OK), "market sell order must enqueue");
         Mission memory sellMission = world.getActiveMission(csId1);
         assertEq(sellMission.arrivalTick, t0 + 2, "sell arrivalTick must be t0+2");
-        assertEq(sellMission.settlesAtTick, t0 + 3, "sell settlesAtTick must be t0+3");
+        assertEq(sellMission.settlesAtTick, t0 + 2, "sell settlesAtTick must be t0+2");
 
         uint256 goldBefore = world.getClan(clanId).goldBalance;
 
-        // Advance to tick t0+4. The heartbeat closing t0+3 runs:
-        //   Step 1: _settleCompletingMissions(t0+3) → deposit fires, cs0 carry 10e18 → vault
-        //   Step 2: _executeScheduledMarketActions(t0+3) → sell fires, cs1 carry 5e18 → gold
+        // Advance past both the market sale at t0+2 and the deposit completion at t0+3.
         _advanceToTick(t0 + 4);
 
         uint256 goldAfter = world.getClan(clanId).goldBalance;
@@ -320,11 +324,10 @@ contract HeartbeatOrderingTest is Test {
     // -------------------------------------------------------------------------
     // test_heartbeat_multipleStepsInOneTick
     //
-    // Proves that when a mission settles at tick T AND a market action is queued at
-    // tick T, both fire in the same heartbeat without conflict.
+    // Proves that adjacent heartbeat work can process a scheduled market action
+    // at its arrival tick and a normal mission at its later settlement tick.
     //   - cs0 placed at Unicorn Town, deposits to Forest homebase: settlesAtTick = T0+3
-    //   - cs1 sells wood to UT from Forest: settlesAtTick = T0+3
-    //   Both succeed in the same heartbeat call at T0+3.
+    //   - cs1 sells wood to UT from Forest: settlesAtTick = T0+2
     // -------------------------------------------------------------------------
     function test_heartbeat_multipleStepsInOneTick() public {
         _setupMarket();
@@ -343,20 +346,20 @@ contract HeartbeatOrderingTest is Test {
         assertEq(uint8(r0[0].status), uint8(StatusCode.OK), "deposit must succeed");
         assertEq(world.getActiveMission(csId0).settlesAtTick, t0 + 3, "deposit settlesAtTick must be t0+3");
 
-        // cs1: at Forest, sells wood to UT. Forest→UT = 2 ticks. settlesAtTick = t0+3.
+        // cs1: at Forest, sells wood to UT. Forest→UT = 2 ticks. settlesAtTick = t0+2.
         // Give cs1 carry wood — sell draws from carry (not vault).
         world.setCarryWood(csId1, 10e18);
         OrderResult[] memory r1 = _submitMarketOrder(clanId, csId1, ActionType.MarketSell, address(woodToken), 5e18, 0);
         assertEq(uint8(r1[0].status), uint8(StatusCode.OK), "market sell must enqueue");
         assertEq(world.getActiveMission(csId1).arrivalTick, t0 + 2, "sell arrivalTick must be t0+2");
-        assertEq(world.getActiveMission(csId1).settlesAtTick, t0 + 3, "sell settlesAtTick must be t0+3");
+        assertEq(world.getActiveMission(csId1).settlesAtTick, t0 + 2, "sell settlesAtTick must be t0+2");
 
         uint256 goldBefore = world.getClan(clanId).goldBalance;
 
-        // Advance to tick t0+4 (the heartbeat closing t0+3 runs step1+step2 together).
+        // Advance past the sell at t0+2 and the deposit at t0+3.
         _advanceToTick(t0 + 4);
 
-        // Both cs0 deposit (settled at T0+3) and cs1 sell (at T0+3) must have fired.
+        // Both cs0 deposit (settled at T0+3) and cs1 sell (settled at T0+2) must have fired.
         assertEq(world.getClansman(csId0).carryWood, 0, "deposit settled: carry cleared");
         assertGt(world.getClan(clanId).goldBalance, goldBefore, "sell executed: gold increased");
         assertFalse(world.getActiveMission(csId0).active, "deposit mission must be complete");

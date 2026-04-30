@@ -50,32 +50,38 @@ contract Deploy is Script {
 
         game.initTreasury(tokens, pools);
 
-        uint256 resSeed = game.INITIAL_RESOURCE_POOL_SEED();
-        uint256 goldSeed = game.INITIAL_GOLD_POOL_SEED();
-        uint256 totalGoldSeed = goldSeed * 4;
+        uint256 woodSeed = game.INITIAL_WOOD_POOL_SEED();
+        uint256 wheatSeed = game.INITIAL_WHEAT_POOL_SEED();
+        uint256 fishSeed = game.INITIAL_FISH_POOL_SEED();
+        uint256 ironSeed = game.INITIAL_IRON_POOL_SEED();
+        uint256 goldForWood = game.INITIAL_GOLD_SEED_FOR_WOOD();
+        uint256 goldForWheat = game.INITIAL_GOLD_SEED_FOR_WHEAT();
+        uint256 goldForFish = game.INITIAL_GOLD_SEED_FOR_FISH();
+        uint256 goldForIron = game.INITIAL_GOLD_SEED_FOR_IRON();
+        uint256 totalGoldSeed = goldForWood + goldForWheat + goldForFish + goldForIron;
 
-        wood.seedTreasury(treasury, resSeed);
-        wheat.seedTreasury(treasury, resSeed);
-        fish.seedTreasury(treasury, resSeed);
-        iron.seedTreasury(treasury, resSeed);
+        wood.seedTreasury(treasury, woodSeed);
+        wheat.seedTreasury(treasury, wheatSeed);
+        fish.seedTreasury(treasury, fishSeed);
+        iron.seedTreasury(treasury, ironSeed);
         gold.seedTreasury(treasury, totalGoldSeed);
 
-        wood.approve(address(game), resSeed);
-        wheat.approve(address(game), resSeed);
-        fish.approve(address(game), resSeed);
-        iron.approve(address(game), resSeed);
+        wood.approve(address(game), woodSeed);
+        wheat.approve(address(game), wheatSeed);
+        fish.approve(address(game), fishSeed);
+        iron.approve(address(game), ironSeed);
         gold.approve(address(game), totalGoldSeed);
 
         game.seedPools(
             PoolSeedConfig({
-                woodSeed: resSeed,
-                wheatSeed: resSeed,
-                fishSeed: resSeed,
-                ironSeed: resSeed,
-                goldSeedForWood: goldSeed,
-                goldSeedForWheat: goldSeed,
-                goldSeedForFish: goldSeed,
-                goldSeedForIron: goldSeed
+                woodSeed: woodSeed,
+                wheatSeed: wheatSeed,
+                fishSeed: fishSeed,
+                ironSeed: ironSeed,
+                goldSeedForWood: goldForWood,
+                goldSeedForWheat: goldForWheat,
+                goldSeedForFish: goldForFish,
+                goldSeedForIron: goldForIron
             })
         );
 

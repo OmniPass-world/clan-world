@@ -59,13 +59,18 @@ contract SeedPoolsTest is Test {
     }
 
     function test_treasurySeedingTransfersExpectedPoolBalances() public {
-        uint256 resSeed = world.INITIAL_RESOURCE_POOL_SEED();
-        uint256 goldSeed = world.INITIAL_GOLD_POOL_SEED();
-
-        _assertPoolSeeded(woodToken, woodPool, resSeed, goldSeed, "wood");
-        _assertPoolSeeded(wheatToken, wheatPool, resSeed, goldSeed, "wheat");
-        _assertPoolSeeded(fishToken, fishPool, resSeed, goldSeed, "fish");
-        _assertPoolSeeded(ironToken, ironPool, resSeed, goldSeed, "iron");
+        _assertPoolSeeded(
+            woodToken, woodPool, world.INITIAL_WOOD_POOL_SEED(), world.INITIAL_GOLD_SEED_FOR_WOOD(), "wood"
+        );
+        _assertPoolSeeded(
+            wheatToken, wheatPool, world.INITIAL_WHEAT_POOL_SEED(), world.INITIAL_GOLD_SEED_FOR_WHEAT(), "wheat"
+        );
+        _assertPoolSeeded(
+            fishToken, fishPool, world.INITIAL_FISH_POOL_SEED(), world.INITIAL_GOLD_SEED_FOR_FISH(), "fish"
+        );
+        _assertPoolSeeded(
+            ironToken, ironPool, world.INITIAL_IRON_POOL_SEED(), world.INITIAL_GOLD_SEED_FOR_IRON(), "iron"
+        );
         assertEq(goldToken.balanceOf(address(this)), 0, "treasury gold fully seeded");
     }
 
@@ -94,35 +99,39 @@ contract SeedPoolsTest is Test {
     }
 
     function _seedTreasuryAndApprove() internal {
-        uint256 resSeed = world.INITIAL_RESOURCE_POOL_SEED();
-        uint256 goldSeed = world.INITIAL_GOLD_POOL_SEED();
-        uint256 totalGoldSeed = goldSeed * 4;
+        uint256 woodSeed = world.INITIAL_WOOD_POOL_SEED();
+        uint256 wheatSeed = world.INITIAL_WHEAT_POOL_SEED();
+        uint256 fishSeed = world.INITIAL_FISH_POOL_SEED();
+        uint256 ironSeed = world.INITIAL_IRON_POOL_SEED();
+        uint256 goldForWood = world.INITIAL_GOLD_SEED_FOR_WOOD();
+        uint256 goldForWheat = world.INITIAL_GOLD_SEED_FOR_WHEAT();
+        uint256 goldForFish = world.INITIAL_GOLD_SEED_FOR_FISH();
+        uint256 goldForIron = world.INITIAL_GOLD_SEED_FOR_IRON();
+        uint256 totalGoldSeed = goldForWood + goldForWheat + goldForFish + goldForIron;
 
-        woodToken.seedTreasury(address(this), resSeed);
-        wheatToken.seedTreasury(address(this), resSeed);
-        fishToken.seedTreasury(address(this), resSeed);
-        ironToken.seedTreasury(address(this), resSeed);
+        woodToken.seedTreasury(address(this), woodSeed);
+        wheatToken.seedTreasury(address(this), wheatSeed);
+        fishToken.seedTreasury(address(this), fishSeed);
+        ironToken.seedTreasury(address(this), ironSeed);
         goldToken.seedTreasury(address(this), totalGoldSeed);
 
-        woodToken.approve(address(world), resSeed);
-        wheatToken.approve(address(world), resSeed);
-        fishToken.approve(address(world), resSeed);
-        ironToken.approve(address(world), resSeed);
+        woodToken.approve(address(world), woodSeed);
+        wheatToken.approve(address(world), wheatSeed);
+        fishToken.approve(address(world), fishSeed);
+        ironToken.approve(address(world), ironSeed);
         goldToken.approve(address(world), totalGoldSeed);
     }
 
     function _seedConfig() internal view returns (PoolSeedConfig memory) {
-        uint256 resSeed = world.INITIAL_RESOURCE_POOL_SEED();
-        uint256 goldSeed = world.INITIAL_GOLD_POOL_SEED();
         return PoolSeedConfig({
-            woodSeed: resSeed,
-            wheatSeed: resSeed,
-            fishSeed: resSeed,
-            ironSeed: resSeed,
-            goldSeedForWood: goldSeed,
-            goldSeedForWheat: goldSeed,
-            goldSeedForFish: goldSeed,
-            goldSeedForIron: goldSeed
+            woodSeed: world.INITIAL_WOOD_POOL_SEED(),
+            wheatSeed: world.INITIAL_WHEAT_POOL_SEED(),
+            fishSeed: world.INITIAL_FISH_POOL_SEED(),
+            ironSeed: world.INITIAL_IRON_POOL_SEED(),
+            goldSeedForWood: world.INITIAL_GOLD_SEED_FOR_WOOD(),
+            goldSeedForWheat: world.INITIAL_GOLD_SEED_FOR_WHEAT(),
+            goldSeedForFish: world.INITIAL_GOLD_SEED_FOR_FISH(),
+            goldSeedForIron: world.INITIAL_GOLD_SEED_FOR_IRON()
         });
     }
 

@@ -37,5 +37,6 @@ contract StatusCodeEnumStabilityTest is Test {
         assertEq(uint8(StatusCode.ERR_MARKET_INSUFFICIENT_LIQUIDITY), 28, "ERR_MARKET_INSUFFICIENT_LIQUIDITY");
         assertEq(uint8(StatusCode.ERR_LIQUIDITY_INSUFFICIENT), 29, "ERR_LIQUIDITY_INSUFFICIENT");
         assertEq(uint8(StatusCode.ERR_MAX_GOLD_IN_EXCEEDED), 30, "ERR_MAX_GOLD_IN_EXCEEDED");
+        assertEq(uint8(StatusCode.ERR_SLIPPAGE_REQUIRED), 31, "ERR_SLIPPAGE_REQUIRED");
     }
 }

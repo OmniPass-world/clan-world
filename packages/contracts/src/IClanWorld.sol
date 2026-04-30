@@ -186,7 +186,8 @@ enum StatusCode {
     ERR_CARRY_FULL,
     ERR_MARKET_INSUFFICIENT_LIQUIDITY, // Deprecated/reserved legacy ordinal (replaced by ERR_LIQUIDITY_INSUFFICIENT); kept only to preserve enum ordinal stability.
     ERR_LIQUIDITY_INSUFFICIENT,
-    ERR_MAX_GOLD_IN_EXCEEDED
+    ERR_MAX_GOLD_IN_EXCEEDED,
+    ERR_SLIPPAGE_REQUIRED
 }
 
 // =============================================================================

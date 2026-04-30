@@ -93,7 +93,7 @@ contract ClanWorldTest is Test {
 
     /// @dev Deploy tokens + pools, call initTreasury + seedPools. Returns wood token address.
     function _setupMarket() internal returns (address woodAddr) {
-        return _setupMarketWithWoodSeed(world.INITIAL_RESOURCE_POOL_SEED());
+        return _setupMarketWithWoodSeed(world.INITIAL_WOOD_POOL_SEED());
     }
 
     function _setupMarketWithWoodSeed(uint256 woodSeed) internal returns (address woodAddr) {
@@ -122,32 +122,36 @@ contract ClanWorldTest is Test {
 
         world.initTreasury(tokens, pools);
 
-        // Seed: 100,000 resource + 50,000 gold per pool (spot price 0.5 gold / resource).
-        uint256 resSeed = world.INITIAL_RESOURCE_POOL_SEED();
-        uint256 goldSeed = world.INITIAL_GOLD_POOL_SEED();
-        uint256 totalGoldSeed = goldSeed * 4;
+        uint256 wheatSeed = world.INITIAL_WHEAT_POOL_SEED();
+        uint256 fishSeed = world.INITIAL_FISH_POOL_SEED();
+        uint256 ironSeed = world.INITIAL_IRON_POOL_SEED();
+        uint256 goldForWood = world.INITIAL_GOLD_SEED_FOR_WOOD();
+        uint256 goldForWheat = world.INITIAL_GOLD_SEED_FOR_WHEAT();
+        uint256 goldForFish = world.INITIAL_GOLD_SEED_FOR_FISH();
+        uint256 goldForIron = world.INITIAL_GOLD_SEED_FOR_IRON();
+        uint256 totalGoldSeed = goldForWood + goldForWheat + goldForFish + goldForIron;
 
         woodToken.seedTreasury(address(this), woodSeed);
-        wheatToken.seedTreasury(address(this), resSeed);
-        fishToken.seedTreasury(address(this), resSeed);
-        ironToken.seedTreasury(address(this), resSeed);
+        wheatToken.seedTreasury(address(this), wheatSeed);
+        fishToken.seedTreasury(address(this), fishSeed);
+        ironToken.seedTreasury(address(this), ironSeed);
         goldToken.seedTreasury(address(this), totalGoldSeed);
 
         woodToken.approve(address(world), woodSeed);
-        wheatToken.approve(address(world), resSeed);
-        fishToken.approve(address(world), resSeed);
-        ironToken.approve(address(world), resSeed);
+        wheatToken.approve(address(world), wheatSeed);
+        fishToken.approve(address(world), fishSeed);
+        ironToken.approve(address(world), ironSeed);
         goldToken.approve(address(world), totalGoldSeed);
 
         PoolSeedConfig memory cfg = PoolSeedConfig({
             woodSeed: woodSeed,
-            wheatSeed: resSeed,
-            fishSeed: resSeed,
-            ironSeed: resSeed,
-            goldSeedForWood: goldSeed,
-            goldSeedForWheat: goldSeed,
-            goldSeedForFish: goldSeed,
-            goldSeedForIron: goldSeed
+            wheatSeed: wheatSeed,
+            fishSeed: fishSeed,
+            ironSeed: ironSeed,
+            goldSeedForWood: goldForWood,
+            goldSeedForWheat: goldForWheat,
+            goldSeedForFish: goldForFish,
+            goldSeedForIron: goldForIron
         });
         world.seedPools(cfg);
 
@@ -925,7 +929,7 @@ contract ClanWorldTest is Test {
         internal
         returns (ClanWorldTestHarness harness, address woodAddr, uint32 clanId, uint32 csId)
     {
-        return _setupHarnessClanAtWithWoodSeed(state, region, cooldownEndsAtTs, world.INITIAL_RESOURCE_POOL_SEED());
+        return _setupHarnessClanAtWithWoodSeed(state, region, cooldownEndsAtTs, world.INITIAL_WOOD_POOL_SEED());
     }
 
     function _setupHarnessClanAtWithWoodSeed(
@@ -1063,6 +1067,25 @@ contract ClanWorldTest is Test {
         assertFalse(world.getActiveMission(csId).active, "immediate buy should not install a mission");
     }
 
+    function test_marketBuy_zeroMaxGoldInRejectsAtSubmit() public {
+        (, address woodAddr, uint32 clanId, uint32 csId) =
+            _setupHarnessClanAt(ClansmanState.WAITING, ClanWorldConstants.REGION_UNICORN_TOWN, 0);
+
+        Clan memory beforeClan = world.getClan(clanId);
+        Clansman memory beforeCs = world.getClansman(csId);
+
+        OrderResult[] memory r = _submitMarketOrder(clanId, csId, ActionType.MarketBuy, woodAddr, 1e18, 0);
+
+        Clan memory afterClan = world.getClan(clanId);
+        Clansman memory afterCs = world.getClansman(csId);
+        assertEq(uint8(r[0].status), uint8(StatusCode.ERR_SLIPPAGE_REQUIRED), "zero maxGoldIn is ambiguous");
+        assertEq(uint8(r[0].marketMode), uint8(MarketExecutionMode.None), "rejected buy has no mode");
+        assertEq(afterClan.goldBalance, beforeClan.goldBalance, "rejected buy should not debit gold");
+        assertEq(afterCs.carryWood, beforeCs.carryWood, "rejected buy should not credit carry");
+        assertEq(afterCs.cooldownEndsAtTs, beforeCs.cooldownEndsAtTs, "rejected buy should not consume cooldown");
+        assertFalse(world.getActiveMission(csId).active, "rejected buy should not install a mission");
+    }
+
     function test_immediateMarket_insufficientLiquidityFailsAndConsumesCooldown() public {
         (, address woodAddr, uint32 clanId, uint32 csId) =
             _setupHarnessClanAtWithWoodSeed(ClansmanState.WAITING, ClanWorldConstants.REGION_UNICORN_TOWN, 0, 5e18);
@@ -1112,7 +1135,7 @@ contract ClanWorldTest is Test {
             StatusCode.ERR_MAX_GOLD_IN_EXCEEDED,
             world.getWorldState().currentTick
         );
-        OrderResult[] memory r = _submitMarketOrder(clanId, csId, ActionType.MarketBuy, woodAddr, 1e18, 0);
+        OrderResult[] memory r = _submitMarketOrder(clanId, csId, ActionType.MarketBuy, woodAddr, 1e18, 1);
 
         Clan memory afterClan = world.getClan(clanId);
         Clansman memory cs = world.getClansman(csId);
@@ -1317,8 +1340,8 @@ contract ClanWorldTest is Test {
         uint32 clanId = _mintClan();
         uint32 csId = _firstCs(clanId);
 
-        // maxGoldIn = 0 (will always be exceeded for any nonzero buy)
-        OrderResult[] memory r = _submitMarketOrder(clanId, csId, ActionType.MarketBuy, woodAddr, 1e18, 0);
+        // maxGoldIn = 1 wei (will always be exceeded for any nonzero buy)
+        OrderResult[] memory r = _submitMarketOrder(clanId, csId, ActionType.MarketBuy, woodAddr, 1e18, 1);
         assertEq(uint8(r[0].status), uint8(StatusCode.OK), "order submission should succeed");
 
         Mission memory m = world.getActiveMission(csId);
@@ -1553,15 +1576,14 @@ contract ClanWorldTest is Test {
             totalQueued += _submitAllClanMarketSells(distOneClans[i], woodAddr);
         }
 
-        uint64 executeAtTick = 3;
+        uint64 executeAtTick = 2;
         bytes32 executedSig =
             keccak256("ScheduledMarketActionExecuted(uint32,uint32,uint8,uint8,uint256,uint8,uint256,uint64)");
 
         _advanceTick(); // close tick 1
-        _advanceTick(); // close tick 2
 
         vm.recordLogs();
-        _advanceTick(); // close tick 3 and execute every scheduled action for the tick
+        _advanceTick(); // close tick 2 and execute every scheduled action for the tick
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         uint256 executedCount;
@@ -1755,7 +1777,7 @@ contract ClanWorldTest is Test {
         // Give csId2 carry wood so the sell succeeds
         harness.setCarry(csId2, 10e18, 0, 0, 0);
 
-        OrderResult[] memory buyFail = _submitMarketOrder(clanId1, csId1, ActionType.MarketBuy, woodAddr, 1e18, 0);
+        OrderResult[] memory buyFail = _submitMarketOrder(clanId1, csId1, ActionType.MarketBuy, woodAddr, 1e18, 1);
         assertEq(uint8(buyFail[0].status), uint8(StatusCode.OK), "failing buy should enqueue");
 
         ClanOrder[] memory sellOrders = new ClanOrder[](1);
