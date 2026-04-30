@@ -27,7 +27,9 @@ The previous plan (`clanworld-eip170-split-plan.md`) proposed extracting interna
 
 ### Final decision: EIP-2535 Diamond with single AppStorage
 
-Diamond (EIP-2535) solves the problem at the root: each facet is an independent contract (≤24,576 B) that shares storage through a deterministic pointer. There is no `delegatecall`-over-library fragility, no inlining guesswork, no 1 KB margin. The ABI surface (`IClanWorld`) stays byte-stable. Off-chain consumers see no change.
+Diamond (EIP-2535) solves the problem at the root: each facet is an independent contract (≤24,576 B) that shares storage through a deterministic pointer. There is no `delegatecall`-over-library fragility, no inlining guesswork, no 1 KB margin. The ABI surface (`IClanWorld`) stays byte-stable.
+
+**Off-chain compatibility note:** The Diamond proxy is deployed at a new address. All off-chain consumers (indexers, frontends, bots) must update their contract address. Additionally: (1) events are emitted with `address = Diamond proxy`, not the facet — indexers that filter by contract address need no change if they target the proxy; (2) revert strings bubble through the proxy unchanged; (3) gas profiles change (~700 gas overhead per external call through proxy). Off-chain gas estimation scripts must be recalibrated after migration.
 
 The reference implementation (Nick Mudgen's Diamond-3) is battle-tested in production (Aavegotchi, DeFi protocols). The pattern is well-understood by Solidity auditors.
 
@@ -351,6 +353,32 @@ The snapshot file is committed to the repo at `packages/contracts/test/snapshots
 
 Even "harmless" reordering (swapping two adjacent fields of the same type) changes slot assignments for all fields below them. There is no safe reorder. If a field is in the wrong logical position, add a comment — do not move it.
 
+### Rule 4: Nested struct modification is equally dangerous
+
+Rule 1 says "append to `AppStorage`." Rule 4 extends this: the same append-only constraint applies to **all structs nested inside `AppStorage`**, including `WorldState`, `TreasuryState`, `Clan`, `Clansman`, `Mission`, and `WheatPlot`.
+
+Adding a field inside `WorldState` shifts the storage slots of every `AppStorage` field that comes after it, just as if you had inserted a field in `AppStorage` directly. The snapshot check covers this: `forge inspect` reports the full recursive layout, so any nested-struct change shows up as a diff.
+
+### Stack depth mitigation for large AppStorage
+
+`AppStorage` contains 15+ mappings and structs. Complex facets (GatheringFacet, CoreFacet) that access many fields in one function may hit Solidity's "Stack Too Deep" limit, even with `via_ir = true`.
+
+Mitigation pattern — cache fields into local memory variables at function entry:
+
+```solidity
+function _settleClan(uint32 clanId) internal {
+    AppStorage storage s = LibStorage.appStorage();
+    // Cache frequently accessed fields to reduce stack references:
+    Clan storage clan = s.clans[clanId];
+    uint64 currentTick = s.world.currentTick;
+    // ... function body uses `clan` and `currentTick`, not `s.clans[clanId]` repeatedly
+}
+```
+
+If a function still hits the stack limit after caching, split it into sub-functions. `via_ir` handles this well — each sub-function is a separate optimizer scope.
+
+**Pre-migration validation (required before PR 2):** Deploy a `MockCoreFacet` that imports the full `AppStorage` and performs a complex calculation accessing 10+ struct fields. If this compiles and passes tests without stack errors, the single-struct approach is confirmed viable. If it hits stack limits, the struct must be split before migration begins.
+
 <!-- TODO: add forge storage-layout snapshot CI step (Makefile target) in PR 2 -->
 
 ---
@@ -388,9 +416,23 @@ try IClanWorld(address(this))._executeScheduledMarketActions(tick) {
 
 This requires `_executeScheduledMarketActions` to be an `external` function (called via the proxy, not as an internal call). Under `delegatecall`, `address(this)` resolves to the Diamond proxy, so this pattern is safe and standard.
 
+### Reentrancy guard interaction with try/catch self-calls
+
+**This is a known architectural constraint.** The `nonReentrant` modifier uses `AppStorage.reentrancyStatus` (set to 2 on entry, reset to 1 on exit). If `heartbeat()` is `nonReentrant` and it calls `_executeScheduledMarketActions` via `IClanWorld(address(this))`, the self-call goes through the Diamond proxy as a new external call — but `reentrancyStatus` is already 2 from the outer `heartbeat()`, causing the inner call to revert.
+
+**Resolution for Phase 3:**
+
+Option A — `heartbeat()` is NOT `nonReentrant`; market executor IS `nonReentrant`.  
+Rationale: `heartbeat()` is permissioned (only the engine/cron can call it). The reentrancy risk on `heartbeat()` is negligible. The state-writing inner loop (`_executeScheduledMarketActions`) is the protection target.
+
+Option B — `heartbeat()` IS `nonReentrant`; `_executeScheduledMarketActions` uses an `internalReentrant` flag exempt from the cross-call check.  
+More complex — avoid unless Option A has a concrete exploit path.
+
+**Recommended: Option A.** Implement in Phase 3. The Development Invariants rule (§Development Invariants) is adjusted to: "every `external` state-writing function MUST be `nonReentrant` UNLESS it is an orchestrator entry-point that is already access-controlled by role/address check."
+
 **Current scope:** The `try/catch` isolation is NOT implemented in Phase 1 (skeleton) or Phase 2 (CoreFacet migration). It is a Phase 3 follow-up once the facet split is stable. Rationale: the monolith has the same failure mode today; adding isolation during the migration would conflate two architectural changes.
 
-**Phase 3 action item:** When migrating MarketFacet (PR 3), add `try/catch` isolation for the market execution loop in `heartbeat()`. Document the revert vs. drop decision for each market action type.
+**Phase 3 action item:** When migrating MarketFacet (PR 3), add `try/catch` isolation for the market execution loop in `heartbeat()`. Use Option A reentrancy model. Document the revert vs. drop decision for each market action type.
 
 <!-- TODO: add try/catch heartbeat isolation in MarketFacet PR (Phase 3) -->
 
@@ -440,30 +482,40 @@ Additional safeguards:
 
 ## 8. Operational Safety
 
-### Initializer locking
+### Initializer locking — atomic via `diamondCut` `_init` parameter
 
-The Diamond pattern requires an initializer function (equivalent to a constructor) that sets up initial state after all facets are cut in. This initializer MUST be callable exactly once.
+The Diamond standard's `diamondCut` function accepts `_init` (address) and `_calldata` (bytes) parameters. When non-zero, the Diamond calls `_init.delegatecall(_calldata)` in the same transaction as the cut. This is the correct, front-run-proof initialization pattern.
 
-Implementation pattern:
+**Do NOT use a separate post-cut `initialize()` call.** If initialization is executed as a separate transaction after `diamondCut`, an attacker can front-run it on any public testnet (or mainnet) and set themselves as owner or corrupt initial treasury state. The window between `diamondCut` succeeding and `initialize()` being called is publicly observable in the mempool.
+
+**Correct pattern:**
+
 ```solidity
-// In LibStorage:
-struct AppStorage {
-    // ... fields ...
-    bool initialized;
+// DiamondInit.sol — deployed as a separate contract, used once
+contract DiamondInit {
+    function init(
+        address owner,
+        address[6] calldata tokens,
+        address[4] calldata pools
+    ) external {
+        AppStorage storage s = LibStorage.appStorage();
+        require(!s.initialized, "ClanWorld: already initialized");
+        s.initialized = true;
+        s.owner = owner;
+        // ... set initial treasury, world config ...
+    }
 }
 
-// In a dedicated InitializerFacet (or in CoreFacet):
-function initialize(...) external {
-    AppStorage storage s = LibStorage.appStorage();
-    require(!s.initialized, "ClanWorld: already initialized");
-    s.initialized = true;
-    // ... set initial state ...
-}
+// In DeployDiamond.s.sol:
+DiamondInit diamondInit = new DiamondInit();
+bytes memory initData = abi.encodeCall(DiamondInit.init, (owner, tokens, pools));
+IDiamondCut(address(diamond)).diamondCut(facetCuts, address(diamondInit), initData);
+// ^ initialization happened atomically in the same tx as the cut
 ```
 
-After `initialize()` is called, the `initialized` flag is permanently set. Re-initialization is impossible without a Diamond cut replacing the initializer facet.
+The `initialized` flag in `AppStorage` prevents re-initialization if a second `diamondCut` call passes a non-zero `_init`. The `DiamondInit` contract is a one-shot helper — it does not need to remain registered as a facet.
 
-<!-- TODO: confirm whether InitializerFacet is a separate facet or a function in CoreFacet (decision in PR 2) -->
+<!-- TODO: confirm whether DiamondInit is a standalone contract or the first CoreFacet setup function — decision in PR 2 -->
 
 ### Emergency pause policy
 
@@ -604,8 +656,9 @@ These rules apply to ALL contributors on ALL PRs touching facets or LibStorage. 
 
 - [ ] **Storage append-only:** New fields added at END of `AppStorage` only. No mid-struct inserts. No field reordering. (See §Storage Safety.)
 - [ ] **Storage snapshot updated:** If `LibStorage.sol` or any embedded struct is modified, `test/snapshots/storage-layout.json` is regenerated and committed.
-- [ ] **`nonReentrant` on all state-writing externals:** Every `external` function that writes AppStorage state MUST use the `nonReentrant` modifier (backed by `AppStorage.reentrancyStatus`). No exceptions. If a facet reads state only (`pure`/`view`), the modifier is not required.
+- [ ] **`nonReentrant` on all state-writing externals:** Every `external` function that writes AppStorage state MUST use the `nonReentrant` modifier (backed by `AppStorage.reentrancyStatus`), UNLESS it is an orchestrator entry-point access-controlled by role or address check (e.g., `heartbeat()` which is engine-only). If a facet reads state only (`pure`/`view`), the modifier is not required.
 - [ ] **Reentrancy guard is shared:** The `nonReentrant` implementation MUST read/write `AppStorage.reentrancyStatus`. Per-facet reentrancy guards are FORBIDDEN — they do not protect cross-facet re-entry through the Diamond proxy.
+- [ ] **No `nonReentrant` on heartbeat orchestrator functions** that use `try/catch` self-calls through the proxy (see §Heartbeat Failure Model — Reentrancy guard interaction). The inner state-writing functions they call ARE `nonReentrant`.
 - [ ] **Size check before merge:** Run `forge build --sizes` before opening any migration PR. Confirm each facet runtime bytes < 20,000 B (≥4 KB headroom). If any facet is 20–24 KB, split before merging.
 - [ ] **No `ClanWorld.sol` modifications during migration:** The monolith stays untouched until PR 6. All migration PRs add new facet files only.
 
@@ -678,6 +731,27 @@ These decisions need explicit sign-off before code migration begins (PR 2+):
 | M4 | MED | Reentrancy guard across facets — per-facet guard ineffective for cross-facet re-entry | **ADDRESSED** — `reentrancyStatus` added to AppStorage; invariant rule added in §Development Invariants |
 | M5 | MED | Per-facet Diamond Storage not evaluated | **ADDRESSED** in §AppStorage Decision Rationale — explicit comparison + rationale for single AppStorage |
 | L1–L5 | LOW | Etherscan verification, bus factor, event debugging, alternatives considered | **DEFERRED** — inline TODO comments added; §Known Limitations added |
+
+### Round 2 — 2026-04-30
+
+**Engines:** Codex + Gemini Pro (gemini-2.5-pro-preview-05-06)
+
+Both engines returned NEEDS WORK on R1 revision.
+
+**Findings summary:**
+
+| ID | Severity | Engine | Finding | Disposition |
+|---|---|---|---|---|
+| R2-H1 | HIGH | Codex | `nonReentrant` + `try/catch` self-call conflict — heartbeat `try IClanWorld(address(this))._executeScheduledMarketActions` trips shared reentrancy guard if both caller and callee are `nonReentrant` | **ADDRESSED** in §Heartbeat Failure Model — explicit Option A resolution: `heartbeat()` exempt from `nonReentrant`, inner executor is protected; Development Invariants updated |
+| R2-H2 | HIGH | Codex + Gemini | Initialization atomicity — post-cut `initialize()` call is front-runnable on public testnet | **ADDRESSED** in §Operational Safety — atomic `_init` parameter in `diamondCut` documented; separate post-cut initialize explicitly forbidden |
+| R2-H3 | HIGH | Gemini | Stack Too Deep risk — large single `AppStorage` struct may hit Solidity stack limits in complex facets | **ADDRESSED** in §Storage Safety — cache-into-memory mitigation pattern documented; pre-migration `MockCoreFacet` validation step added |
+| R2-H4 | HIGH | Gemini | Nested struct modification equally dangerous — `WorldState` field reorder same risk as top-level `AppStorage` reorder; not covered in R1 | **ADDRESSED** in §Storage Safety Rule 4 |
+| R2-M1 | MED | Codex | Off-chain compatibility understated — events, gas profiles, deployment addresses all change, not just ABI | **ADDRESSED** in §Executive Summary — off-chain compatibility note added |
+| R2-M2 | MED | Gemini | Multisig deadlock during hackathon — velocity concern; 1-of-1 "God Key" likely in practice | **EXISTING** — §Upgrade Policy already acknowledges 1-of-1 interim option; no further doc change needed |
+| R2-L1 | LOW | Codex + Gemini | Size projections still optimistic for CoreFacet/GatheringFacet | Deferred — pre-merge size check gate in Development Invariants already addresses this |
+| R2-L2 | LOW | Codex | Delayed Phase 3 heartbeat isolation keeps fragile model during migration | Deferred — acknowledged explicitly in §Heartbeat Failure Model; same failure mode as monolith today |
+| R2-L3 | LOW | Codex + Gemini | Alternatives (minimal dispatcher, logic-only facets, data-first redesign) | Deferred — brief note in §Known Limitations |
+| R2-L4 | LOW | Gemini | `via_ir` retention for per-facet compilation | Deferred — existing Open Question #6 for Liam |
 
 ---
 
