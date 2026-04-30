@@ -127,6 +127,43 @@ contract GoldTransferOtcTest is Test {
         world.cancelGoldTransfer(proposalId);
     }
 
+    function test_cancelGoldTransfer_newOwnerCanCancelInheritedProposal() public {
+        (uint32 clanA, uint32 clanB,) = _mintThreeClans();
+        uint256 proposalId = _propose(clanA, clanB, 1e18, 100);
+
+        // Transfer clan A to a new owner
+        address elderD = address(0xD1);
+        vm.prank(elderA);
+        world.transferClanOwnership(clanA, elderD);
+
+        // New owner (elderD) can cancel the inherited stale proposal
+        vm.expectEmit(true, false, false, false, address(world));
+        emit GoldTransferCancelled(proposalId);
+        vm.prank(elderD);
+        world.cancelGoldTransfer(proposalId);
+
+        // Proposal deleted
+        assertEq(world.getOtcGoldProposal(proposalId).from, 0, "proposal deleted after new-owner cancel");
+        // OTC slot freed — new owner can now propose
+        vm.prank(elderD);
+        world.proposeGoldTransfer(clanA, clanB, 1e18, 200);
+    }
+
+    function test_cancelGoldTransfer_oldOwnerCannotCancelAfterTransfer() public {
+        (uint32 clanA, uint32 clanB,) = _mintThreeClans();
+        uint256 proposalId = _propose(clanA, clanB, 1e18, 100);
+
+        // Transfer clan A to a new owner
+        address elderD = address(0xD1);
+        vm.prank(elderA);
+        world.transferClanOwnership(clanA, elderD);
+
+        // Old owner (elderA) cannot cancel — no longer the owner
+        vm.expectRevert("ClanWorld: not clan owner");
+        vm.prank(elderA);
+        world.cancelGoldTransfer(proposalId);
+    }
+
     function test_goldTransfer_twoClanNoInterference() public {
         (uint32 clanA, uint32 clanB, uint32 clanC) = _mintThreeClans();
         uint256 clanBBefore = world.getClan(clanB).goldBalance;
