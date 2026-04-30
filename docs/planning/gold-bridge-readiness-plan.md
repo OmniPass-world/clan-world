@@ -279,6 +279,7 @@ Checklist:
 - [ ] Run local/anvil deployment with external GOLD mode.
 - [ ] Run Base Sepolia deployment using bridged GOLD.
 - [ ] Run smoke test: bridge GOLD to Base Sepolia, seed ClanWorld pools, perform market sell/buy, verify pool reserves and clan gold changes.
+- [ ] Add a liquidity recovery script/runbook to pull recoverable GOLD back to the treasury before redeploying or retiring a ClanWorld contract/pool setup.
 - [ ] Record final deployment addresses and verification steps.
 - [ ] Produce go/no-go checklist before mainnet.
 
@@ -290,6 +291,7 @@ Findings:
 Gotchas:
 
 - "Replace the GOLD ERC20" and "make bridged GOLD the live player economy" are different milestones.
+- Liquidity recovery needs to be designed before meaningful pool funding. If we seed bridged GOLD into ClanWorld/pools and later decide to redeploy, we need a scripted, tested way to recover every withdrawable/recoverable GOLD unit rather than relying on manual contract poking.
 - Mainnet readiness needs operational controls: multisig ownership, conservative rate limits, pausing plan, monitoring, tx hash logs, and recovery runbook.
 
 ## Verification Log
