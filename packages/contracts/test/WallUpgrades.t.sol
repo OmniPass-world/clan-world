@@ -8,7 +8,9 @@ import {
     ClanWorldConstants,
     Clan,
     ClanOrder,
+    Mission,
     ClansmanState,
+    MarketExecutionMode,
     OrderResult,
     StatusCode,
     ActionType
@@ -24,6 +26,37 @@ contract WallUpgradeHarness is ClanWorld {
 
     function killClansman(uint32 clansmanId) external {
         _clansmen[clansmanId].state = ClansmanState.DEAD;
+    }
+
+    function setCurrentTick(uint64 tick) external {
+        _world.currentTick = tick;
+        _world.nextHeartbeatAtTick = tick + 1;
+    }
+
+    function installDeprecatedBuildWallMission(uint32 clanId, uint32 clansmanId, uint64 settlesAtTick) external {
+        Clan storage clan = _clans[clanId];
+        _clansmen[clansmanId].state = ClansmanState.ACTING;
+        _clansmen[clansmanId].currentRegion = clan.baseRegion;
+        _missions[clansmanId] = Mission({
+            active: true,
+            nonce: 99,
+            submittedAtTick: 0,
+            executesAtTick: 0,
+            settlesAtTick: settlesAtTick,
+            clansmanId: clansmanId,
+            startRegion: clan.baseRegion,
+            targetRegion: clan.baseRegion,
+            action: ActionType.BuildWall,
+            startTick: 0,
+            arrivalTick: 0,
+            actionStartTick: 0,
+            missionSeed: bytes32(0),
+            marketMode: MarketExecutionMode.None,
+            targetClanId: 0,
+            marketToken: address(0),
+            marketAmount: 0,
+            maxGoldIn: 0
+        });
     }
 }
 
@@ -190,6 +223,36 @@ contract WallUpgradesTest is Test {
         _advanceTicks(2);
         OrderResult[] memory next = _submitOrder(elder, clanId, firstCsId, ActionType.UpgradeWall);
         assertEq(uint8(next[0].status), uint8(StatusCode.OK), "pending count released");
+    }
+
+    function test_upgradeWall_reversedClansmanSettlementPaysSequentialCosts() public {
+        uint32 clanId = _mintClan(elder);
+        uint32 firstCsId = _csAt(clanId, 0);
+        uint32 secondCsId = _csAt(clanId, 1);
+        world.setVault(clanId, 100e18, 100e18, 100e18, 100e18);
+
+        OrderResult[] memory second = _submitOrder(elder, clanId, secondCsId, ActionType.UpgradeWall);
+        assertEq(uint8(second[0].status), uint8(StatusCode.OK), "second clansman queues level 1");
+        OrderResult[] memory first = _submitOrder(elder, clanId, firstCsId, ActionType.UpgradeWall);
+        assertEq(uint8(first[0].status), uint8(StatusCode.OK), "first clansman queues level 2");
+
+        _advanceTicks(world.getActionDuration(ActionType.UpgradeWall) + 2);
+
+        assertEq(world.getClan(clanId).wallLevel, 2, "both upgrades settle");
+        assertEq(world.getClan(clanId).vaultWood, 45e18, "level 1 plus level 2 costs debited");
+        assertEq(world.getClan(clanId).vaultIron, 100e18, "no iron before level 3");
+    }
+
+    function test_deprecatedBuildWallFlightedMissionCompletes() public {
+        uint32 clanId = _mintClan(elder);
+        uint32 csId = _firstCs(clanId);
+
+        world.installDeprecatedBuildWallMission(clanId, csId, 0);
+        world.setCurrentTick(1);
+        world.settleClan(clanId);
+
+        assertFalse(world.getActiveMission(csId).active, "legacy BuildWall mission completed");
+        assertEq(uint8(world.getClansman(csId).state), uint8(ClansmanState.WAITING), "worker released");
     }
 
     function test_upgradeWall_rejectsInsufficientVaultAtQueueTime() public {

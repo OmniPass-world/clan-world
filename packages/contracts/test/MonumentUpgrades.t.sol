@@ -144,7 +144,7 @@ contract MonumentUpgradesTest is Test {
         assertEq(world.getClanFullView(clanId).clan.clan.monumentLevel, 1, "monument level after settle");
         assertEq(world.getClan(clanId).vaultWood, 100e18 - woodCost, "wood deducted at settle");
         assertEq(world.getClan(clanId).vaultIron, 100e18 - ironCost, "iron deducted at settle");
-        assertEq(world.getClan(clanId).vaultWheat, 100e18 - wheatCost, "wheat deducted at settle");
+        assertEq(world.getClan(clanId).vaultWheat, 100e18 - wheatCost - 8e18, "wheat upkeep and monument cost deducted");
         assertEq(world.getClan(clanId).blueprintBalance, 5e18 - blueprintCost, "blueprint deducted at settle");
     }
 

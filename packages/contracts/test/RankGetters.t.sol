@@ -20,6 +20,16 @@ contract RankGetterHarness is ClanWorld {
     function setLivingClansmen(uint32 clanId, uint8 livingClansmen) external {
         _clans[clanId].livingClansmen = livingClansmen;
     }
+
+    function setMonumentLevelReachedAt(uint32 clanId, uint8 level, uint64 reachedAtTick) external {
+        _clans[clanId].monumentLevel = level;
+        _monumentLevelReachedAt[clanId][level] = reachedAtTick;
+    }
+
+    function setCurrentTick(uint64 tick) external {
+        _world.currentTick = tick;
+        _world.nextHeartbeatAtTick = tick + 1;
+    }
 }
 
 contract RankGettersTest is Test {
@@ -218,5 +228,21 @@ contract RankGettersTest is Test {
         (uint32[] memory ranked,) = world.getRankings();
         assertEq(ranked[0], clanB, "rankings use settled upkeep");
         assertEq(ranked[1], clanA, "A drops after simulated upkeep");
+    }
+
+    function test_getRankings_usesSimulatedMonumentReachTickForQueuedUpgrade() public {
+        uint32 persistedClan = _mintClan(elderA);
+        uint32 queuedClan = _mintClan(elderB);
+
+        world.setVault(persistedClan, 100e18, 0, 100e18, 0);
+        world.setVault(queuedClan, 100e18, 0, 100e18, 0);
+        world.setMonumentLevelReachedAt(persistedClan, 1, 1);
+
+        _assertAllOk(_submitUpgradeBatch(elderB, queuedClan, 1));
+        world.setCurrentTick(2);
+
+        (uint32[] memory ranked,) = world.getRankings();
+        assertEq(ranked[0], persistedClan, "persisted equal-level clan keeps precedence");
+        assertEq(ranked[1], queuedClan, "queued upgrade does not get zero-tick tiebreak");
     }
 }

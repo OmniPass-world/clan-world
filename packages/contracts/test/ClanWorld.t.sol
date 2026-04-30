@@ -538,7 +538,7 @@ contract ClanWorldTest is Test {
 
         assertEq(afterClan.vaultWood, beforeClan.vaultWood + woodDelta, "wood transferred");
         assertEq(afterClan.vaultIron, beforeClan.vaultIron + ironDelta, "iron transferred");
-        assertEq(afterClan.vaultFish, beforeClan.vaultFish + fishDelta, "fish transferred");
+        assertEq(afterClan.vaultFish, beforeClan.vaultFish + fishDelta - 8e17, "fish transferred after upkeep");
         assertEq(afterCs.carryWood, 0, "wood carry cleared");
         assertEq(afterCs.carryIron, 0, "iron carry cleared");
         assertEq(afterCs.carryFish, 0, "fish carry cleared");
@@ -594,7 +594,7 @@ contract ClanWorldTest is Test {
     }
 
     // -------------------------------------------------------------------------
-    // Test B: submitClanOrders returns ERR_INVALID_ACTION when clan is >200 ticks behind
+    // Test B: heartbeat eager settlement keeps clans from drifting >200 ticks behind
     // -------------------------------------------------------------------------
 
     function test_submitClanOrders_reverts_when_clan_too_far_behind() public {
@@ -607,8 +607,7 @@ contract ClanWorldTest is Test {
             _advanceTick();
         }
 
-        // submitClanOrders should return ERR_INVALID_ACTION (ERR_MUST_SETTLE_FIRST proxy)
-        // without reverting, for every order in the batch
+        // Heartbeat now advances the clan checkpoint, so submission can proceed normally.
         ClanOrder[] memory orders = new ClanOrder[](1);
         orders[0] = ClanOrder({
             clansmanId: csId,
@@ -625,8 +624,8 @@ contract ClanWorldTest is Test {
         assertEq(results.length, 1, "should return one result");
         assertEq(
             uint8(results[0].status),
-            uint8(StatusCode.ERR_INVALID_ACTION),
-            "clan >200 ticks behind must return ERR_INVALID_ACTION (settle-first guard)"
+            uint8(StatusCode.OK),
+            "heartbeat eager settlement keeps order submission unblocked"
         );
     }
 
@@ -1919,7 +1918,11 @@ contract ClanWorldTest is Test {
         // Call settleClansman on-demand — must be idempotent (no crash, no double-credit).
         uint256 ironBefore = world.getClansman(csId).carryIron;
         world.settleClansman(csId);
-        assertEq(world.getClansman(csId).carryIron, ironBefore, "onDemand: settleClansman is idempotent after heartbeat settle");
+        assertEq(
+            world.getClansman(csId).carryIron,
+            ironBefore,
+            "onDemand: settleClansman is idempotent after heartbeat settle"
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -2026,8 +2029,7 @@ contract ClanWorldTest is Test {
         assertEq(ws.seasonStartTick, 0);
         assertEq(ws.seasonEndTick, ClanWorldConstants.SEASON_DURATION_TICKS);
         assertEq(
-            ws.winterStartsAtTick,
-            ClanWorldConstants.TICKS_PER_WINTER_CYCLE - ClanWorldConstants.WINTER_DURATION_TICKS
+            ws.winterStartsAtTick, ClanWorldConstants.TICKS_PER_WINTER_CYCLE - ClanWorldConstants.WINTER_DURATION_TICKS
         );
         assertFalse(ws.winterActive);
     }
@@ -2036,8 +2038,7 @@ contract ClanWorldTest is Test {
         // winterStartsAtTick = 100; WinterStarted fires on the heartbeat that opens tick 100
         // i.e. when closedTick=99, newTick=100 >= winterStartsAtTick=100.
         // Advance 99 heartbeats so currentTick=99, then one more heartbeat fires WinterStarted at tick 100.
-        uint64 winterStart =
-            ClanWorldConstants.TICKS_PER_WINTER_CYCLE - ClanWorldConstants.WINTER_DURATION_TICKS; // = 100
+        uint64 winterStart = ClanWorldConstants.TICKS_PER_WINTER_CYCLE - ClanWorldConstants.WINTER_DURATION_TICKS; // = 100
         for (uint64 i = 0; i < winterStart - 1; i++) {
             vm.warp(block.timestamp + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS);
             world.heartbeat();

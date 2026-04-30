@@ -131,7 +131,7 @@ contract BaseUpgradesTest is Test {
         assertEq(world.getClan(clanId).baseLevel, 2, "base level after settle");
         assertEq(world.getClan(clanId).vaultWood, 100e18 - woodCost, "wood deducted at settle");
         assertEq(world.getClan(clanId).vaultIron, 100e18 - ironCost, "iron deducted at settle");
-        assertEq(world.getClan(clanId).vaultWheat, 100e18 - wheatCost, "wheat deducted at settle");
+        assertEq(world.getClan(clanId).vaultWheat, 100e18 - wheatCost - 8e18, "wheat upkeep and upgrade cost deducted");
     }
 
     function test_upgradeBase_rejectsInsufficientVaultAtQueueTime() public {

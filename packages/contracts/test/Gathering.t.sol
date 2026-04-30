@@ -123,9 +123,31 @@ contract GatheringTest is Test {
         assertEq(cs.carryWood, ClanWorldConstants.WOOD_CAP, "wood carry cap");
     }
 
-    function test_chopWoodAppliesCooldownPostSettle() public {
+    function test_chopWoodReschedulesWhenCarryCapNotReached() public {
         uint32 clanId = _mintClan();
         uint32 csId = _firstCs(clanId);
+
+        OrderResult[] memory result = _submitChopWood(clanId, csId);
+        assertEq(uint8(result[0].status), uint8(StatusCode.OK), "chop wood accepted");
+
+        Mission memory mission = world.getActiveMission(csId);
+        _advanceUntilCurrentTick(mission.settlesAtTick + 1);
+        world.settleClan(clanId);
+
+        Clansman memory cs = world.getClansman(csId);
+        assertEq(uint8(cs.state), uint8(ClansmanState.ACTING), "mission continues");
+        assertTrue(world.getActiveMission(csId).active, "mission remains active");
+        assertEq(
+            world.getActiveMission(csId).settlesAtTick,
+            mission.settlesAtTick + world.getActionDuration(ActionType.ChopWood),
+            "next chop scheduled"
+        );
+    }
+
+    function test_chopWoodAppliesCooldownWhenCarryCapReached() public {
+        uint32 clanId = _mintClan();
+        uint32 csId = _firstCs(clanId);
+        world.setCarryWood(csId, ClanWorldConstants.WOOD_CAP - 1e18);
 
         Clansman memory cs = _settleChopWood(clanId, csId);
 

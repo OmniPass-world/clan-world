@@ -50,29 +50,29 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     // STORAGE
     // =========================================================================
 
-    WorldState private _world;
+    WorldState internal _world;
     TreasuryState private _treasury;
 
     mapping(uint32 => Clan) internal _clans;
     mapping(uint32 => Clansman) internal _clansmen;
-    mapping(uint32 => Mission) private _missions; // keyed by clansmanId
+    mapping(uint32 => Mission) internal _missions; // keyed by clansmanId
     mapping(uint32 => WheatPlot[2]) private _wheatPlots; // [0]=west [1]=east
     mapping(uint64 => ScheduledMarketAction[]) private _scheduledMarketActions; // keyed by tick
     mapping(uint8 => uint32[]) private _defendingClansByRegion; // home region => unique defending clanIds
     mapping(uint8 => mapping(uint32 => uint256)) private _defenderCountByRegionClan; // region => clanId => clansmen count
     mapping(uint32 => uint8) private _clansmanDefendingRegion; // clansmanId => defended home region
     mapping(uint64 => bytes32) private _tickSeeds; // tick => seed
-    mapping(uint32 => WallUpgradeReservation) private _wallUpgradeReservations; // clansmanId => reserved upgrade
+    mapping(uint32 => WallUpgradeReservation) internal _wallUpgradeReservations; // clansmanId => reserved upgrade
     mapping(uint32 => uint8) private _pendingWallUpgradesByClan; // clanId => queued, unsettled wall upgrades
-    mapping(uint32 => BaseUpgradeReservation) private _baseUpgradeReservations; // clansmanId => reserved upgrade
+    mapping(uint32 => BaseUpgradeReservation) internal _baseUpgradeReservations; // clansmanId => reserved upgrade
     mapping(uint32 => uint8) private _pendingBaseUpgradesByClan; // clanId => queued, unsettled base upgrades
-    mapping(uint32 => MonumentUpgradeReservation) private _monumentUpgradeReservations; // clansmanId => reserved upgrade
+    mapping(uint32 => MonumentUpgradeReservation) internal _monumentUpgradeReservations; // clansmanId => reserved upgrade
     mapping(uint32 => uint8) private _pendingMonumentUpgradesByClan; // clanId => queued, unsettled monument upgrades
     mapping(uint32 => uint256) private _reservedWoodByClan; // clanId => held, not yet debited
     mapping(uint32 => uint256) private _reservedIronByClan; // clanId => held, not yet debited
     mapping(uint32 => uint256) private _reservedWheatByClan; // clanId => held, not yet debited
     mapping(uint32 => uint256) private _reservedBlueprintByClan; // clanId => held, not yet debited
-    mapping(uint32 => mapping(uint8 => uint64)) private _monumentLevelReachedAt; // clanId => level => first reached tick
+    mapping(uint32 => mapping(uint8 => uint64)) internal _monumentLevelReachedAt; // clanId => level => first reached tick
 
     uint32 private _nextClanId;
     uint32 private _nextClansmanId;
@@ -119,6 +119,14 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         Clansman[] clansmen;
         Mission[] missions;
         WheatPlot[2] wheatPlots;
+        uint64[11] simMonumentReachedAt;
+    }
+
+    struct HeldUpgradeResources {
+        uint256 wood;
+        uint256 iron;
+        uint256 wheat;
+        uint256 blueprint;
     }
 
     // =========================================================================
@@ -148,8 +156,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         _world.nextHeartbeatAtTick = 1; // first heartbeat will open tick 1
         // First winter: last WINTER_DURATION_TICKS of first TICKS_PER_WINTER_CYCLE cycle
         // i.e. ticks [100, 110)
-        _world.winterStartsAtTick =
-            ClanWorldConstants.TICKS_PER_WINTER_CYCLE - ClanWorldConstants.WINTER_DURATION_TICKS; // = 100
+        _world.winterStartsAtTick = ClanWorldConstants.TICKS_PER_WINTER_CYCLE - ClanWorldConstants.WINTER_DURATION_TICKS; // = 100
         _world.winterEndsAtTick = ClanWorldConstants.TICKS_PER_WINTER_CYCLE; // = 110
         _world.winterActive = false;
         _treasury.treasuryOwner = msg.sender;
@@ -391,7 +398,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             if (cs.state == ClansmanState.ACTING && tick >= m.settlesAtTick) {
                 _resolveAction(clan, cs, m, clanId, tick, tickSeed);
                 if (m.active && getActionDuration(m.action) > 0) {
-                    _completeMission(cs, m);
+                    m.settlesAtTick = _addTicksClamped(tick, getActionDuration(m.action));
                 }
             }
 
@@ -403,10 +410,15 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     /// @dev Lazy settlement of a clan forward to currentTick.
     ///      Mutates storage. Called before order submission and by public settleClan().
     function _settleClan(uint32 clanId) internal {
+        _settleClanToTick(clanId, _world.currentTick);
+    }
+
+    /// @dev Mutating settlement to a target open tick. Settles [lastSettledTick, toTick).
+    function _settleClanToTick(uint32 clanId, uint64 toTick) internal {
         Clan storage clan = _clans[clanId];
         if (clan.clanId == 0) return;
 
-        uint64 curTick = _world.currentTick;
+        uint64 curTick = toTick;
         uint64 fromTick = clan.lastSettledTick;
         if (fromTick >= curTick) return;
 
@@ -452,13 +464,14 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         uint256 wheatNeeded = uint256(clan.livingClansmen) * ClanWorldConstants.WHEAT_UPKEEP_PER_CLANSMAN;
         uint256 fishNeeded = uint256(clan.livingClansmen) * ClanWorldConstants.FISH_UPKEEP_PER_CLANSMAN;
 
-        bool hadEnoughWheat = clan.vaultWheat >= wheatNeeded;
+        uint256 spendableWheat = _spendableAfterReleasing(clan.vaultWheat, _reservedWheatByClan[clan.clanId], 0);
+        bool hadEnoughWheat = spendableWheat >= wheatNeeded;
         bool hadEnoughFish = clan.vaultFish >= fishNeeded;
 
         if (hadEnoughWheat) {
             clan.vaultWheat -= wheatNeeded;
         } else {
-            clan.vaultWheat = 0;
+            clan.vaultWheat -= spendableWheat;
         }
         if (hadEnoughFish) {
             clan.vaultFish -= fishNeeded;
@@ -528,6 +541,9 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             // Wait mission is effectively persistent until interrupted
         } else if (action == ActionType.DefendBase) {
             // Persistent mission. Registration happens atomically at order submission.
+        } else if (action == ActionType.BuildWall) {
+            // Deprecated after Phase 8. Any already-flighted BuildWall mission completes harmlessly.
+            _completeMission(cs, m);
         } else if (
             action == ActionType.UpgradeWall || action == ActionType.UpgradeBase || action == ActionType.UpgradeMonument
         ) {
@@ -781,19 +797,18 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             return;
         }
 
-        bool success = false;
+        bool finished = true;
         if (action == ActionType.UpgradeWall) {
-            success = _settleWallUpgrade(clan, cs.clansmanId, m.nonce, clanId, tick);
+            finished = _settleWallUpgrade(clan, cs.clansmanId, m.nonce, clanId, tick);
         } else if (action == ActionType.UpgradeBase) {
-            success = _settleBaseUpgrade(clan, cs.clansmanId, m.nonce, clanId, tick);
+            finished = _settleBaseUpgrade(clan, cs.clansmanId, m.nonce, clanId, tick);
         } else if (action == ActionType.UpgradeMonument) {
-            success = _settleMonumentUpgrade(clan, cs.clansmanId, m.nonce, clanId, tick);
+            finished = _settleMonumentUpgrade(clan, cs.clansmanId, m.nonce, clanId, tick);
         }
 
-        if (!success) {
-            // Resources missing — worker transitions to WAITING
+        if (finished) {
+            _completeMission(cs, m);
         }
-        _completeMission(cs, m);
     }
 
     function _settleWallUpgrade(Clan storage clan, uint32 clansmanId, uint64 missionNonce, uint32 clanId, uint64 tick)
@@ -802,18 +817,24 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     {
         WallUpgradeReservation storage reservation = _wallUpgradeReservations[clansmanId];
         if (!reservation.active || reservation.clanId != clanId || reservation.missionNonce != missionNonce) {
-            return false;
+            return true;
         }
 
         WallUpgradeReservation memory held = reservation;
-        _clearWallUpgradeReservation(clansmanId);
-        if (clan.wallLevel >= WALL_MAX_LEVEL) return false;
+        if (clan.wallLevel >= WALL_MAX_LEVEL) {
+            _clearWallUpgradeReservation(clansmanId);
+            return true;
+        }
+        if (held.fromLevel != clan.wallLevel && _hasEarlierWallUpgradeReservation(clanId, clansmanId, clan.wallLevel)) {
+            return false;
+        }
 
         (uint256 woodCost, uint256 ironCost) = _wallUpgradeCost(clan.wallLevel);
         uint256 woodDebit = _min(held.woodCost, woodCost);
         uint256 ironDebit = _min(held.ironCost, ironCost);
         if (clan.vaultWood < woodDebit || clan.vaultIron < ironDebit) return false;
 
+        _clearWallUpgradeReservation(clansmanId);
         clan.vaultWood -= woodDebit;
         clan.vaultIron -= ironDebit;
 
@@ -832,12 +853,17 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     {
         BaseUpgradeReservation storage reservation = _baseUpgradeReservations[clansmanId];
         if (!reservation.active || reservation.clanId != clanId || reservation.missionNonce != missionNonce) {
-            return false;
+            return true;
         }
 
         BaseUpgradeReservation memory held = reservation;
-        _clearBaseUpgradeReservation(clansmanId);
-        if (clan.baseLevel >= BASE_MAX_LEVEL) return false;
+        if (clan.baseLevel >= BASE_MAX_LEVEL) {
+            _clearBaseUpgradeReservation(clansmanId);
+            return true;
+        }
+        if (held.fromLevel != clan.baseLevel && _hasEarlierBaseUpgradeReservation(clanId, clansmanId, clan.baseLevel)) {
+            return false;
+        }
 
         (uint256 woodCost, uint256 ironCost, uint256 wheatCost) = _baseUpgradeCost(clan.baseLevel);
         uint256 woodDebit = _min(held.woodCost, woodCost);
@@ -845,6 +871,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         uint256 wheatDebit = _min(held.wheatCost, wheatCost);
         if (clan.vaultWood < woodDebit || clan.vaultIron < ironDebit || clan.vaultWheat < wheatDebit) return false;
 
+        _clearBaseUpgradeReservation(clansmanId);
         clan.vaultWood -= woodDebit;
         clan.vaultIron -= ironDebit;
         clan.vaultWheat -= wheatDebit;
@@ -867,12 +894,20 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     ) internal returns (bool) {
         MonumentUpgradeReservation storage reservation = _monumentUpgradeReservations[clansmanId];
         if (!reservation.active || reservation.clanId != clanId || reservation.missionNonce != missionNonce) {
-            return false;
+            return true;
         }
 
         MonumentUpgradeReservation memory held = reservation;
-        _clearMonumentUpgradeReservation(clansmanId);
-        if (clan.monumentLevel >= MONUMENT_MAX_LEVEL) return false;
+        if (clan.monumentLevel >= MONUMENT_MAX_LEVEL) {
+            _clearMonumentUpgradeReservation(clansmanId);
+            return true;
+        }
+        if (
+            held.fromLevel != clan.monumentLevel
+                && _hasEarlierMonumentUpgradeReservation(clanId, clansmanId, clan.monumentLevel)
+        ) {
+            return false;
+        }
 
         (uint256 woodCost, uint256 ironCost, uint256 wheatCost, uint256 blueprintCost) =
             _monumentUpgradeCost(clan.monumentLevel);
@@ -885,6 +920,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
                 || clan.blueprintBalance < blueprintDebit
         ) return false;
 
+        _clearMonumentUpgradeReservation(clansmanId);
         clan.vaultWood -= woodDebit;
         clan.vaultIron -= ironDebit;
         clan.vaultWheat -= wheatDebit;
@@ -940,6 +976,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         uint64 fromTick = sim.clan.lastSettledTick;
         if (fromTick >= toTick) return sim;
+        uint64 maxSimTicks = 200;
+        if (toTick > fromTick + maxSimTicks) {
+            toTick = fromTick + maxSimTicks;
+        }
 
         for (uint64 tick = fromTick; tick < toTick; tick++) {
             _simulateApplyUpkeep(sim, tick);
@@ -1014,7 +1054,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             if (cs.state == ClansmanState.ACTING && tick >= m.settlesAtTick) {
                 (cs, m) = _simulateResolveAction(sim, cs, m, tick, tickSeed);
                 if (m.active && getActionDuration(m.action) > 0) {
-                    (cs, m) = _simulateCompleteMission(cs, m);
+                    m.settlesAtTick = _addTicksClamped(tick, getActionDuration(m.action));
                 }
             }
 
@@ -1048,10 +1088,12 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             (cs, m) = _simulateGatherWheat(sim, cs, m, tick, starving);
         } else if (action == ActionType.DepositResources) {
             (cs, m) = _simulateDoDeposit(sim, cs, m);
+        } else if (action == ActionType.BuildWall) {
+            (cs, m) = _simulateCompleteMission(cs, m);
         } else if (
             action == ActionType.UpgradeWall || action == ActionType.UpgradeBase || action == ActionType.UpgradeMonument
         ) {
-            (cs, m) = _simulateDoBuilding(sim, cs, m, action);
+            (cs, m) = _simulateDoBuilding(sim, cs, m, action, tick);
         } else if (action == ActionType.MarketBuy || action == ActionType.MarketSell) {
             (cs, m) = _simulateCompleteMission(cs, m);
         }
@@ -1205,7 +1247,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         SettlementSimulation memory sim,
         Clansman memory cs,
         Mission memory m,
-        ActionType action
+        ActionType action,
+        uint64 tick
     ) internal view returns (Clansman memory, Mission memory) {
         if (cs.currentRegion == sim.clan.baseRegion) {
             if (action == ActionType.UpgradeWall) {
@@ -1213,7 +1256,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             } else if (action == ActionType.UpgradeBase) {
                 _simulateSettleBaseUpgrade(sim, cs.clansmanId, m.nonce);
             } else if (action == ActionType.UpgradeMonument) {
-                _simulateSettleMonumentUpgrade(sim, cs.clansmanId, m.nonce);
+                _simulateSettleMonumentUpgrade(sim, cs.clansmanId, m.nonce, tick);
             }
         }
         return _simulateCompleteMission(cs, m);
@@ -1226,6 +1269,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         WallUpgradeReservation memory held = _wallUpgradeReservations[clansmanId];
         if (!held.active || held.clanId != sim.clan.clanId || held.missionNonce != missionNonce) return;
         if (sim.clan.wallLevel >= WALL_MAX_LEVEL) return;
+        if (held.fromLevel != sim.clan.wallLevel) return;
 
         (uint256 woodCost, uint256 ironCost) = _wallUpgradeCost(sim.clan.wallLevel);
         uint256 woodDebit = _min(held.woodCost, woodCost);
@@ -1244,6 +1288,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         BaseUpgradeReservation memory held = _baseUpgradeReservations[clansmanId];
         if (!held.active || held.clanId != sim.clan.clanId || held.missionNonce != missionNonce) return;
         if (sim.clan.baseLevel >= BASE_MAX_LEVEL) return;
+        if (held.fromLevel != sim.clan.baseLevel) return;
 
         (uint256 woodCost, uint256 ironCost, uint256 wheatCost) = _baseUpgradeCost(sim.clan.baseLevel);
         uint256 woodDebit = _min(held.woodCost, woodCost);
@@ -1259,13 +1304,16 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         sim.clan.baseLevel += 1;
     }
 
-    function _simulateSettleMonumentUpgrade(SettlementSimulation memory sim, uint32 clansmanId, uint64 missionNonce)
-        internal
-        view
-    {
+    function _simulateSettleMonumentUpgrade(
+        SettlementSimulation memory sim,
+        uint32 clansmanId,
+        uint64 missionNonce,
+        uint64 tick
+    ) internal view {
         MonumentUpgradeReservation memory held = _monumentUpgradeReservations[clansmanId];
         if (!held.active || held.clanId != sim.clan.clanId || held.missionNonce != missionNonce) return;
         if (sim.clan.monumentLevel >= MONUMENT_MAX_LEVEL) return;
+        if (held.fromLevel != sim.clan.monumentLevel) return;
 
         (uint256 woodCost, uint256 ironCost, uint256 wheatCost, uint256 blueprintCost) =
             _monumentUpgradeCost(sim.clan.monumentLevel);
@@ -1283,6 +1331,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         sim.clan.vaultWheat -= wheatDebit;
         sim.clan.blueprintBalance -= blueprintDebit;
         sim.clan.monumentLevel += 1;
+        sim.simMonumentReachedAt[sim.clan.monumentLevel] = tick;
     }
 
     function _simulateCompleteMission(Clansman memory cs, Mission memory m)
@@ -1323,9 +1372,11 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         _tickSeeds[closedTick] = newSeed;
         _world.currentTickSeed = newSeed;
 
-        // Step 1: Settle missions that complete this tick (settlesAtTick == closedTick).
-        // Bounded by 12-clan cap x 4 clansmen = 48 max iterations.
-        _settleCompletingMissions(closedTick);
+        // Step 1: Close this tick through the same chronological path as lazy settlement.
+        // Bounded by 12-clan cap x 200 catch-up ticks per clan.
+        for (uint256 i = 0; i < _allClanIds.length; i++) {
+            _settleClanToTick(_allClanIds[i], closedTick + 1);
+        }
 
         // Step 2: Execute scheduled market actions for closedTick (may make external calls).
         _executeScheduledMarketActions(closedTick);
@@ -1953,20 +2004,20 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         }
     }
 
-    /// @dev Deduct an amount of a resource token from the clan vault. Returns false if insufficient.
-    function _deductFromVault(Clan storage clan, address token, uint256 amount) internal returns (bool) {
+    /// @dev Deduct an amount of a spendable resource token from the clan vault. Returns false if insufficient.
+    function _deductFromVault(uint32 clanId, Clan storage clan, address token, uint256 amount) internal returns (bool) {
         if (token == _treasury.woodToken) {
-            if (clan.vaultWood < amount) return false;
+            if (_spendableAfterReleasing(clan.vaultWood, _reservedWoodByClan[clanId], 0) < amount) return false;
             clan.vaultWood -= amount;
             return true;
         }
         if (token == _treasury.ironToken) {
-            if (clan.vaultIron < amount) return false;
+            if (_spendableAfterReleasing(clan.vaultIron, _reservedIronByClan[clanId], 0) < amount) return false;
             clan.vaultIron -= amount;
             return true;
         }
         if (token == _treasury.wheatToken) {
-            if (clan.vaultWheat < amount) return false;
+            if (_spendableAfterReleasing(clan.vaultWheat, _reservedWheatByClan[clanId], 0) < amount) return false;
             clan.vaultWheat -= amount;
             return true;
         }
@@ -1998,7 +2049,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         }
 
         Clan storage clan = _clans[clanId];
-        if (!_deductFromVault(clan, token, amount)) {
+        if (!_deductFromVault(clanId, clan, token, amount)) {
             emit MarketActionFailed(clanId, clansmanId, ActionType.MarketSell, StatusCode.ERR_MISSING_RESOURCES);
             return;
         }
@@ -2156,18 +2207,17 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
     function _validateUpgradeWallOrder(Clan storage clan, uint32 clansmanId) internal view returns (StatusCode) {
         uint8 pendingUpgrades = _pendingWallUpgradesByClan[clan.clanId];
-        uint256 releasedWood;
-        uint256 releasedIron;
+        HeldUpgradeResources memory released = _releasedUpgradeResources(clan.clanId, clansmanId);
 
         WallUpgradeReservation storage existing = _wallUpgradeReservations[clansmanId];
         if (existing.active && existing.clanId == clan.clanId) {
             pendingUpgrades -= 1;
-            releasedWood = existing.woodCost;
-            releasedIron = existing.ironCost;
         }
 
-        uint256 availableWood = _spendableAfterReleasing(clan.vaultWood, _reservedWoodByClan[clan.clanId], releasedWood);
-        uint256 availableIron = _spendableAfterReleasing(clan.vaultIron, _reservedIronByClan[clan.clanId], releasedIron);
+        uint256 availableWood =
+            _spendableAfterReleasing(clan.vaultWood, _reservedWoodByClan[clan.clanId], released.wood);
+        uint256 availableIron =
+            _spendableAfterReleasing(clan.vaultIron, _reservedIronByClan[clan.clanId], released.iron);
 
         uint8 plannedCurrentLevel = clan.wallLevel + pendingUpgrades;
         if (plannedCurrentLevel >= WALL_MAX_LEVEL) return StatusCode.ERR_INVALID_ACTION;
@@ -2220,22 +2270,19 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
     function _validateUpgradeBaseOrder(Clan storage clan, uint32 clansmanId) internal view returns (StatusCode) {
         uint8 pendingUpgrades = _pendingBaseUpgradesByClan[clan.clanId];
-        uint256 releasedWood;
-        uint256 releasedIron;
-        uint256 releasedWheat;
+        HeldUpgradeResources memory released = _releasedUpgradeResources(clan.clanId, clansmanId);
 
         BaseUpgradeReservation storage existing = _baseUpgradeReservations[clansmanId];
         if (existing.active && existing.clanId == clan.clanId) {
             pendingUpgrades -= 1;
-            releasedWood = existing.woodCost;
-            releasedIron = existing.ironCost;
-            releasedWheat = existing.wheatCost;
         }
 
-        uint256 availableWood = _spendableAfterReleasing(clan.vaultWood, _reservedWoodByClan[clan.clanId], releasedWood);
-        uint256 availableIron = _spendableAfterReleasing(clan.vaultIron, _reservedIronByClan[clan.clanId], releasedIron);
+        uint256 availableWood =
+            _spendableAfterReleasing(clan.vaultWood, _reservedWoodByClan[clan.clanId], released.wood);
+        uint256 availableIron =
+            _spendableAfterReleasing(clan.vaultIron, _reservedIronByClan[clan.clanId], released.iron);
         uint256 availableWheat =
-            _spendableAfterReleasing(clan.vaultWheat, _reservedWheatByClan[clan.clanId], releasedWheat);
+            _spendableAfterReleasing(clan.vaultWheat, _reservedWheatByClan[clan.clanId], released.wheat);
 
         uint8 plannedCurrentLevel = clan.baseLevel + pendingUpgrades;
         if (plannedCurrentLevel >= BASE_MAX_LEVEL) return StatusCode.ERR_INVALID_ACTION;
@@ -2293,26 +2340,21 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
     function _validateUpgradeMonumentOrder(Clan storage clan, uint32 clansmanId) internal view returns (StatusCode) {
         uint8 pendingUpgrades = _pendingMonumentUpgradesByClan[clan.clanId];
-        uint256 releasedWood;
-        uint256 releasedIron;
-        uint256 releasedWheat;
-        uint256 releasedBlueprint;
+        HeldUpgradeResources memory released = _releasedUpgradeResources(clan.clanId, clansmanId);
 
         MonumentUpgradeReservation storage existing = _monumentUpgradeReservations[clansmanId];
         if (existing.active && existing.clanId == clan.clanId) {
             pendingUpgrades -= 1;
-            releasedWood = existing.woodCost;
-            releasedIron = existing.ironCost;
-            releasedWheat = existing.wheatCost;
-            releasedBlueprint = existing.blueprintCost;
         }
 
-        uint256 availableWood = _spendableAfterReleasing(clan.vaultWood, _reservedWoodByClan[clan.clanId], releasedWood);
-        uint256 availableIron = _spendableAfterReleasing(clan.vaultIron, _reservedIronByClan[clan.clanId], releasedIron);
+        uint256 availableWood =
+            _spendableAfterReleasing(clan.vaultWood, _reservedWoodByClan[clan.clanId], released.wood);
+        uint256 availableIron =
+            _spendableAfterReleasing(clan.vaultIron, _reservedIronByClan[clan.clanId], released.iron);
         uint256 availableWheat =
-            _spendableAfterReleasing(clan.vaultWheat, _reservedWheatByClan[clan.clanId], releasedWheat);
+            _spendableAfterReleasing(clan.vaultWheat, _reservedWheatByClan[clan.clanId], released.wheat);
         uint256 availableBlueprint =
-            _spendableAfterReleasing(clan.blueprintBalance, _reservedBlueprintByClan[clan.clanId], releasedBlueprint);
+            _spendableAfterReleasing(clan.blueprintBalance, _reservedBlueprintByClan[clan.clanId], released.blueprint);
 
         uint8 plannedCurrentLevel = clan.monumentLevel + pendingUpgrades;
         if (plannedCurrentLevel >= MONUMENT_MAX_LEVEL) return StatusCode.ERR_INVALID_ACTION;
@@ -2376,6 +2418,78 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         _reservedBlueprintByClan[clanId] = _subtractHeld(_reservedBlueprintByClan[clanId], reservation.blueprintCost);
 
         delete _monumentUpgradeReservations[clansmanId];
+    }
+
+    function _releasedUpgradeResources(uint32 clanId, uint32 clansmanId)
+        internal
+        view
+        returns (HeldUpgradeResources memory released)
+    {
+        WallUpgradeReservation storage wall = _wallUpgradeReservations[clansmanId];
+        if (wall.active && wall.clanId == clanId) {
+            released.wood += wall.woodCost;
+            released.iron += wall.ironCost;
+        }
+
+        BaseUpgradeReservation storage base = _baseUpgradeReservations[clansmanId];
+        if (base.active && base.clanId == clanId) {
+            released.wood += base.woodCost;
+            released.iron += base.ironCost;
+            released.wheat += base.wheatCost;
+        }
+
+        MonumentUpgradeReservation storage monument = _monumentUpgradeReservations[clansmanId];
+        if (monument.active && monument.clanId == clanId) {
+            released.wood += monument.woodCost;
+            released.iron += monument.ironCost;
+            released.wheat += monument.wheatCost;
+            released.blueprint += monument.blueprintCost;
+        }
+    }
+
+    function _hasEarlierWallUpgradeReservation(uint32 clanId, uint32 currentClansmanId, uint8 currentLevel)
+        internal
+        view
+        returns (bool)
+    {
+        uint32[] storage clansmanIds = _clanClansmanIds[clanId];
+        for (uint256 i = 0; i < clansmanIds.length; i++) {
+            uint32 otherId = clansmanIds[i];
+            if (otherId == currentClansmanId) continue;
+            WallUpgradeReservation storage other = _wallUpgradeReservations[otherId];
+            if (other.active && other.clanId == clanId && other.fromLevel == currentLevel) return true;
+        }
+        return false;
+    }
+
+    function _hasEarlierBaseUpgradeReservation(uint32 clanId, uint32 currentClansmanId, uint8 currentLevel)
+        internal
+        view
+        returns (bool)
+    {
+        uint32[] storage clansmanIds = _clanClansmanIds[clanId];
+        for (uint256 i = 0; i < clansmanIds.length; i++) {
+            uint32 otherId = clansmanIds[i];
+            if (otherId == currentClansmanId) continue;
+            BaseUpgradeReservation storage other = _baseUpgradeReservations[otherId];
+            if (other.active && other.clanId == clanId && other.fromLevel == currentLevel) return true;
+        }
+        return false;
+    }
+
+    function _hasEarlierMonumentUpgradeReservation(uint32 clanId, uint32 currentClansmanId, uint8 currentLevel)
+        internal
+        view
+        returns (bool)
+    {
+        uint32[] storage clansmanIds = _clanClansmanIds[clanId];
+        for (uint256 i = 0; i < clansmanIds.length; i++) {
+            uint32 otherId = clansmanIds[i];
+            if (otherId == currentClansmanId) continue;
+            MonumentUpgradeReservation storage other = _monumentUpgradeReservations[otherId];
+            if (other.active && other.clanId == clanId && other.fromLevel == currentLevel) return true;
+        }
+        return false;
     }
 
     function _spendableAfterReleasing(uint256 vault, uint256 reserved, uint256 released)
@@ -2740,7 +2854,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
     /// @notice Return live clan rankings sorted by score descending, with clanId ascending for exact ties.
     /// @dev Scans at most MAX_CLAN_SCAN_FOR_RANKING clan ids to keep gas bounded. The current mint cap is 12,
-    ///      so the 24-clan scan cap covers all live clans plus headroom for Phase 11.
+    ///      so the 24-clan scan cap covers all live clans plus headroom for Phase 11. Each clan simulation is capped
+    ///      at 200 ticks to match mutating settlement and bound RPC time for passive clans.
     function getRankings() external view override returns (uint32[] memory clanIdsRanked, uint256[] memory scores) {
         uint256 scanCount = _allClanIds.length;
         if (scanCount > MAX_CLAN_SCAN_FOR_RANKING) {
@@ -2756,7 +2871,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             SettlementSimulation memory sim = _simulateSettleToTick(clanId, _world.currentTick);
             if (sim.clan.clanState != ClanState.ACTIVE) continue;
 
-            (uint256 score,,) = _getClanScoreFromClan(clanId, sim.clan);
+            (uint256 score,,) = _getClanScoreFromSimulation(clanId, sim);
             tempClanIds[liveCount] = clanId;
             tempScores[liveCount] = score;
             liveCount++;
@@ -2794,7 +2909,23 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         returns (uint256 score, uint64 monumentReachedAtTick, uint8 monumentLevel)
     {
         SettlementSimulation memory sim = _simulateSettleToTick(clanId, _world.currentTick);
-        return _getClanScoreFromClan(clanId, sim.clan);
+        return _getClanScoreFromSimulation(clanId, sim);
+    }
+
+    function _getClanScoreFromSimulation(uint32 clanId, SettlementSimulation memory sim)
+        internal
+        view
+        returns (uint256 score, uint64 monumentReachedAtTick, uint8 monumentLevel)
+    {
+        monumentLevel = sim.clan.monumentLevel;
+        if (monumentLevel > 0) {
+            monumentReachedAtTick = _monumentLevelReachedAt[clanId][monumentLevel];
+            if (monumentReachedAtTick == 0) {
+                monumentReachedAtTick = sim.simMonumentReachedAt[monumentLevel];
+            }
+        }
+
+        return _packClanScore(sim.clan, monumentReachedAtTick, monumentLevel);
     }
 
     function _getClanScoreFromClan(uint32 clanId, Clan memory clan)
@@ -2807,6 +2938,14 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             monumentReachedAtTick = _monumentLevelReachedAt[clanId][monumentLevel];
         }
 
+        return _packClanScore(clan, monumentReachedAtTick, monumentLevel);
+    }
+
+    function _packClanScore(Clan memory clan, uint64 monumentReachedAtTick, uint8 monumentLevel)
+        internal
+        pure
+        returns (uint256 score, uint64, uint8)
+    {
         uint256 lootValue = _lootValueRaw(clan);
         uint256 maxLootComponent = (uint256(1) << 176) - 1;
         if (lootValue > maxLootComponent) {
@@ -2819,6 +2958,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         }
 
         score = (uint256(monumentLevel) << 248) | (timeComponent << 184) | (lootValue << 8) | clan.wallLevel;
+        return (score, monumentReachedAtTick, monumentLevel);
     }
 
     function _rankingComesAfter(uint32 leftClanId, uint256 leftScore, uint32 rightClanId, uint256 rightScore)

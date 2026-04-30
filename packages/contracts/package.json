@@ -4,7 +4,8 @@
   "version": "0.0.0",
   "scripts": {
     "build": "if command -v forge >/dev/null 2>&1; then forge build; else echo 'forge not installed; skipping (install via foundryup)'; fi",
-    "test": "if command -v forge >/dev/null 2>&1; then forge test;  else echo 'forge not installed; skipping'; fi",
+    "check:abi": "if command -v forge >/dev/null 2>&1; then forge build && diff -u out/IClanWorld.sol/IClanWorld.json abi/IClanWorld.json; else echo 'forge not installed; skipping ABI drift check'; fi",
+    "test": "if command -v forge >/dev/null 2>&1; then forge build && diff -u out/IClanWorld.sol/IClanWorld.json abi/IClanWorld.json && forge test;  else echo 'forge not installed; skipping'; fi",
     "typecheck": "echo 'no TS in contracts package'",
     "lint": "echo 'lint stub'",
     "clean": "rm -rf out cache .turbo"

@@ -113,9 +113,14 @@ contract MissionTimingTest is Test {
 
         Clansman memory settled = world.getClansman(csId);
         assertGt(settled.carryIron, 0, "iron granted at settlesAtTick");
-        assertEq(uint8(settled.state), uint8(ClansmanState.WAITING), "mission completed");
-        assertFalse(world.getActiveMission(csId).active, "mission inactive after settlement");
-        assertGt(settled.cooldownEndsAtTs, block.timestamp, "cooldown starts on settlement");
+        assertEq(uint8(settled.state), uint8(ClansmanState.ACTING), "continuous gather keeps acting");
+        Mission memory rescheduled = world.getActiveMission(csId);
+        assertTrue(rescheduled.active, "mission remains active after non-full gather");
+        assertEq(
+            rescheduled.settlesAtTick,
+            mission.settlesAtTick + world.getActionDuration(ActionType.MineIron),
+            "next gather tick scheduled"
+        );
     }
 
     function test_getActionDuration_eachActionType() public view {

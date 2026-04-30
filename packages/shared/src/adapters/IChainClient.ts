@@ -36,6 +36,8 @@ const CLAN_WORLD_ABI = [
           { name: 'seasonStartTick', type: 'uint64' },
           { name: 'seasonEndTick', type: 'uint64' },
           { name: 'seasonFinalized', type: 'bool' },
+          { name: 'currentSeasonNumber', type: 'uint64' },
+          { name: 'nextHeartbeatAtTick', type: 'uint64' },
           { name: 'winterActive', type: 'bool' },
           { name: 'winterStartsAtTick', type: 'uint64' },
           { name: 'winterEndsAtTick', type: 'uint64' },
@@ -133,6 +135,9 @@ const CLAN_WORLD_ABI = [
                     components: [
                       { name: 'active', type: 'bool' },
                       { name: 'nonce', type: 'uint64' },
+                      { name: 'submittedAtTick', type: 'uint64' },
+                      { name: 'executesAtTick', type: 'uint64' },
+                      { name: 'settlesAtTick', type: 'uint64' },
                       { name: 'clansmanId', type: 'uint32' },
                       { name: 'startRegion', type: 'uint8' },
                       { name: 'targetRegion', type: 'uint8' },
@@ -158,6 +163,9 @@ const CLAN_WORLD_ABI = [
                 components: [
                   { name: 'active', type: 'bool' },
                   { name: 'nonce', type: 'uint64' },
+                  { name: 'submittedAtTick', type: 'uint64' },
+                  { name: 'executesAtTick', type: 'uint64' },
+                  { name: 'settlesAtTick', type: 'uint64' },
                   { name: 'clansmanId', type: 'uint32' },
                   { name: 'startRegion', type: 'uint8' },
                   { name: 'targetRegion', type: 'uint8' },
