@@ -53,35 +53,45 @@ The `ClanWorldTestHarness` (34,871 B) and `HeartbeatOrderingHarness` (35,011 B) 
 
 The goal: partition `ClanWorld.sol`'s 2,124 lines into facets each well under 24,576 bytes. Each facet gets exclusive ownership of its primary concern. All facets share `AppStorage` (see §4).
 
-### Size projection methodology
+### Actual compiled skeleton sizes (from `forge build --sizes`)
 
-`ClanWorld` = 34,792 B compiled. Rough line-count distribution:
-- Travel / path utilities (lines 103–292): ~190 lines
-- Settlement core / gathering (lines 293–860): ~570 lines
-- World progression / heartbeat (lines 863–996): ~134 lines
-- Clan lifecycle / order submission (lines 999–1356): ~358 lines
-- Market execution (lines 1358–1692): ~335 lines
-- Treasury / OTC stubs (lines 1694–1757): ~64 lines
-- Raw getters (lines 1759–1887): ~129 lines
-- Derived / aggregator views (lines 1889–2124): ~236 lines
+These are real measurements from `feat/issue-337-diamond-design` HEAD, not estimates:
 
-Diamond proxy itself (~600–800 B) + DiamondCut facet (~2–3 KB) + Loupe facet (~2–3 KB) are infrastructure overhead, not ClanWorld logic.
+| Contract | Runtime bytes | Init code bytes | Headroom vs 24,576 |
+|---|---|---|---|
+| `Diamond` (proxy) | 225 | 4,953 | 24,351 B headroom |
+| `DiamondCutFacet` | 4,800 | 4,826 | 19,776 B headroom |
+| `DiamondLoupeFacet` | 1,866 | 1,892 | 22,710 B headroom |
+| `CoreFacet` (empty shell) | 647 | 673 | 23,929 B headroom |
+| `MarketFacet` (empty shell) | 720 | 746 | 23,856 B headroom |
+| `GatheringFacet` (empty shell) | 115 | 139 | 24,461 B headroom |
+| `ViewsFacet` (read-only) | 5,617 | 5,643 | 18,959 B headroom |
+| `BanditsFacet` (stub) | 57 | 81 | 24,519 B headroom |
+| `WintersFacet` (stub) | 57 | 81 | 24,519 B headroom |
 
-| Facet | Responsibility | Est. Lines | Projected Size | Margin |
+**Key observations:**
+- `ViewsFacet` skeleton already compiles to 5,617 B because it includes real view logic from ClanWorld. This is the expected shape — views are dense.
+- Shell facets (CoreFacet, MarketFacet, GatheringFacet) are 115–720 B today. They will grow substantially when business logic migrates. See projected sizes below.
+- `via_ir` optimizer deduplication applies within a single compilation unit. Splitting facets may reduce per-facet optimization — total deployed bytecode will be higher than the 34,792 B monolith. This is expected and acceptable (EIP-170 is per-contract, not total).
+
+### Size projections after business logic migration
+
+Projections use ClanWorld's compiled density (~16 B/source line, `via_ir`) applied to function-count estimates per facet. These must be re-measured with `forge build --sizes` before merging each migration PR.
+
+| Facet | Responsibility | Est. Lines | Projected Size | Margin vs 24,576 |
 |---|---|---|---|---|
-| `CoreFacet` | World clock, heartbeat dispatch shell, clan lifecycle, order submission, travel | ~700 | ~16–18 KB | comfortable |
+| `CoreFacet` | World clock, heartbeat dispatch shell, clan lifecycle, order submission, travel | ~700 | ~16–18 KB | 6–8 KB margin |
 | `MarketFacet` | Market execution (sell/buy), treasury init/seed, pool routing, OTC stubs | ~420 | ~8–10 KB | large |
 | `GatheringFacet` | Settlement core (`_settleClan`, `_settleMissionForClansman`), all gather helpers, deposit, building upgrades | ~600 | ~13–15 KB | comfortable |
 | `ViewsFacet` | All `pure`/`view` aggregators: `getWorldSnapshot`, `getClanFullView`, `getMarketState`, `getRegionPopulation`, derived state | ~380 | ~8–10 KB | large |
-| `BanditsFacet` | Phase 9 bandit attack/defense (stub for now — `getBanditTroop`, `getActiveBanditView`, `getBanditTargetPreview`) | ~50 stub | ~2–3 KB | very large |
-| `WintersFacet` | Phase 10 winter damage, elimination, `finalizeSeason` (stub for now) | ~30 stub | ~1–2 KB | very large |
+| `BanditsFacet` | Phase 9 bandit attack/defense — full Phase 9 implementation landing zone | ~50 stub today | ~2–3 KB stub | very large |
+| `WintersFacet` | Phase 10 winter damage, elimination, `finalizeSeason` — full Phase 10 implementation landing zone | ~30 stub today | ~1–2 KB stub | very large |
 
-**Projected total post-Diamond bytecode (excluding infrastructure):** ~50–57 KB spread across 6 facets, each individually under 24,576 B.
+**CoreFacet growth risk (Phase 9/10):** CoreFacet holds ~700 lines today projecting to 16–18 KB. Phase 9 (Bandits) + Phase 10 (Winters) logic will NOT land in CoreFacet — they have dedicated facets (`BanditsFacet`, `WintersFacet`). These facets are not speculative pre-stubs; they are load-bearing separations that prevent CoreFacet from growing past the 24,576 B limit. If CoreFacet measures over 20 KB after business logic migration, extract `_buildPath` + `_distMatrix` + `_travelTicks` into a `TravelFacet` (pure functions, ~2–3 KB). This split is pre-approved — no additional design review needed.
 
-Notes:
-- Estimates are based on `ClanWorld`'s compiled density (~16 B per source line under `via_ir`). Individual facets may be measurably smaller because smaller compilation units give `via_ir` less to optimize across.
-- BanditsFacet and WintersFacet are stubs today. They act as landing zones for Phase 9 and Phase 10 code. Their current compiled size will be tiny (2–3 KB each).
-- If `CoreFacet` measures over 20 KB after splitting, move `_buildPath` + `_distMatrix` + `_travelTicks` into a small `TravelFacet` (pure functions only, ~2–3 KB).
+**Total deployed bytecode note:** All facets together (~50–57 KB of business logic) plus infrastructure (~7 KB for Diamond proxy + DiamondCut + Loupe) = ~57–64 KB total deployed across all contracts, vs. 34,792 B today. This is intentional and acceptable. EIP-170 limits each individual contract to 24,576 B; there is no limit on the total bytecode across all contracts in a deployment.
+
+> **Mandatory size check:** Before merging any migration PR (PR 2–6), run `forge build --sizes` and confirm each facet's runtime bytes is under 20,000 B (leaving ≥4 KB headroom). If any facet approaches 20 KB, split before merging.
 
 ### Function assignment by facet
 
@@ -161,9 +171,9 @@ From `ClanWorld.sol`:
 
 Storage primarily accessed: read-only access to all AppStorage fields (no writes)
 
-#### BanditsFacet — Phase 9 bandit mechanics (stub now)
+#### BanditsFacet — Phase 9 bandit mechanics
 
-Phase 9 is not yet implemented. This facet is a landing zone.
+BanditsFacet is a **load-bearing future separation**, not speculative pre-scaffolding. Phase 9 bandit logic must land here (not in CoreFacet) to prevent CoreFacet from exceeding 24,576 B. Stub shell exists now; full implementation lands in PR 5 / Phase 9 migration.
 
 Functions (stubs in ClanWorld.sol that will grow here):
 - `spawnBandit(...)` — Phase 9
@@ -172,9 +182,9 @@ Functions (stubs in ClanWorld.sol that will grow here):
 
 Storage primarily accessed: `_world.activeBanditId`, `_world.nextBanditSpawnEligibleTick`, future `_bandits` mapping
 
-#### WintersFacet — Phase 10 winter damage + elimination (stub now)
+#### WintersFacet — Phase 10 winter damage + elimination
 
-Phase 10 is not yet implemented. This facet is a landing zone.
+WintersFacet is a **load-bearing future separation** for the same reasons as BanditsFacet. Winter logic belongs here, not in CoreFacet.
 
 Functions:
 - `finalizeSeason()` — currently stub in CoreFacet, moves here when Phase 10 ships
@@ -208,6 +218,8 @@ The single `AppStorage` pattern is:
 - Simpler to audit (one source of truth for all state)
 - Consistent with the existing ClanWorld storage layout (direct mapping)
 - The dominant pattern in production Diamond contracts
+
+**Why not per-facet storage slots?** Per-facet slots (Option B) would require each reading facet to import every other facet's storage lib — or move shared state to a "common" struct anyway. ClanWorld's state is too interconnected for clean per-facet partitioning: `_clans` is written by CoreFacet, GatheringFacet, and MarketFacet. Attempting per-facet isolation would produce a single `LibSharedStorage` covering 90% of the struct, which is Option A by another name with extra verbosity. Single AppStorage is the correct choice for this architecture.
 
 ### AppStorage struct fields
 
@@ -267,6 +279,11 @@ struct AppStorage {
     mapping(uint64 => bytes32) tickSeeds;              // tick => seed
 
     // -------------------------------------------------------------------------
+    // Reentrancy guard (shared across all facets — see §Development Invariants)
+    // -------------------------------------------------------------------------
+    uint256 reentrancyStatus;                          // 1 = not entered, 2 = entered
+
+    // -------------------------------------------------------------------------
     // Constants stored at deploy time (not in IClanWorld; inline here for Diamond)
     // -------------------------------------------------------------------------
     // Note: WHEAT_HARVEST_RATE and MAX_MARKET_ACTIONS_PER_TICK are contract-level
@@ -284,7 +301,102 @@ This avoids slot 0 collision with any future inherited contracts and matches EIP
 
 ---
 
-## 5. Upgrade Policy Decision
+## 5. Storage Safety
+
+### The single most critical correctness rule for AppStorage
+
+The AppStorage struct is the shared state backbone across all facets. Corrupting it silently corrupts the entire game state. Two rules are non-negotiable:
+
+### Rule 1: Append-only struct modification
+
+**New fields MUST be added at the END of `AppStorage`. Never insert a field mid-struct. Never reorder fields.**
+
+Rationale: In a `delegatecall` context, the EVM computes storage slot positions by sequential layout of the struct. Adding a field at position N shifts every field after N to a new slot. Existing on-chain data at those slots now maps to the wrong variable. The Solidity compiler does NOT catch this — it will compile cleanly and silently corrupt state.
+
+```solidity
+// CORRECT — append at end
+struct AppStorage {
+    // ... existing fields ...
+    mapping(uint64 => bytes32) tickSeeds;   // slot N (existing)
+    uint256 reentrancyStatus;               // slot N+1 (existing)
+    // New field added in Phase 9:
+    mapping(uint32 => BanditData) bandits;  // ALWAYS append here
+}
+
+// WRONG — never do this
+struct AppStorage {
+    WorldState world;
+    mapping(uint32 => BanditData) bandits;  // inserted mid-struct — corrupts all downstream slots
+    TreasuryState treasury;
+    // ...
+}
+```
+
+### Rule 2: Storage layout snapshot in CI
+
+Every PR that touches `LibStorage.sol` (or any struct used inside `AppStorage`) MUST include an updated storage layout snapshot. Procedure:
+
+```bash
+# From packages/contracts:
+forge inspect ClanWorld storageLayout --json > test/snapshots/storage-layout.json
+# After Diamond migration, the target is the Diamond proxy:
+forge inspect Diamond storageLayout --json > test/snapshots/storage-layout.json
+```
+
+The snapshot file is committed to the repo at `packages/contracts/test/snapshots/storage-layout.json`. CI runs a diff check: if the snapshot diverges from `forge inspect` output, the PR fails.
+
+**Enforcement:** A `Makefile` target `make storage-snapshot-check` will be added in PR 2. Until then, enforce manually: every LibStorage change requires the reviewer to run `forge inspect` and confirm slot positions are unchanged for existing fields.
+
+### Rule 3: No struct-field reordering, ever
+
+Even "harmless" reordering (swapping two adjacent fields of the same type) changes slot assignments for all fields below them. There is no safe reorder. If a field is in the wrong logical position, add a comment — do not move it.
+
+<!-- TODO: add forge storage-layout snapshot CI step (Makefile target) in PR 2 -->
+
+---
+
+## 6. Heartbeat Failure Model
+
+### Current monolith behavior
+
+In `ClanWorld.sol`, `heartbeat()` is a single transaction. If any internal call reverts, the entire heartbeat reverts. This is the existing behavior — the game loop can be blocked by a bad order or bad state.
+
+### Diamond behavior under delegatecall
+
+In the Diamond, `heartbeat()` lives in CoreFacet. It calls GatheringFacet and MarketFacet via internal Diamond routing (through the proxy's fallback). All calls share the same transaction context via `delegatecall`. This means:
+
+**Revert propagation model:**
+- If `GatheringFacet._settleCompletingMissions()` reverts → entire `heartbeat()` tx reverts (same as monolith)
+- If `MarketFacet._executeScheduledMarketActions()` reverts → entire `heartbeat()` tx reverts (same as monolith)
+- The Diamond does NOT automatically isolate failures between facets. Revert behavior is **identical** to the monolith.
+
+### Isolation improvement opportunity (not in scope for PR 1–3)
+
+The original hybrid plan's heartbeat fragility (DA finding #2 in §1) applies equally here — if a bad market order causes MarketFacet to revert, the heartbeat reverts.
+
+The correct fix is a `try/catch` boundary at the CoreFacet level for the market execution loop:
+
+```solidity
+// In CoreFacet.heartbeat():
+try IClanWorld(address(this))._executeScheduledMarketActions(tick) {
+    // market execution succeeded
+} catch (bytes memory reason) {
+    emit MarketExecutionFailed(tick, reason);
+    // heartbeat continues — market orders dropped for this tick
+}
+```
+
+This requires `_executeScheduledMarketActions` to be an `external` function (called via the proxy, not as an internal call). Under `delegatecall`, `address(this)` resolves to the Diamond proxy, so this pattern is safe and standard.
+
+**Current scope:** The `try/catch` isolation is NOT implemented in Phase 1 (skeleton) or Phase 2 (CoreFacet migration). It is a Phase 3 follow-up once the facet split is stable. Rationale: the monolith has the same failure mode today; adding isolation during the migration would conflate two architectural changes.
+
+**Phase 3 action item:** When migrating MarketFacet (PR 3), add `try/catch` isolation for the market execution loop in `heartbeat()`. Document the revert vs. drop decision for each market action type.
+
+<!-- TODO: add try/catch heartbeat isolation in MarketFacet PR (Phase 3) -->
+
+---
+
+## 7. Upgrade Policy Decision
 
 ### Options compared
 
@@ -302,22 +414,89 @@ This avoids slot 0 collision with any future inherited contracts and matches EIP
 - Audit surface is smaller (no upgrade key risk)
 - Pattern used by: some DeFi protocols where immutability is the selling point
 
-### Decision: Mutable Diamond with 2-of-3 multisig + 48h timelock
+### Decision: Mutable Diamond with 2-of-3 multisig + tiered timelock
 
 ClanWorld is a live game with ongoing phase development (Phase 9 bandits, Phase 10 winter, Phase 11+). Requiring a full game reset to add bandit mechanics is not viable. The mutable pattern is appropriate.
 
-Safeguards to make the mutable pattern trustworthy:
-1. **2-of-3 multisig guardian** for `diamondCut` ownership. Three keyholders; no single-key risk.
-2. **48-hour timelock** on all cut proposals. The community can observe and react before any facet is replaced.
-3. **Loupe facet** (ERC-165 + `facets()`, `facetFunctionSelectors()`) stays in the Diamond permanently — any observer can audit the current facet set.
+**Tiered timelock policy:**
 
-This mirrors Aavegotchi's approach and is the recommended pattern for game contracts with ongoing feature development.
+| Change type | Timelock | Authorization |
+|---|---|---|
+| Functional upgrade (new facet, feature addition) | 48 hours | 2-of-3 multisig |
+| Emergency security patch | 0 hours | 2-of-3 multisig + mandatory post-mortem within 72h |
+| Immutable freeze (remove DiamondCut) | 48 hours | 2-of-3 multisig |
+
+**Emergency bypass rationale:** A 48h timelock on a live bug means 2 days of potential game state corruption or fund loss. Teams under pressure bypass governance if no emergency path exists — making the timelock theater. The 2-of-3 emergency bypass with mandatory post-mortem is the responsible pattern. It keeps accountability (all 3 keyholders know an emergency cut happened) while enabling rapid response.
+
+**Hackathon velocity note:** During active pre-mainnet development (current phase), the 48h timelock MAY be reduced to 0 via multisig vote. This must be explicitly re-enabled before any mainnet or public-testnet deployment. Document the timelock state in `packages/contracts/DEPLOYMENT.md`.
+
+Additional safeguards:
+1. **2-of-3 multisig guardian** for `diamondCut` ownership. Three keyholders; no single-key risk.
+2. **Loupe facet** (ERC-165 + `facets()`, `facetFunctionSelectors()`) stays in the Diamond permanently — any observer can audit the current facet set.
 
 **Open question for Liam:** Does the current team structure support a 2-of-3 multisig? If not, a 1-of-1 owner key + timelock is a viable interim while keeping the mutable path.
 
 ---
 
-## 6. Test Migration Strategy
+## 8. Operational Safety
+
+### Initializer locking
+
+The Diamond pattern requires an initializer function (equivalent to a constructor) that sets up initial state after all facets are cut in. This initializer MUST be callable exactly once.
+
+Implementation pattern:
+```solidity
+// In LibStorage:
+struct AppStorage {
+    // ... fields ...
+    bool initialized;
+}
+
+// In a dedicated InitializerFacet (or in CoreFacet):
+function initialize(...) external {
+    AppStorage storage s = LibStorage.appStorage();
+    require(!s.initialized, "ClanWorld: already initialized");
+    s.initialized = true;
+    // ... set initial state ...
+}
+```
+
+After `initialize()` is called, the `initialized` flag is permanently set. Re-initialization is impossible without a Diamond cut replacing the initializer facet.
+
+<!-- TODO: confirm whether InitializerFacet is a separate facet or a function in CoreFacet (decision in PR 2) -->
+
+### Emergency pause policy
+
+ClanWorld does not currently have a pause mechanism. The Diamond's `diamondCut` IS the emergency pause mechanism: replacing CoreFacet's `heartbeat()` selector with a no-op or revert function halts game progression without state migration.
+
+For a more granular pause (e.g., pause market only):
+- Replace `MarketFacet` with a `PausedMarketFacet` stub that reverts all market calls
+- This is a zero-delay emergency cut (see tiered timelock policy above)
+
+<!-- TODO: consider adding explicit `paused` flag to AppStorage for simpler per-module pause in Phase 5+ -->
+
+### Rollback procedure
+
+If a bad `diamondCut` ships (wrong function selector mapping, broken facet bytecode):
+
+1. **Identify:** `IDiamondLoupe(diamond).facets()` returns current facet set. Compare to last known-good snapshot in `packages/contracts/deployments/`.
+2. **Rollback:** Issue a new `diamondCut` that replaces the broken facet with the previous facet deployment address. Old facet deployments are immutable — they remain on-chain.
+3. **Timelock:** If timelock is active, rollback cut also requires the timelock delay. This is unavoidable with a standard timelock. The emergency bypass path (2-of-3 multisig, no delay) can be used here.
+4. **State:** Facet replacement does NOT revert state changes made by the broken facet. If the broken facet corrupted storage, state repair requires a StorageRepairFacet (custom migration — treat as incident response).
+
+### Ownership transfer
+
+Diamond owner key transfer:
+1. New owner prepares transfer via `Ownable.transferOwnership(newOwner)` (or multisig equivalent)
+2. 48h timelock applies (functional upgrade tier)
+3. New owner accepts transfer
+4. Update `packages/contracts/DEPLOYMENT.md` with new owner address
+
+Never transfer ownership to address(0) without first confirming immutable-diamond intent and removing the DiamondCut facet.
+
+---
+
+## 9. Test Migration Strategy
 
 ### Current test structure
 
@@ -331,7 +510,25 @@ This mirrors Aavegotchi's approach and is the recommended pattern for game contr
 | `Reentrancy.t.sol` | Reentrancy guard verification |
 | `RNG.t.sol` | RNG seed distribution |
 
-### How tests change post-Diamond
+### Required test categories post-Diamond
+
+The Diamond migration is an architectural rewrite. "Tests mostly need a new deploy helper" understates the requirement. The full test matrix:
+
+| Test category | What it validates | New file / existing file update |
+|---|---|---|
+| **Deploy helper** | `DeployDiamond.deploy()` returns a functioning `IClanWorld`; all 6 facets registered; all selectors present via Loupe | New: `test/helpers/DeployDiamond.sol` |
+| **Selector collision** | No two facets register the same 4-byte selector; `diamondCut` with a duplicate selector reverts | New: `test/DiamondSelectors.t.sol` |
+| **Storage layout snapshot** | `forge inspect` output matches committed `test/snapshots/storage-layout.json`; any struct reorder fails the check | New: `test/StorageLayout.t.sol` + snapshot file |
+| **Initializer idempotency** | `initialize()` succeeds on first call; reverts on second call; cannot be called by non-owner | New test in `test/DiamondUpgrade.t.sol` |
+| **Upgrade (diamondCut)** | Replacing a facet installs new selectors; old selectors removed; state persists across cut | New: `test/DiamondUpgrade.t.sol` |
+| **Cross-facet reentrancy** | Reentrancy attempt through GatheringFacet → MarketFacet path is blocked by shared `reentrancyStatus` in AppStorage | New test in `Reentrancy.t.sol` |
+| **Revert-data parity** | Key revert strings from monolith surface correctly through Diamond proxy (delegatecall revert bubbling) | New: `test/RevertParity.t.sol` |
+| **Facet replacement** | After replacing MarketFacet with a new version, behavior changes as expected; GatheringFacet + CoreFacet unaffected | `test/DiamondUpgrade.t.sol` |
+| **Heartbeat isolation** | (Phase 3 follow-up) A reverting market order does not revert the entire heartbeat when `try/catch` isolation is added | `HeartbeatOrdering.t.sol` — add after Phase 3 |
+| **Existing behavior suite** | All existing behavior tests pass unchanged (only deploy helper swap needed) | All existing `*.t.sol` files — swap `new ClanWorld()` → `DeployDiamond.deploy()` |
+| **Gas regression baseline** | `delegatecall` adds ~700 gas per external call; heartbeat gas must be measured and documented post-migration as the new baseline | New: `test/GasBaseline.t.sol` |
+
+### How existing tests change post-Diamond
 
 **ABI surface is byte-stable.** `IClanWorld` selectors don't change. The same `IClanWorld` interface can be cast to the Diamond proxy address — all existing test assertions remain valid.
 
@@ -363,13 +560,13 @@ This mirrors Aavegotchi's approach and is the recommended pattern for game contr
 | `DefendBase.t.sol` | Same deploy change |
 | `HeartbeatOrdering.t.sol` | Same deploy change + review gas assertions |
 | `MissionTiming.t.sol` | Same deploy change |
-| `Reentrancy.t.sol` | Same deploy change; verify cross-facet reentrancy guard works |
+| `Reentrancy.t.sol` | Same deploy change; verify cross-facet reentrancy guard works; add cross-facet test |
 | `RNG.t.sol` | Same deploy change |
 | `ClanWorldStub.t.sol` | No change (tests the stub, not the Diamond) |
 
 ---
 
-## 7. Deploy Script Approach
+## 10. Deploy Script Approach
 
 **File:** `packages/contracts/script/DeployDiamond.s.sol`
 
@@ -395,28 +592,49 @@ No changes needed to `foundry.toml` for the deploy script — the RPC config is 
 
 **Reference pattern:** Nick Mudgen's Diamond-3 (`github.com/mudgen/diamond-3-hardhat`) — the `scripts/deploy.js` shows the single-tx multi-facet cut pattern. The Foundry equivalent uses `IDiamondCut.FacetCut[]` assembled in the script and passed to the `Diamond` constructor.
 
+<!-- TODO: Etherscan/Basescan verification for Diamond artifacts requires per-facet `forge verify-contract` calls — standard single-contract verification flow does not work for proxies. Document verification procedure in DEPLOYMENT.md (PR 6). -->
+
 ---
 
-## 8. Migration Plan — Phased PRs
+## 11. Development Invariants
+
+These rules apply to ALL contributors on ALL PRs touching facets or LibStorage. Violation of any of these is a blocking PR review finding.
+
+### Checklist
+
+- [ ] **Storage append-only:** New fields added at END of `AppStorage` only. No mid-struct inserts. No field reordering. (See §Storage Safety.)
+- [ ] **Storage snapshot updated:** If `LibStorage.sol` or any embedded struct is modified, `test/snapshots/storage-layout.json` is regenerated and committed.
+- [ ] **`nonReentrant` on all state-writing externals:** Every `external` function that writes AppStorage state MUST use the `nonReentrant` modifier (backed by `AppStorage.reentrancyStatus`). No exceptions. If a facet reads state only (`pure`/`view`), the modifier is not required.
+- [ ] **Reentrancy guard is shared:** The `nonReentrant` implementation MUST read/write `AppStorage.reentrancyStatus`. Per-facet reentrancy guards are FORBIDDEN — they do not protect cross-facet re-entry through the Diamond proxy.
+- [ ] **Size check before merge:** Run `forge build --sizes` before opening any migration PR. Confirm each facet runtime bytes < 20,000 B (≥4 KB headroom). If any facet is 20–24 KB, split before merging.
+- [ ] **No `ClanWorld.sol` modifications during migration:** The monolith stays untouched until PR 6. All migration PRs add new facet files only.
+
+### Note on library bytecode duplication
+
+Every facet that imports `LibStorage` or other shared helpers gets that library's bytecode compiled into its deployment artifact. Total deployed bytecode across all facets will be higher than the 34,792 B monolith — approximately 57–64 KB total. This is expected and acceptable. EIP-170's 24,576 B limit applies per-contract, not to the sum of all deployed contracts. The goal is per-facet compliance, not minimizing total deployed bytes.
+
+---
+
+## 12. Migration Plan — Phased PRs
 
 | PR | Branch | Content | Criteria |
 |---|---|---|---|
 | **PR 1** (this PR) | `feat/issue-337-diamond-design` | Design doc + Diamond skeleton (proxy, LibStorage, interfaces, empty facets) | Liam go/no-go on architecture |
-| **PR 2** | `feat/issue-337-core-facet` | Migrate CoreFacet (heartbeat shell, clan lifecycle, order submission, travel) | All core tests pass |
-| **PR 3** | `feat/issue-337-market-gathering` | Migrate MarketFacet + GatheringFacet (settlement engine, gathering, market execution) | Heartbeat + market tests pass |
+| **PR 2** | `feat/issue-337-core-facet` | Migrate CoreFacet (heartbeat shell, clan lifecycle, order submission, travel) + `DeployDiamond` helper + storage snapshot CI | All core tests pass; size check clean |
+| **PR 3** | `feat/issue-337-market-gathering` | Migrate MarketFacet + GatheringFacet (settlement engine, gathering, market execution) + heartbeat `try/catch` isolation | Heartbeat + market tests pass; cross-facet reentrancy test passes |
 | **PR 4** | `feat/issue-337-buildings-views` | Migrate BuildingsFacet logic into GatheringFacet + ViewsFacet (all aggregators) | Full test suite passes |
-| **PR 5** | `feat/issue-337-bandits-winters` | BanditsFacet stub + WintersFacet stub with Phase 9/10 landing zones | Stubs deploy clean |
+| **PR 5** | `feat/issue-337-bandits-winters` | BanditsFacet stub + WintersFacet stub with Phase 9/10 landing zones; selector collision tests; upgrade tests | Stubs deploy clean; all new test categories pass |
 | **PR 6** | `feat/issue-337-deploy-sepolia` | `DeployDiamond.s.sol`, invariant tests, Base Sepolia deploy + verification | Deployed + verified on Base Sepolia |
 
 After each PR merges to `dev`, the prior `ClanWorld.sol` monolith remains in the repo until PR 6 is merged — at that point it's archived or removed.
 
 ---
 
-## 9. Open Questions for Liam
+## 13. Open Questions for Liam
 
 These decisions need explicit sign-off before code migration begins (PR 2+):
 
-1. **Multisig approach for DiamondCut.** Does the current team support a 2-of-3 multisig? If not, is a single owner key + 48h timelock acceptable for the hackathon phase? (The timelock can be removed for iteration speed during active development, re-added at mainnet.)
+1. **Multisig approach for DiamondCut.** Does the current team support a 2-of-3 multisig? If not, is a single owner key + 48h timelock acceptable for the hackathon phase? (The timelock can be reduced to 0 for iteration speed during active development, re-added at mainnet.)
 
 2. **Single AppStorage struct** — confirmed as the approach? (Recommendation: yes, see §4. The alternative adds significant complexity for no benefit given ClanWorld's shared state.)
 
@@ -427,6 +645,39 @@ These decisions need explicit sign-off before code migration begins (PR 2+):
 5. **Immutable-Diamond option.** If you prefer a simpler trust model (no upgrade key), we can deploy an immutable Diamond at PR 6 (remove DiamondCut after initial facet registration). Tradeoff: adding Phase 9 bandits requires deploying a new Diamond + migrating state. Confirm mutable vs immutable before PR 2.
 
 6. **`via_ir` flag.** Post-Diamond, each facet is a separate compilation unit. We may be able to drop `via_ir = true` on the facets (significant compile-time reduction). Confirm we should remove it from `foundry.toml` after migration, or keep it for consistency.
+
+---
+
+## 14. Known Limitations
+
+- **Bus factor / onboarding complexity:** Diamond pattern requires developers to understand EIP-2535 routing, AppStorage layout rules, and delegatecall semantics. Mitigated by this doc + Development Invariants checklist. <!-- TODO: add onboarding doc in DEPLOYMENT.md (PR 6) -->
+- **Event debugging across facets:** Events emitted by MarketFacet have `address` = Diamond proxy, not the facet. Debugging requires knowing which facet owns which selector. `IDiamondLoupe` makes this queryable. <!-- TODO: add event attribution note to DEPLOYMENT.md -->
+- **Etherscan/Basescan verification:** Per-facet verification requires separate `forge verify-contract` calls. Standard proxy verification UI may not display all facet source. Document in DEPLOYMENT.md (PR 6). <!-- TODO: PR 6 -->
+- **Alternatives considered:** Satellite pattern (one hub contract dispatching to independently-deployed contracts via interface calls) and custom dispatcher (manual selector→address mapping without EIP-2535) were evaluated. Both require explicit interface stitching that EIP-2535 + Loupe provides natively. Diamond was selected for battle-tested reference implementations and auditor familiarity.
+
+---
+
+## 15. DA History
+
+### Round 1 — 2026-04-30
+
+**Engines:** Codex + Gemini Pro
+
+**Findings summary:**
+
+| ID | Severity | Finding | Disposition |
+|---|---|---|---|
+| H1 | CRITICAL | Storage layout safety model absent — no append-only rule, no CI snapshot, silent corruption risk | **ADDRESSED** in §Storage Safety |
+| H2 | HIGH | Facet size projections are line-count based — no actual compiled measurements | **ADDRESSED** in §Facet Boundaries — actual `forge build --sizes` output added |
+| H3 | HIGH | CoreFacet growth risk: Phase 9/10 will blow past limit with zero headroom | **ADDRESSED** — BanditsFacet + WintersFacet explicitly documented as load-bearing separations, not pre-speculative stubs |
+| H4 | HIGH | Heartbeat failure isolation not addressed — same game-halt risk as hybrid plan | **ADDRESSED** in §Heartbeat Failure Model — current behavior documented, `try/catch` path specified as Phase 3 follow-up |
+| H5 | HIGH | Test plan understated — "tests mostly just need a new deploy helper" is wrong | **ADDRESSED** in §Test Migration Strategy — full 11-category test matrix added |
+| M1 | MED | Operational model incomplete — no initializer locking, pause policy, rollback, ownership transfer | **ADDRESSED** in §Operational Safety |
+| M2 | MED | Timelock vs. hackathon velocity tension — 48h timelock makes emergency response impossible | **ADDRESSED** in §Upgrade Policy — tiered timelock: 48h functional, 0h emergency with mandatory post-mortem |
+| M3 | MED | Library bytecode duplication — total deployed bytecode >80 KB, not acknowledged | **ADDRESSED** in §Development Invariants and §Facet Boundaries — explicitly noted as acceptable, EIP-170 per-contract not total |
+| M4 | MED | Reentrancy guard across facets — per-facet guard ineffective for cross-facet re-entry | **ADDRESSED** — `reentrancyStatus` added to AppStorage; invariant rule added in §Development Invariants |
+| M5 | MED | Per-facet Diamond Storage not evaluated | **ADDRESSED** in §AppStorage Decision Rationale — explicit comparison + rationale for single AppStorage |
+| L1–L5 | LOW | Etherscan verification, bus factor, event debugging, alternatives considered | **DEFERRED** — inline TODO comments added; §Known Limitations added |
 
 ---
 
