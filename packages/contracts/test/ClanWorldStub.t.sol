@@ -25,14 +25,29 @@ contract ClanWorldStubTest is Test {
     }
 
     function test_heartbeat_increments_tick() public {
-        assertEq(stub.getWorldState().currentTick, 1);
+        assertEq(stub.getWorldState().currentTick, 0);
         stub.heartbeat();
-        assertEq(stub.getWorldState().currentTick, 2);
+        assertEq(stub.getWorldState().currentTick, 1);
     }
 
     function test_getWorldSnapshot_returns_current_tick() public {
         stub.heartbeat();
-        assertEq(stub.getWorldSnapshot().currentTick, 2);
+        assertEq(stub.getWorldSnapshot().currentTick, 1);
+    }
+
+    function test_heartbeat_rateLimit_matches_ClanWorld() public {
+        stub.heartbeat();
+
+        vm.expectRevert("ClanWorld: heartbeat rate limited");
+        stub.heartbeat();
+
+        vm.warp(block.timestamp + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS);
+        stub.heartbeat();
+
+        WorldState memory ws = stub.getWorldState();
+        assertEq(ws.currentTick, 2);
+        assertEq(ws.nextHeartbeatAtTick, 3);
+        assertEq(ws.nextHeartbeatAtTs, block.timestamp + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS);
     }
 
     function test_initial_timer_fields_match_ClanWorld() public {
