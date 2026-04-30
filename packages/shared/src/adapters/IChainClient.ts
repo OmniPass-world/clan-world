@@ -30,7 +30,7 @@ export function uintValue(value: unknown): bigint {
 
   if (typeof value === 'string') {
     if (!/^\d+$/.test(value)) {
-      throw new Error(`uintValue: not a positive integer string: ${value}`);
+      throw new Error(`uintValue: not a non-negative integer string: ${value}`);
     }
     return BigInt(value);
   }

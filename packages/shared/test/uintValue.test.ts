@@ -19,8 +19,8 @@ describe('uintValue', () => {
   });
 
   it('rejects non-integer strings', () => {
-    expect(() => uintValue('1e18')).toThrow('not a positive integer string');
-    expect(() => uintValue('1.5')).toThrow('not a positive integer string');
+    expect(() => uintValue('1e18')).toThrow('not a non-negative integer string');
+    expect(() => uintValue('1.5')).toThrow('not a non-negative integer string');
   });
 
   it('rejects unsupported values', () => {
