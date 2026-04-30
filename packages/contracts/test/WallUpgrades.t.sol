@@ -170,7 +170,7 @@ contract WallUpgradesTest is Test {
 
         _advanceTicks(world.getActionDuration(ActionType.UpgradeWall));
         vm.expectEmit(true, false, false, true, address(world));
-        emit IClanWorldEvents.WallUpgraded(clanId, 1, 1);
+        emit IClanWorldEvents.WallLevelChanged(clanId, 0, 1, 1);
         _advanceTick();
 
         assertEq(world.getClan(clanId).wallLevel, 1, "wall level after settle");

@@ -545,11 +545,8 @@ interface IClanWorldEvents {
 
     // ----- building -----
     event WallLevelChanged(uint32 indexed clanId, uint8 oldLevel, uint8 newLevel, uint64 atTick);
-    event WallUpgraded(uint32 indexed clanId, uint8 newLevel, uint32 settledAtTick);
     event BaseLevelChanged(uint32 indexed clanId, uint8 oldLevel, uint8 newLevel, uint64 atTick);
-    event BaseUpgraded(uint32 indexed clanId, uint8 newLevel, uint32 settledAtTick);
     event MonumentLevelChanged(uint32 indexed clanId, uint8 oldLevel, uint8 newLevel, uint64 atTick);
-    event MonumentUpgraded(uint32 indexed clanId, uint8 newLevel, uint32 settledAtTick);
 
     // ----- market -----
     event ImmediateMarketActionExecuted(
