@@ -19,6 +19,11 @@ contract GatheringHarness is ClanWorld {
     function setCarryWood(uint32 csId, uint256 wood) external {
         _clansmen[csId].carryWood = wood;
     }
+
+    function setVaultFood(uint32 clanId, uint256 wheat, uint256 fish) external {
+        _clans[clanId].vaultWheat = wheat;
+        _clans[clanId].vaultFish = fish;
+    }
 }
 
 contract GatheringTest is Test {
@@ -114,11 +119,29 @@ contract GatheringTest is Test {
     function test_chopWoodClampsToCarryCap() public {
         uint32 clanId = _mintClan();
         uint32 csId = _firstCs(clanId);
-        world.setCarryWood(csId, ClanWorldConstants.CLANSMAN_CARRY_CAP - 1e18);
+        world.setCarryWood(csId, ClanWorldConstants.WOOD_CAP - 1e18);
 
         Clansman memory cs = _settleChopWood(clanId, csId);
 
-        assertEq(cs.carryWood, ClanWorldConstants.CLANSMAN_CARRY_CAP, "wood carry cap");
+        assertEq(cs.carryWood, ClanWorldConstants.WOOD_CAP, "wood carry cap");
+    }
+
+    function test_starvationBeginsOnNextTickAfterUpkeepFailure() public {
+        uint32 clanId = _mintClan();
+        uint64 failureTick = world.getWorldState().currentTick;
+        world.setVaultFood(clanId, 0, 0);
+
+        _advanceTick();
+        world.settleClan(clanId);
+
+        ClanFullView memory failed = world.getClanFullView(clanId);
+        assertEq(failed.clan.clan.starvationStartsAtTick, failureTick + 1, "starvation starts next tick");
+        assertTrue(failed.clan.isStarving, "starving once next tick is current");
+
+        _advanceTick();
+
+        ClanFullView memory nextTick = world.getClanFullView(clanId);
+        assertTrue(nextTick.clan.isStarving, "starvation remains active without food");
     }
 
     function test_chopWoodAppliesCooldownPostSettle() public {

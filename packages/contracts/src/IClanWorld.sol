@@ -40,8 +40,8 @@ library ClanWorldConstants {
     uint64 internal constant CLANSMAN_COOLDOWN_SECONDS = 60;
 
     // Carry caps (per clansman)
-    uint256 internal constant CLANSMAN_CARRY_CAP = 10e18; // only enforced for wood gather
-    uint256 internal constant WOOD_CAP = CLANSMAN_CARRY_CAP;
+    uint256 internal constant CLANSMAN_CARRY_CAP = 10e18; // legacy generic cap; wood uses WOOD_CAP
+    uint256 internal constant WOOD_CAP = 15e18;
     uint256 internal constant IRON_CAP = 5e18;
     uint256 internal constant WHEAT_CAP = 40e18;
     uint256 internal constant FISH_CAP = 8e18;

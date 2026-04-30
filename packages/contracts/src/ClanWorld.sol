@@ -416,7 +416,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         bool starving = !hadEnoughWheat || !hadEnoughFish;
         if (starving && clan.starvationStartsAtTick == 0) {
-            clan.starvationStartsAtTick = tick;
+            clan.starvationStartsAtTick = tick + 1;
             emit ClanStarvationChanged(clan.clanId, true, tick);
         } else if (!starving && clan.starvationStartsAtTick != 0) {
             clan.starvationStartsAtTick = 0;
@@ -484,12 +484,12 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         bool starving,
         bytes32 tickSeed
     ) internal {
-        if (cs.carryWood >= ClanWorldConstants.CLANSMAN_CARRY_CAP) {
+        if (cs.carryWood >= ClanWorldConstants.WOOD_CAP) {
             _completeMission(cs, m);
             return;
         }
 
-        uint256 remaining = ClanWorldConstants.CLANSMAN_CARRY_CAP - cs.carryWood;
+        uint256 remaining = ClanWorldConstants.WOOD_CAP - cs.carryWood;
         uint256 yield = ClanWorldConstants.WOOD_YIELD_PER_TICK * uint256(getActionDuration(ActionType.ChopWood));
         bytes32 woodRng = keccak256(abi.encode("wood_crit", tickSeed, cs.clansmanId, m.nonce, tick));
         if (uint256(woodRng) % 10000 < ClanWorldConstants.WOOD_CRIT_BPS) {
@@ -502,7 +502,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         emit ResourcesGathered(clanId, cs.clansmanId, ActionType.ChopWood, yield, 0, 0, 0, 0, tick);
 
-        if (cs.carryWood >= ClanWorldConstants.CLANSMAN_CARRY_CAP) {
+        if (cs.carryWood >= ClanWorldConstants.WOOD_CAP) {
             _completeMission(cs, m);
         }
     }
