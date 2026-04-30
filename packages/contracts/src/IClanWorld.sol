@@ -338,8 +338,6 @@ struct OtcProposal {
     uint32 to;
     uint256 amount;
     uint64 expiryTick;
-    bool accepted;
-    bool cancelled;
 }
 
 struct VaultTransferProposal {
@@ -350,8 +348,6 @@ struct VaultTransferProposal {
     uint256 fish;
     uint256 iron;
     uint64 expiryTick;
-    bool accepted;
-    bool cancelled;
 }
 
 struct BlueprintTransferProposal {
@@ -359,8 +355,6 @@ struct BlueprintTransferProposal {
     uint32 to;
     uint256 amount;
     uint64 expiryTick;
-    bool accepted;
-    bool cancelled;
 }
 
 struct BundledTransferProposal {
@@ -373,8 +367,6 @@ struct BundledTransferProposal {
     uint256 iron;
     uint256 blueprint;
     uint64 expiryTick;
-    bool accepted;
-    bool cancelled;
 }
 
 struct DefenseContribution {
@@ -670,7 +662,7 @@ interface IClanWorldEvents {
         uint32 indexed fromClanId,
         uint32 indexed toClanId,
         uint256 amount,
-        uint256 expiryTick
+        uint64 expiryTick
     );
     event GoldTransferAccepted(
         uint256 indexed proposalId,
@@ -801,7 +793,7 @@ interface IClanWorld is IClanWorldEvents {
     // OTC transfers (clan-to-clan, sender must be ACTIVE per v4.3 §M)
     // -------------------------------------------------------------------------
 
-    function proposeGoldTransfer(uint32 fromClanId, uint32 toClanId, uint256 amount, uint256 expiryTick)
+    function proposeGoldTransfer(uint32 fromClanId, uint32 toClanId, uint256 amount, uint64 expiryTick)
         external
         returns (uint256 proposalId);
 
@@ -846,23 +838,6 @@ interface IClanWorld is IClanWorldEvents {
     function acceptBundledTransfer(uint256 proposalId) external;
 
     function cancelBundledTransfer(uint256 proposalId) external;
-
-    function transferGold(uint32 fromClanId, uint32 toClanId, uint256 amount) external;
-
-    function transferVaultResource(uint32 fromClanId, uint32 toClanId, ResourceType resource, uint256 amount) external;
-
-    function transferBlueprint(uint32 fromClanId, uint32 toClanId, uint256 amount) external;
-
-    function transferBundle(
-        uint32 fromClanId,
-        uint32 toClanId,
-        uint256 gold,
-        uint256 blueprint,
-        uint256 wood,
-        uint256 iron,
-        uint256 wheat,
-        uint256 fish
-    ) external;
 
     // -------------------------------------------------------------------------
     // Raw read getters (committed storage, no settlement simulation)
