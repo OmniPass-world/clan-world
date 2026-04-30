@@ -3408,6 +3408,11 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     }
 
     /// @dev Compute loot value per v4 spec §6.9: wood=1, wheat=1, fish=2, iron=4 points.
+    function _lootValueRaw(Clan storage clan) internal view returns (uint256) {
+        return clan.vaultWood + clan.vaultWheat + clan.vaultFish * 2 + clan.vaultIron * 4;
+    }
+
+    /// @dev Memory overload for derived/simulated clan views (e.g. SettlementSimulation).
     function _lootValueRaw(Clan memory clan) internal pure returns (uint256) {
         return clan.vaultWood + clan.vaultWheat + clan.vaultFish * 2 + clan.vaultIron * 4;
     }
