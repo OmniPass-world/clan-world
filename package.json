@@ -6,7 +6,9 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
+    "gen:chainclient-abi": "node scripts/gen-chainclient-abi.mjs",
     "lint": "turbo run lint",
+    "test:chainclient-abi": "node scripts/gen-chainclient-abi.mjs --check",
     "test": "turbo run test",
     "test:e2e": "playwright test --config apps/web/playwright.config.ts",
     "test:e2e:ui": "playwright test --config apps/web/playwright.config.ts --ui",

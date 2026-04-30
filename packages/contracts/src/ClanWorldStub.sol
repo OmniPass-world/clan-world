@@ -45,12 +45,12 @@ contract ClanWorldStub is IClanWorld {
     TreasuryState private _treasury;
 
     constructor(address[6] memory tokens, address[4] memory pools) {
-        _world.currentTick = 1;
+        _world.currentTick = 0;
         _world.nextHeartbeatAtTs = uint64(block.timestamp);
         _world.seasonStartTick = 0;
         _world.seasonEndTick = ClanWorldConstants.SEASON_DURATION_TICKS;
         _world.currentSeasonNumber = 1;
-        _world.nextHeartbeatAtTick = _world.currentTick + 1;
+        _world.nextHeartbeatAtTick = 1;
         _world.winterStartsAtTick =
             ClanWorldConstants.TICKS_PER_WINTER_CYCLE - ClanWorldConstants.WINTER_DURATION_TICKS;
         _world.winterEndsAtTick = ClanWorldConstants.TICKS_PER_WINTER_CYCLE;
@@ -76,10 +76,13 @@ contract ClanWorldStub is IClanWorld {
     // -------------------------------------------------------------------------
 
     function heartbeat() external override {
+        require(block.timestamp >= _world.nextHeartbeatAtTs, "ClanWorld: heartbeat rate limited");
+
         uint64 closed = _world.currentTick;
+        _world.nextHeartbeatAtTs = uint64(block.timestamp) + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS;
+
         _world.currentTick += 1;
         _world.nextHeartbeatAtTick = _world.currentTick + 1;
-        _world.nextHeartbeatAtTs = uint64(block.timestamp);
         emit TickAdvanced(closed, _world.currentTick, bytes32(0));
     }
 

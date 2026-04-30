@@ -1930,6 +1930,16 @@
               "internalType": "bool"
             },
             {
+              "name": "currentSeasonNumber",
+              "type": "uint64",
+              "internalType": "uint64"
+            },
+            {
+              "name": "nextHeartbeatAtTick",
+              "type": "uint64",
+              "internalType": "uint64"
+            },
+            {
               "name": "winterActive",
               "type": "bool",
               "internalType": "bool"
@@ -2035,6 +2045,16 @@
               "name": "seasonFinalized",
               "type": "bool",
               "internalType": "bool"
+            },
+            {
+              "name": "currentSeasonNumber",
+              "type": "uint64",
+              "internalType": "uint64"
+            },
+            {
+              "name": "nextHeartbeatAtTick",
+              "type": "uint64",
+              "internalType": "uint64"
             },
             {
               "name": "nextHeartbeatAtTs",
