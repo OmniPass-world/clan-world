@@ -163,11 +163,16 @@ class RealChainClient implements IChainClient {
   }
 
   async getClanFullView(clanId: string): Promise<ClanFullView> {
+    // safe as Number: game cap ≤12 clans, well within Number.MAX_SAFE_INTEGER
+    const parsedClanId = Number.parseInt(clanId, 10);
+    if (isNaN(parsedClanId) || String(parsedClanId) !== clanId.trim()) {
+      throw new Error(`getClanFullView: clanId must be a decimal integer, got '${clanId}'`);
+    }
     const result = await this.client.readContract({
       address: this.contractAddress,
       abi: CLAN_WORLD_ABI,
       functionName: 'getClanFullView',
-      args: [parseInt(clanId, 10)],
+      args: [parsedClanId],
     }) as {
       clan: {
         clan: {
