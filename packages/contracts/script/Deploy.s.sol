@@ -8,6 +8,16 @@ import {ClanWorld} from "../src/ClanWorld.sol";
 import {PoolSeedConfig} from "../src/IClanWorld.sol";
 
 contract Deploy is Script {
+    // v4 section 5.11 default pool ratios for the hackathon deployment.
+    uint256 private constant WOOD_POOL_SEED = 1_000e18;
+    uint256 private constant WHEAT_POOL_SEED = 1_000e18;
+    uint256 private constant FISH_POOL_SEED = 500e18;
+    uint256 private constant IRON_POOL_SEED = 250e18;
+    uint256 private constant GOLD_SEED_FOR_WOOD = 500e18;
+    uint256 private constant GOLD_SEED_FOR_WHEAT = 700e18;
+    uint256 private constant GOLD_SEED_FOR_FISH = 600e18;
+    uint256 private constant GOLD_SEED_FOR_IRON = 800e18;
+
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address treasury = vm.addr(deployerPrivateKey);
@@ -50,32 +60,30 @@ contract Deploy is Script {
 
         game.initTreasury(tokens, pools);
 
-        uint256 resSeed = game.INITIAL_RESOURCE_POOL_SEED();
-        uint256 goldSeed = game.INITIAL_GOLD_POOL_SEED();
-        uint256 totalGoldSeed = goldSeed * 4;
+        uint256 totalGoldSeed = GOLD_SEED_FOR_WOOD + GOLD_SEED_FOR_WHEAT + GOLD_SEED_FOR_FISH + GOLD_SEED_FOR_IRON;
 
-        wood.seedTreasury(treasury, resSeed);
-        wheat.seedTreasury(treasury, resSeed);
-        fish.seedTreasury(treasury, resSeed);
-        iron.seedTreasury(treasury, resSeed);
+        wood.seedTreasury(treasury, WOOD_POOL_SEED);
+        wheat.seedTreasury(treasury, WHEAT_POOL_SEED);
+        fish.seedTreasury(treasury, FISH_POOL_SEED);
+        iron.seedTreasury(treasury, IRON_POOL_SEED);
         gold.seedTreasury(treasury, totalGoldSeed);
 
-        wood.approve(address(game), resSeed);
-        wheat.approve(address(game), resSeed);
-        fish.approve(address(game), resSeed);
-        iron.approve(address(game), resSeed);
+        wood.approve(address(game), WOOD_POOL_SEED);
+        wheat.approve(address(game), WHEAT_POOL_SEED);
+        fish.approve(address(game), FISH_POOL_SEED);
+        iron.approve(address(game), IRON_POOL_SEED);
         gold.approve(address(game), totalGoldSeed);
 
         game.seedPools(
             PoolSeedConfig({
-                woodSeed: resSeed,
-                wheatSeed: resSeed,
-                fishSeed: resSeed,
-                ironSeed: resSeed,
-                goldSeedForWood: goldSeed,
-                goldSeedForWheat: goldSeed,
-                goldSeedForFish: goldSeed,
-                goldSeedForIron: goldSeed
+                woodSeed: WOOD_POOL_SEED,
+                wheatSeed: WHEAT_POOL_SEED,
+                fishSeed: FISH_POOL_SEED,
+                ironSeed: IRON_POOL_SEED,
+                goldSeedForWood: GOLD_SEED_FOR_WOOD,
+                goldSeedForWheat: GOLD_SEED_FOR_WHEAT,
+                goldSeedForFish: GOLD_SEED_FOR_FISH,
+                goldSeedForIron: GOLD_SEED_FOR_IRON
             })
         );
 

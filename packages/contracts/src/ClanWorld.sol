@@ -1017,8 +1017,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     ///         Internally settles the entire clan (including upkeep) to guarantee
     ///         correct ordering and prevent double-settlement. Callers may call this
     ///         or settleClan interchangeably; both are safe and idempotent.
-    function settleClansman(uint32 csId) external override nonReentrant {
-        Clansman storage cs = _clansmen[csId];
+    function settleClansman(uint32 clansmanId) external override nonReentrant {
+        Clansman storage cs = _clansmen[clansmanId];
         if (cs.clansmanId == 0) return;
         _settleClan(cs.clanId);
     }
@@ -1088,9 +1088,9 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         // Create 4 clansmen
         for (uint256 i = 0; i < 4; i++) {
-            uint32 csId = _nextClansmanId++;
-            Clansman storage cs = _clansmen[csId];
-            cs.clansmanId = csId;
+            uint32 clansmanId = _nextClansmanId++;
+            Clansman storage cs = _clansmen[clansmanId];
+            cs.clansmanId = clansmanId;
             cs.clanId = clanId;
             cs.state = ClansmanState.WAITING;
             cs.currentRegion = baseRegion;
@@ -1100,7 +1100,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             cs.carryIron = 0;
             cs.carryWheat = 0;
             cs.carryFish = 0;
-            _clanClansmanIds[clanId].push(csId);
+            _clanClansmanIds[clanId].push(clansmanId);
         }
 
         _allClanIds.push(clanId);
@@ -1408,7 +1408,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     }
 
     // =========================================================================
-    // MARKET EXECUTION (Phase 2)
+    // MARKET EXECUTION (Phase 6)
     // =========================================================================
 
     /// @dev Execute the full scheduled market queue for the given tick, then delete it.
@@ -1458,7 +1458,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
                 ) returns (
                     StatusCode marketStatus
                 ) {
-                    marketStatus;
+                    if (marketStatus != StatusCode.OK) continue;
                 } catch {
                     _handleMarketFailure(
                         sma.clanId,
@@ -1475,7 +1475,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
                 ) returns (
                     StatusCode marketStatus
                 ) {
-                    marketStatus;
+                    if (marketStatus != StatusCode.OK) continue;
                 } catch {
                     _handleMarketFailure(
                         sma.clanId,
@@ -1799,7 +1799,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             );
         }
 
-        try StubPool(poolAddr).swapExactInForOut(amount, 1) returns (uint256 goldOut) {
+        try StubPool(poolAddr).swapExactInForOut(amount, 0) returns (uint256 goldOut) {
             clan.goldBalance += goldOut;
             emit ImmediateMarketActionExecuted(
                 clanId,
@@ -1928,7 +1928,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         }
     }
 
-    /// @dev Execute a scheduled market sell: deduct resource from vault, credit gold.
+    /// @dev Execute a scheduled market sell: deduct resource from carry, credit clan gold.
     function _executeMarketSell(uint64 closedTick, uint32 clanId, uint32 clansmanId, address token, uint256 amount)
         internal
         returns (StatusCode)
@@ -1984,7 +1984,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         return StatusCode.OK;
     }
 
-    /// @dev Execute a scheduled market buy: deduct gold from purse, credit resource to vault.
+    /// @dev Execute a scheduled market buy: deduct clan gold, credit resource to carry.
     function _executeMarketBuy(
         uint64 closedTick,
         uint32 clanId,
@@ -2557,9 +2557,9 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         uint32[] storage csIds = _clanClansmanIds[clanId];
         ClansmanFullView[] memory clansmen = new ClansmanFullView[](csIds.length);
         for (uint256 i = 0; i < csIds.length; i++) {
-            uint32 csId = csIds[i];
-            Clansman memory cs = _clansmen[csId];
-            Mission memory m = _missions[csId];
+            uint32 clansmanId = csIds[i];
+            Clansman memory cs = _clansmen[clansmanId];
+            Mission memory m = _missions[clansmanId];
             uint8 effRegion = cs.currentRegion;
             if (cs.state == ClansmanState.TRAVELING && m.active) {
                 effRegion = _world.currentTick >= m.arrivalTick ? m.targetRegion : m.startRegion;
@@ -2656,12 +2656,12 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             uint32 cid = _allClanIds[i];
             uint32[] storage csIds = _clanClansmanIds[cid];
             for (uint256 j = 0; j < csIds.length; j++) {
-                uint32 csId = csIds[j];
-                Clansman storage cs = _clansmen[csId];
+                uint32 clansmanId = csIds[j];
+                Clansman storage cs = _clansmen[clansmanId];
                 if (cs.state != ClansmanState.DEAD && cs.currentRegion == region) {
-                    Mission storage m = _missions[csId];
+                    Mission storage m = _missions[clansmanId];
                     occupants[idx++] = RegionOccupant({
-                        clansmanId: csId,
+                        clansmanId: clansmanId,
                         clanId: cid,
                         state: cs.state,
                         currentAction: m.active ? m.action : ActionType.None,

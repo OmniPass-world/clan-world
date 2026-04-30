@@ -586,7 +586,7 @@ interface IClanWorldEvents {
     // ----- market -----
     event ImmediateMarketActionExecuted(
         uint32 indexed clanId,
-        uint32 csId,
+        uint32 clansmanId,
         ActionType action,
         uint8 resourceIn,
         uint256 amountIn,
@@ -596,7 +596,7 @@ interface IClanWorldEvents {
     );
     event ScheduledMarketActionExecuted(
         uint32 indexed clanId,
-        uint32 csId,
+        uint32 clansmanId,
         ActionType action,
         uint8 resourceIn,
         uint256 amountIn,
@@ -605,7 +605,12 @@ interface IClanWorldEvents {
         uint64 settledAtTick
     );
     event MarketActionFailed(
-        uint32 indexed clanId, uint32 csId, ActionType action, MarketExecutionMode mode, StatusCode reason, uint64 tick
+        uint32 indexed clanId,
+        uint32 clansmanId,
+        ActionType action,
+        MarketExecutionMode mode,
+        StatusCode reason,
+        uint64 tick
     );
     event ScheduledMarketActionCommitted(
         uint64 indexed executeAtTick,
@@ -685,7 +690,7 @@ interface IClanWorld is IClanWorldEvents {
     function settleClan(uint32 clanId) external;
 
     /// @notice Lazily settle a single clansman's mission to current tick. Idempotent.
-    function settleClansman(uint32 csId) external;
+    function settleClansman(uint32 clansmanId) external;
 
     /// @notice Finalize the current season. Permissionless after seasonEndTick.
     function finalizeSeason() external;

@@ -97,7 +97,7 @@ contract StubPool {
     /// @notice Exact-input sell: clan sells amountIn of resource, gets goldOut.
     ///         Legacy alias for Phase 6.1 scheduled-market code.
     function sellResource(uint256 amountIn) external onlyEngine returns (uint256 goldOut) {
-        goldOut = _swapExactInForOut(amountIn, 1);
+        goldOut = _swapExactInForOut(amountIn, 0);
     }
 
     /// @notice Legacy quote alias for exact-output resource buys.
