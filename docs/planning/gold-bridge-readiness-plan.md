@@ -2,7 +2,7 @@
 
 Living plan for getting Solana-canonical GOLD bridged to Base with Wormhole NTT, then replacing ClanWorld's current deployed/native GOLD ERC20 with the Base-side bridged GOLD token.
 
-Last updated: 2026-04-30 05:38 EDT
+Last updated: 2026-04-30 06:25 EDT
 
 ## Goal
 
@@ -13,7 +13,7 @@ Solana GOLD remains the canonical asset. Wormhole NTT locks GOLD on Solana, mint
 - Standalone bridge scaffold: about 70% ready.
 - Bridge token readiness: Base GOLD is now fixed at 9 decimals with the NTT mint/burn/minter surface and ordinary ERC-20 allowance pulls for later ClanWorld compatibility.
 - ClanWorld integration: intentionally deferred. Do not modify existing ClanWorld contracts/scripts/tests until the bridge and token deployment flow are proven.
-- Current phase: testnet deployment prep. Tooling is installed and a local ignored `.env` exists, but real deployment is blocked until the Solana devnet deployer has SOL and the Base Sepolia deployer has ETH.
+- Current phase: testnet deployment proof. Solana devnet GOLD and Solana NTT locking mode are configured; Base Sepolia is blocked until the generated Base deployer has ETH.
 
 ## Phase 1 Execution Plan: Bridge Repo Correctness and Tooling
 
@@ -137,7 +137,7 @@ Findings:
 
 ## Phase 4 Execution Plan: Testnet Bridge Deployment Proof
 
-Status: Blocked on testnet funds
+Status: Blocked on Base Sepolia ETH
 
 Objective: deploy the 9-decimal Base GOLD token, configure Wormhole NTT with Solana locking mode and Base burning mode, then prove tiny transfers in both directions.
 
@@ -160,13 +160,13 @@ Progress:
 - [x] Created ignored throwaway Solana devnet deployer keypair.
 - [x] Created ignored throwaway Base Sepolia deployer wallet.
 - [x] Ran `pnpm doctor` with Foundry/Solana/NTT on PATH; passed.
-- [ ] Fund Solana devnet deployer with SOL.
-- [ ] Create 9-decimal Solana devnet GOLD mint or set `SOLANA_TOKEN_MINT` to an existing mint.
+- [x] Fund Solana devnet deployer with SOL.
+- [x] Create 9-decimal Solana devnet GOLD mint or set `SOLANA_TOKEN_MINT` to an existing mint.
 - [ ] Fund Base Sepolia deployer with ETH.
 - [ ] Run `pnpm deploy:base-token`.
-- [ ] Run `pnpm ntt:init`.
-- [ ] Run `pnpm ntt:overrides`.
-- [ ] Run `pnpm ntt:add-solana`.
+- [x] Run `pnpm ntt:init`.
+- [x] Run `pnpm ntt:overrides`.
+- [x] Run `pnpm ntt:add-solana`.
 - [ ] Run `pnpm ntt:add-base`.
 - [ ] Configure conservative rate limits in `ntt/deployment.json`.
 - [ ] Run `pnpm ntt:push`.
@@ -181,12 +181,21 @@ Current generated test addresses:
 
 - Solana devnet deployer: `BJmjhXs5h6d8o15kK1YppkiJExu6FWBDJyJFUyfp9L2p`
 - Base Sepolia deployer: `0x96E3054A6Bd6b6d8710dE3029D3bA2EbCb930B5D`
+- Solana devnet GOLD mint: `6NLCfbAzMyykwjwifAZr8WRBTPsb8u5s1uAVvGBGGa4r`
+- Solana NTT manager/program: `EQpZrkhQzc68x2qXV9imPstACEGEJJuXTQ8S2fAXpZva`
+- Solana Wormhole transceiver: `Gtim3284zCdputS7dVgugx426Mce323Q7VJwhd46xR2P`
 
 Blockers:
 
-- Solana devnet faucet returned rate-limit errors for `2 SOL` and `0.5 SOL` requests from this host. Current Solana deployer balance is `0 SOL`.
 - Base Sepolia deployer balance is `0`.
-- Without those funds, token mint creation, Base token deployment, NTT deployment, and transfer proofs cannot proceed.
+- Without Base Sepolia ETH, Base token deployment, Base NTT deployment, minter handoff, and transfer proofs cannot proceed.
+
+Findings:
+
+- `ntt new` refuses to run inside an existing git repository. `scripts/02-init-ntt-project.sh` now resolves `NTT_PROJECT_DIR` to an absolute path and scaffolds from the target parent directory, which supports local ignored NTT project directories outside the repo.
+- The local NTT project currently lives outside the worktree at `../../clan-world-gold-bridge-ntt-local` relative to `gold-bridge-monorepo`.
+- NTT's Solana package required Solana CLI `1.18.26` and Anchor CLI `0.29.0`. The deployment flow switched Solana from Agave `3.1.14` to `1.18.26`; Anchor `0.29.0` was installed with AVM.
+- The first Solana NTT build is slow on a fresh host because it compiles the Solana program and test/runtime dependencies before deployment.
 
 ## Component 1: Bridge Repo Correctness and Tooling
 
@@ -383,6 +392,14 @@ Gotchas:
 - 2026-04-30 EDT: Ran `PATH="/home/claude/.local/share/solana/install/active_release/bin:/home/claude/.foundry/bin:$PATH" bash scripts/00-doctor.sh`; passed with `.env` present.
 - 2026-04-30 EDT: Tried Solana devnet airdrops of `2 SOL` and `0.5 SOL`; both failed due faucet rate limits.
 - 2026-04-30 EDT: Checked generated deployer balances; Solana deployer has `0 SOL`, Base Sepolia deployer has `0`.
+- 2026-04-30 EDT: Confirmed user-funded Solana devnet deployer balance: `5 SOL`.
+- 2026-04-30 EDT: Created Solana devnet 9-decimal GOLD mint `6NLCfbAzMyykwjwifAZr8WRBTPsb8u5s1uAVvGBGGa4r`.
+- 2026-04-30 EDT: Created Solana token account `7SPBoxy9LQmFXhE53ksbiZTddrNtJHVTosERFwinTG4d` and minted `1,000,000` devnet GOLD to it.
+- 2026-04-30 EDT: Patched `scripts/02-init-ntt-project.sh` so `ntt new` can scaffold from outside an existing git checkout.
+- 2026-04-30 EDT: Ran `pnpm ntt:init`; created local NTT project outside the repo at `../../clan-world-gold-bridge-ntt-local`.
+- 2026-04-30 EDT: Ran `pnpm ntt:overrides`; wrote RPC overrides.
+- 2026-04-30 EDT: Installed Anchor with AVM and selected `anchor-cli 0.29.0` after NTT reported that exact version requirement.
+- 2026-04-30 EDT: Ran `pnpm ntt:add-solana`; succeeded. Solana locking mode added with manager/program `EQpZrkhQzc68x2qXV9imPstACEGEJJuXTQ8S2fAXpZva` and Wormhole transceiver `Gtim3284zCdputS7dVgugx426Mce323Q7VJwhd46xR2P`.
 
 ## Open Questions
 
