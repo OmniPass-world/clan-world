@@ -716,6 +716,7 @@ These rules apply to ALL contributors on ALL PRs touching facets or LibStorage. 
 
 ### Checklist
 
+- [ ] **No contract-level state variables in facets:** Facets MUST NOT declare any state variables at the contract level (e.g., `uint256 private myVar`). Such declarations occupy Slot 0 of the contract's own storage, but under `delegatecall` they write to the DIAMOND's Slot 0 — which overlaps with `LibDiamond`'s ownership data. All state MUST go through `LibStorage.appStorage()`. The Solidity compiler does NOT warn about this — it is a silent slot collision.
 - [ ] **Storage append-only:** New fields added at END of `AppStorage` only. No mid-struct inserts. No field reordering. (See §Storage Safety.)
 - [ ] **Storage snapshot updated:** If `LibStorage.sol` or any embedded struct is modified, `test/snapshots/storage-layout.json` is regenerated and committed.
 - [ ] **`nonReentrant` on all state-writing externals:** Every `external` function that writes AppStorage state MUST use the `nonReentrant` modifier (backed by `AppStorage.reentrancyStatus`), UNLESS it is an orchestrator entry-point access-controlled by role or address check (e.g., `heartbeat()` which is engine-only). If a facet reads state only (`pure`/`view`), the modifier is not required.
@@ -814,6 +815,21 @@ Both engines returned NEEDS WORK on R1 revision.
 | R2-L2 | LOW | Codex | Delayed Phase 3 heartbeat isolation keeps fragile model during migration | Deferred — acknowledged explicitly in §Heartbeat Failure Model; same failure mode as monolith today |
 | R2-L3 | LOW | Codex + Gemini | Alternatives (minimal dispatcher, logic-only facets, data-first redesign) | Deferred — brief note in §Known Limitations |
 | R2-L4 | LOW | Gemini | `via_ir` retention for per-facet compilation | Deferred — existing Open Question #6 for Liam |
+
+### Round 6 — 2026-04-30 (DA-COMPLETE)
+
+**Engines:** Codex + Gemini Pro (gemini-2.5-pro-preview-05-06)
+
+Both engines returned NEEDS WORK. R6 contained one new concrete doc finding; all other findings were repetition of previously addressed concerns or philosophical opposition to the Diamond/single-AppStorage architectural choice (which is a made decision, documented with explicit tradeoff rationale).
+
+After this round, the DA process is declared complete. All concrete, actionable documentation gaps have been addressed across R1–R6. The remaining engine concerns are architectural preference objections to decisions that have been explicitly made and documented.
+
+**New findings summary:**
+
+| ID | Severity | Engine | Finding | Disposition |
+|---|---|---|---|---|
+| R6-H1 | HIGH | Gemini | Storage pointer shadowing — facet-level contract state variables (e.g., `uint256 private myVar`) collide with Diamond Slot 0 (LibDiamond owner); compiler does not warn | **ADDRESSED** in §Development Invariants — explicit prohibition on contract-level state variables in facets |
+| R6-L1–L12 | LOW | Both | Repeated concerns: AppStorage blast radius, heartbeat reentrancy Option A, via_ir stack limits, timeline optimism, governance aspirational, alternatives, size projections | All previously addressed; no new actionable doc changes |
 
 ### Round 5 — 2026-04-30
 
