@@ -1,0 +1,34 @@
+{
+  "name": "gold-bridge-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.15.4",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "doctor": "bash scripts/00-doctor.sh",
+    "review": "node scripts/review-static.mjs",
+    "deploy:base-token": "bash scripts/03-deploy-base-token.sh",
+    "ntt:install": "bash scripts/01-install-ntt-cli.sh",
+    "ntt:init": "bash scripts/02-init-ntt-project.sh",
+    "ntt:overrides": "bash scripts/04-write-ntt-overrides.sh",
+    "ntt:add-solana": "bash scripts/05-add-solana-locking.sh",
+    "ntt:add-base": "bash scripts/06-add-base-burning.sh",
+    "ntt:addresses": "node scripts/07-print-ntt-addresses.mjs",
+    "base:set-minter": "bash scripts/08-set-base-minter.sh",
+    "web:export-config": "node scripts/09-export-web-config.mjs",
+    "ntt:status": "bash scripts/10-ntt-status.sh",
+    "ntt:push": "bash scripts/11-ntt-push.sh",
+    "ntt:test-transfer": "bash scripts/12-test-transfer.sh",
+    "metrics": "node scripts/13-fetch-metrics.mjs",
+    "web": "pnpm --filter @gold-bridge/web dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test:contracts": "pnpm --filter @gold-bridge/contracts test"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}

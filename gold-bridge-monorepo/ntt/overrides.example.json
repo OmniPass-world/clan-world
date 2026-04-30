@@ -1,0 +1,10 @@
+{
+  "chains": {
+    "Solana": {
+      "rpc": "https://your-solana-rpc.example.com"
+    },
+    "BaseSepolia": {
+      "rpc": "https://sepolia.base.org"
+    }
+  }
+}

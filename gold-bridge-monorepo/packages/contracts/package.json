@@ -1,0 +1,11 @@
+{
+  "name": "@gold-bridge/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "forge build",
+    "clean": "forge clean",
+    "deploy:base-token": "bash ../../scripts/03-deploy-base-token.sh",
+    "test": "forge test"
+  }
+}

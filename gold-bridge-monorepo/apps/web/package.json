@@ -1,0 +1,24 @@
+{
+  "name": "@gold-bridge/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "@wormhole-foundation/wormhole-connect": "^5.1.1",
+    "vite": "^6.2.5",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3",
+    "@types/react": "^19.0.12",
+    "@types/react-dom": "^19.0.4"
+  }
+}

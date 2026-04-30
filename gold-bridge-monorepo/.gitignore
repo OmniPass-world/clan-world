@@ -1,0 +1,16 @@
+node_modules
+.env
+.DS_Store
+dist
+out
+cache
+coverage
+*.log
+artifacts
+broadcast
+apps/web/src/generated/goldDeployment.local.ts
+keys/*.json
+ntt/deployment.json
+ntt/overrides.json
+ntt/cache
+ntt/out
