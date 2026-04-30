@@ -444,6 +444,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         bool starving = !hadEnoughWheat || !hadEnoughFish;
         if (starving && clan.starvationStartsAtTick == 0) {
+            /// @dev Same-tick onset is canonical; see docs/planning/clanworld_v4_6_phase5_economy_alignment.md §5.2.
+            ///      This also makes bandit-defense starvation effects apply on the upkeep-failure tick.
             clan.starvationStartsAtTick = tick;
             emit ClanStarvationChanged(clan.clanId, true, tick);
         } else if (!starving && clan.starvationStartsAtTick != 0) {

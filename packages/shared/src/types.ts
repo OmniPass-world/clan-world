@@ -4,6 +4,9 @@
 
 export type Tick = number;
 
+/** Mirrors ClanWorldConstants.REGION_FOREST in packages/contracts/src/IClanWorld.sol. */
+export const REGION_FOREST = 1;
+
 export interface TickEpoch {
   /** Unix seconds when this tick window started. */
   startedAt: number;
