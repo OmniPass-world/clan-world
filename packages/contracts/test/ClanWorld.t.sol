@@ -6,6 +6,7 @@ import {Vm} from "forge-std/Vm.sol";
 import {ClanWorld} from "../src/ClanWorld.sol";
 import {MinimalERC20} from "../src/MinimalERC20.sol";
 import {StubPool} from "../src/StubPool.sol";
+import {RNG} from "../src/lib/RNG.sol";
 import {
     IClanWorld,
     IClanWorldEvents,
@@ -160,6 +161,13 @@ contract ClanWorldTest is Test {
         }
     }
 
+    function _advanceWorldToTick(ClanWorld target, uint64 targetTick) internal {
+        while (target.getWorldState().currentTick < targetTick) {
+            vm.warp(block.timestamp + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS);
+            target.heartbeat();
+        }
+    }
+
     function _countLogs(Vm.Log[] memory logs, bytes32 eventSig) internal pure returns (uint256 count) {
         for (uint256 i = 0; i < logs.length; i++) {
             if (logs[i].topics.length > 0 && logs[i].topics[0] == eventSig) {
@@ -193,6 +201,32 @@ contract ClanWorldTest is Test {
     function _mintClan() internal returns (uint32 clanId) {
         vm.prank(elder);
         (clanId,) = world.mintClan(elder);
+    }
+
+    function _mintClanOn(ClanWorld target) internal returns (uint32 clanId) {
+        vm.prank(elder);
+        (clanId,) = target.mintClan(elder);
+    }
+
+    function _firstColdDeathAtTick(Vm.Log[] memory logs, uint32 expectedClanId, uint64 expectedTick)
+        internal
+        returns (uint32)
+    {
+        bytes32 eventSig = keccak256("ClansmanColdDeath(uint32,uint32,uint64)");
+        bytes32 expectedClanTopic = bytes32(uint256(expectedClanId));
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].topics.length < 2 || logs[i].topics[0] != eventSig || logs[i].topics[1] != expectedClanTopic) {
+                continue;
+            }
+
+            (uint32 csId, uint64 tick) = abi.decode(logs[i].data, (uint32, uint64));
+            if (tick == expectedTick) {
+                return csId;
+            }
+        }
+
+        fail("expected cold death log at tick");
+        return 0;
     }
 
     function _submitOrder(uint32 clanId, uint32 csId, uint8 gotoRegion, ActionType action)
@@ -2224,6 +2258,54 @@ contract ClanWorldTest is Test {
             }
         }
         assertEq(deadCount, 1, "exactly one stored clansman should be dead");
+    }
+
+    function test_coldDamage_victimIsStableAcrossDelayedSettlement() public {
+        ClanWorldTestHarness immediate = new ClanWorldTestHarness();
+        ClanWorldTestHarness delayed = new ClanWorldTestHarness();
+        uint32 immediateClanId = _mintClanOn(immediate);
+        uint32 delayedClanId = _mintClanOn(delayed);
+        uint64 winterStart = ClanWorldConstants.WINTER_START_TICK;
+
+        _advanceWorldToTick(immediate, winterStart + 1);
+        _advanceWorldToTick(delayed, winterStart + 1);
+
+        uint256 nonce = uint256(keccak256(abi.encodePacked(delayedClanId, winterStart, uint16(2))));
+        uint256 historicalPick = RNG.rngBounded(
+            delayed.getWorldState().currentTickSeed,
+            RNG.DOMAIN_COLD_DAMAGE,
+            nonce,
+            4
+        );
+        for (uint256 attempts = 0; attempts < 64; attempts++) {
+            if (
+                RNG.rngBounded(delayed.getWorldState().currentTickSeed, RNG.DOMAIN_COLD_DAMAGE, nonce, 4)
+                    != historicalPick
+            ) {
+                break;
+            }
+            _advanceWorldToTick(delayed, delayed.getWorldState().currentTick + 1);
+        }
+        assertNotEq(
+            RNG.rngBounded(delayed.getWorldState().currentTickSeed, RNG.DOMAIN_COLD_DAMAGE, nonce, 4),
+            historicalPick,
+            "test setup needs a delayed tick that would alter settlement-time RNG"
+        );
+
+        immediate.setClanUpkeepState(immediateClanId, winterStart, 0, 100e18, 100e18, 1);
+        delayed.setClanUpkeepState(delayedClanId, winterStart, 0, 100e18, 100e18, 1);
+
+        vm.recordLogs();
+        immediate.settleClan(immediateClanId);
+        Vm.Log[] memory immediateLogs = vm.getRecordedLogs();
+        uint32 immediateVictim = _firstColdDeathAtTick(immediateLogs, immediateClanId, winterStart);
+
+        vm.recordLogs();
+        delayed.settleClan(delayedClanId);
+        Vm.Log[] memory delayedLogs = vm.getRecordedLogs();
+        uint32 delayedVictim = _firstColdDeathAtTick(delayedLogs, delayedClanId, winterStart);
+
+        assertEq(delayedVictim, immediateVictim, "cold death victim must use historical tick RNG");
     }
 
     function test_pre_winter_starver_dies_in_winter_at_same_cadence() public {

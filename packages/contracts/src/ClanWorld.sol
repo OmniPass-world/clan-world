@@ -41,6 +41,22 @@ import {StubPool} from "./StubPool.sol";
 import {RNG} from "./lib/RNG.sol";
 import {ReentrancyGuard} from "./util/ReentrancyGuard.sol";
 
+/// @dev Production storage excludes derived winter fields; _worldStateView() synthesizes the public ABI shape.
+struct StoredWorldState {
+    uint64 currentTick;
+    uint64 seasonStartTick;
+    uint64 seasonEndTick;
+    bool seasonFinalized;
+    uint64 currentSeasonNumber;
+    uint64 nextHeartbeatAtTick;
+    uint64 nextHeartbeatAtTs;
+    uint64 nextBanditSpawnEligibleTick;
+    uint16 currentBanditSpawnChanceBps;
+    bytes32 currentTickSeed;
+    uint32 activeBanditId;
+    uint64 nextCommitSequence;
+}
+
 /// @title ClanWorld
 /// @notice Phase 1+2 real engine implementation of IClanWorld v4.
 ///         Implements: world clock, clan lifecycle, lazy settlement, resource gathering,
@@ -51,7 +67,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     // STORAGE
     // =========================================================================
 
-    WorldState private _world;
+    StoredWorldState private _world;
     TreasuryState private _treasury;
 
     mapping(uint32 => Clan) internal _clans;
@@ -93,9 +109,6 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         _world.seasonEndTick = ClanWorldConstants.SEASON_DURATION_TICKS;
         _world.currentSeasonNumber = 1;
         _world.nextHeartbeatAtTick = 1; // first heartbeat will open tick 1
-        _world.winterStartsAtTick = ClanWorldConstants.WINTER_START_TICK;
-        _world.winterEndsAtTick = ClanWorldConstants.WINTER_START_TICK + ClanWorldConstants.WINTER_DURATION_TICKS;
-        _world.winterActive = false;
         _treasury.treasuryOwner = msg.sender;
         _nextClanId = 1;
         _nextClansmanId = 1;
@@ -503,7 +516,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         if (livingCount == 0) return;
 
         uint256 pick = RNG.rngBounded(
-            _world.currentTickSeed,
+            _tickSeeds[tick],
             RNG.DOMAIN_COLD_DAMAGE,
             uint256(keccak256(abi.encodePacked(clan.clanId, tick, coldDamage))),
             livingCount
@@ -1199,7 +1212,18 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     }
 
     function _worldStateView() internal view returns (WorldState memory ws) {
-        ws = _world;
+        ws.currentTick = _world.currentTick;
+        ws.seasonStartTick = _world.seasonStartTick;
+        ws.seasonEndTick = _world.seasonEndTick;
+        ws.seasonFinalized = _world.seasonFinalized;
+        ws.currentSeasonNumber = _world.currentSeasonNumber;
+        ws.nextHeartbeatAtTick = _world.nextHeartbeatAtTick;
+        ws.nextHeartbeatAtTs = _world.nextHeartbeatAtTs;
+        ws.nextBanditSpawnEligibleTick = _world.nextBanditSpawnEligibleTick;
+        ws.currentBanditSpawnChanceBps = _world.currentBanditSpawnChanceBps;
+        ws.currentTickSeed = _world.currentTickSeed;
+        ws.activeBanditId = _world.activeBanditId;
+        ws.nextCommitSequence = _world.nextCommitSequence;
         (ws.winterActive, ws.winterStartsAtTick, ws.winterEndsAtTick) = _winterWindowForTick(_world.currentTick);
     }
 

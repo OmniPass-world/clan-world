@@ -187,7 +187,7 @@ enum StatusCode {
 }
 
 // =============================================================================
-// CORE STATE STRUCTS (raw storage shape)
+// CORE STATE STRUCTS (canonical ABI shape; implementations may derive view-only fields)
 // =============================================================================
 
 struct WorldState {
@@ -204,6 +204,7 @@ struct WorldState {
     bytes32 currentTickSeed;
 
     uint32 activeBanditId; // 0 if none
+    // Derived view fields. ClanWorld.sol intentionally does not store these as source-of-truth.
     bool winterActive;
     uint64 winterStartsAtTick;
     uint64 winterEndsAtTick; // 0 if not active
@@ -619,10 +620,6 @@ interface IClanWorldEvents {
         uint256 wheat,
         uint256 fish
     );
-
-    // ----- winter cold damage -----
-    event ColdDamageApplied(uint32 indexed clanId, uint16 oldDamage, uint16 newDamage, uint64 atTick);
-    event ClansmanDiedFromCold(uint32 indexed clanId, uint64 atTick);
 
     // ----- OTC transfers -----
     event GoldTransferred(uint32 indexed fromClanId, uint32 indexed toClanId, uint256 amount, uint64 atTick);

@@ -9,7 +9,7 @@ library RNG {
     uint256 internal constant DOMAIN_MARKET_NOISE = uint256(keccak256("clanworld.market.noise.v1"));
     uint256 internal constant DOMAIN_WEATHER = uint256(keccak256("clanworld.weather.v1"));
     uint256 internal constant DOMAIN_FAIR_ITERATION = uint256(keccak256("clanworld.fair.iteration.v1"));
-    uint256 internal constant DOMAIN_COLD_DAMAGE = uint256(keccak256("cold_damage"));
+    uint256 internal constant DOMAIN_COLD_DAMAGE = uint256(keccak256("clanworld.cold.damage.v1"));
 
     uint256 internal constant MAX_SHUFFLE_N = 64;
 

@@ -30,7 +30,7 @@ function makeConvex(overrides: Partial<IConvexClient> = {}): IConvexClient {
 function makeChain(overrides: Partial<IChainClient> = {}): IChainClient {
   return {
     getCurrentTick: vi.fn(async () => 0),
-    submitOrders: vi.fn(async () => ({ txHash: '0xdeadbeef' })),
+    submitOrders: vi.fn(async () => ({ txHash: '0xdeadbeef', results: [] })),
     getClanFullView: vi.fn(async (clanId: string) => ({
       clan: { id: clanId, name: `Chain Clan ${clanId}`, treasury: '0' },
       controlledRegions: [],
@@ -95,8 +95,9 @@ describe('clan submit-orders', () => {
       convex: makeConvex(),
       chain,
     });
-    const result = JSON.parse(out) as { txHash: string };
+    const result = JSON.parse(out) as { txHash: string; results: unknown[] };
     expect(result.txHash).toBe('0xdeadbeef');
+    expect(result.results).toEqual([]);
     expect(chain.submitOrders).toHaveBeenCalledWith('1', expect.arrayContaining([expect.objectContaining({ kind: 'mission' })]));
   });
 

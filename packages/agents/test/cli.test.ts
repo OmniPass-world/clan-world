@@ -40,7 +40,7 @@ function makeConvex(overrides: Partial<IConvexClient> = {}): IConvexClient {
 
 function makeChain(overrides: Partial<IChainClient> = {}): IChainClient {
   return {
-    async submitOrders() { return { txHash: '0xdeadbeef' }; },
+    async submitOrders() { return { txHash: '0xdeadbeef', results: [] }; },
     async getCurrentTick(): Promise<Tick> { return 0; },
     async getClanFullView(clanId: string): Promise<ClanFullView> {
       return {

@@ -20,18 +20,25 @@ async function main(): Promise<void> {
   ];
 
   console.error(`[orchestrator] submitting orders for clan-${CLAN_ID}...`);
-  const { txHash } = await chain.submitOrders(CLAN_ID, orders);
-  console.error(`[orchestrator] tx submitted: ${txHash}`);
+  const { txHash, results } = await chain.submitOrders(CLAN_ID, orders);
+  const failedResults = results.filter(result => result.status !== 0);
+  console.error(`[orchestrator] tx submitted: ${txHash}; results=${JSON.stringify(results)}`);
+  if (failedResults.length > 0) {
+    console.error(`[orchestrator] ${failedResults.length} order(s) returned non-OK status`);
+  }
 
   try {
-    await convex.postLog('info', `Elder Aldric (clan-${CLAN_ID}): ChopWood submitted — txHash=${txHash} tick=${tick}`);
+    await convex.postLog(
+      failedResults.length > 0 ? 'warn' : 'info',
+      `Elder Aldric (clan-${CLAN_ID}): ChopWood submitted — txHash=${txHash} tick=${tick} results=${JSON.stringify(results)}`,
+    );
   } catch (err) {
     console.error('[orchestrator] convex log failed (non-fatal):', err);
   }
 
   // Print final JSON summary to stdout
   process.stdout.write(
-    JSON.stringify({ tick, txHash, clan: CLAN_ID, mission: 'ChopWood-Forest' }, null, 2) + '\n',
+    JSON.stringify({ tick, txHash, results, clan: CLAN_ID, mission: 'ChopWood-Forest' }, null, 2) + '\n',
   );
 }
 
