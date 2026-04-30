@@ -4298,10 +4298,10 @@
           "internalType": "uint256"
         },
         {
-          "name": "tick",
-          "type": "uint32",
+          "name": "atTick",
+          "type": "uint64",
           "indexed": false,
-          "internalType": "uint32"
+          "internalType": "uint64"
         }
       ],
       "anonymous": false

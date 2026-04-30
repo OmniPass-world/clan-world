@@ -66,7 +66,7 @@ contract GoldTransferOtcTest is Test {
 
         assertEq(world.getClan(clanA).goldBalance, fromBefore - amount, "from debited");
         assertEq(world.getClan(clanB).goldBalance, toBefore + amount, "to credited");
-        assertTrue(world.getOtcGoldProposal(proposalId).accepted, "proposal accepted");
+        assertEq(world.getOtcGoldProposal(proposalId).from, 0, "proposal deleted");
     }
 
     function test_acceptGoldTransfer_revertsWhenBalanceChangedAfterProposal() public {
@@ -114,8 +114,8 @@ contract GoldTransferOtcTest is Test {
         vm.prank(elderA);
         world.cancelGoldTransfer(proposalId);
 
-        assertTrue(world.getOtcGoldProposal(proposalId).cancelled, "proposal cancelled");
-        vm.expectRevert("ClanWorld: proposal cancelled");
+        assertEq(world.getOtcGoldProposal(proposalId).from, 0, "proposal deleted");
+        vm.expectRevert("ClanWorld: proposal not found");
         vm.prank(elderB);
         world.acceptGoldTransfer(proposalId);
     }
@@ -140,6 +140,50 @@ contract GoldTransferOtcTest is Test {
 
         assertEq(world.getClan(clanB).goldBalance, clanBBefore, "unrelated clan unchanged");
         assertEq(world.getClan(clanC).goldBalance, clanCBefore + 1e18, "target clan credited");
+    }
+
+    function test_proposeGoldTransfer_revertsWhenZeroAmount() public {
+        (uint32 clanA, uint32 clanB,) = _mintThreeClans();
+
+        vm.expectRevert("ERR_ZERO_AMOUNT");
+        _propose(clanA, clanB, 0, 10);
+    }
+
+    function test_proposeGoldTransfer_revertsWhenSelfTransfer() public {
+        (uint32 clanA,,) = _mintThreeClans();
+
+        vm.expectRevert("ERR_SELF_TRANSFER");
+        _propose(clanA, clanA, 1e18, 10);
+    }
+
+    function test_goldTransfer_openProposalCapDecrementsAfterAccept() public {
+        (uint32 clanA, uint32 clanB,) = _mintThreeClans();
+
+        uint256 firstProposalId;
+        uint256 secondProposalId;
+        for (uint256 i = 0; i < world.MAX_OPEN_OTC_PROPOSALS_PER_CLAN(); i++) {
+            uint256 proposalId = _propose(clanA, clanB, 1, 10);
+            if (i == 0) firstProposalId = proposalId;
+            if (i == 1) secondProposalId = proposalId;
+        }
+
+        vm.expectRevert("ERR_OTC_CAP");
+        _propose(clanA, clanB, 1, 10);
+
+        vm.prank(elderB);
+        world.acceptGoldTransfer(firstProposalId);
+
+        uint256 newProposalId = _propose(clanA, clanB, 1, 10);
+        assertGt(newProposalId, firstProposalId, "cap slot reopened after accept");
+
+        vm.expectRevert("ERR_OTC_CAP");
+        _propose(clanA, clanB, 1, 10);
+
+        vm.prank(elderA);
+        world.cancelGoldTransfer(secondProposalId);
+
+        uint256 postCancelProposalId = _propose(clanA, clanB, 1, 10);
+        assertGt(postCancelProposalId, newProposalId, "cap slot reopened after cancel");
     }
 
     function _mintThreeClans() internal returns (uint32 clanA, uint32 clanB, uint32 clanC) {

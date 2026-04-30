@@ -522,7 +522,7 @@ contract ClanWorldTest is Test {
         _advanceTickHarness(harness);
         _advanceTickHarness(harness);
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 depositedTopic = keccak256("ResourcesDeposited(uint32,uint32,uint256,uint256,uint256,uint256,uint32)");
+        bytes32 depositedTopic = keccak256("ResourcesDeposited(uint32,uint32,uint256,uint256,uint256,uint256,uint64)");
 
         for (uint256 i = 0; i < logs.length; i++) {
             assertTrue(logs[i].topics[0] != depositedTopic, "empty deposit emits no ResourcesDeposited event");
