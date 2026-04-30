@@ -159,7 +159,7 @@ contract MonumentUpgradesTest is Test {
 
         _advanceTicks(world.getActionDuration(ActionType.UpgradeMonument));
         vm.expectEmit(true, false, false, true, address(world));
-        emit IClanWorldEvents.MonumentUpgraded(clanId, 1, 1);
+        emit IClanWorldEvents.MonumentLevelChanged(clanId, 0, 1, 1);
         _advanceTick();
 
         assertEq(world.getClanFullView(clanId).clan.clan.monumentLevel, 1, "monument level after settle");

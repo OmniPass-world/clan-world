@@ -848,9 +848,6 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         uint8 old = clan.wallLevel;
         clan.wallLevel = old + 1;
         emit WallLevelChanged(clanId, old, clan.wallLevel, tick);
-        // Phase 8 event ABI uses uint32; season tick horizons are far below this cap.
-        // forge-lint: disable-next-line(unsafe-typecast)
-        emit WallUpgraded(clanId, clan.wallLevel, uint32(tick));
         return true;
     }
 
@@ -887,9 +884,6 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         uint8 old = clan.baseLevel;
         clan.baseLevel = old + 1;
         emit BaseLevelChanged(clanId, old, clan.baseLevel, tick);
-        // Phase 8 event ABI uses uint32; season tick horizons are far below this cap.
-        // forge-lint: disable-next-line(unsafe-typecast)
-        emit BaseUpgraded(clanId, clan.baseLevel, uint32(tick));
         return true;
     }
 
@@ -936,9 +930,6 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         clan.monumentLevel = old + 1;
         recordMonumentReachTick(clanId, clan.monumentLevel, tick);
         emit MonumentLevelChanged(clanId, old, clan.monumentLevel, tick);
-        // Phase 8 event ABI uses uint32; season tick horizons are far below this cap.
-        // forge-lint: disable-next-line(unsafe-typecast)
-        emit MonumentUpgraded(clanId, clan.monumentLevel, uint32(tick));
         return true;
     }
 

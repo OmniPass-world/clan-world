@@ -146,7 +146,7 @@ contract BaseUpgradesTest is Test {
 
         _advanceTicks(world.getActionDuration(ActionType.UpgradeBase));
         vm.expectEmit(true, false, false, true, address(world));
-        emit IClanWorldEvents.BaseUpgraded(clanId, 2, 1);
+        emit IClanWorldEvents.BaseLevelChanged(clanId, 1, 2, 1);
         _advanceTick();
 
         assertEq(world.getClan(clanId).baseLevel, 2, "base level after settle");
