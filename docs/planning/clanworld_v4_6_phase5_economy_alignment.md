@@ -57,7 +57,7 @@ The v4 spec (§3.10) described gathering as a **continuous** action: "resolve ti
 
 ```
 Submit gather order
-  → validation: worker reachable + carry not already full + target region correct
+  → validation: target-region correct (carry-full checked at resolution, not at submit)
   → action stamp: actionStartTick = currentTick, settlesAtTick = currentTick + 4
   → cooldown stamp on submission (A5)
 per tick: _settleMissionForClansman runs
@@ -85,7 +85,7 @@ Deposit is a **single-tick action** per spec §3.10 (unchanged by this addendum)
 
 ### 2.4 Cooldown semantics (A5 unchanged)
 
-Per `clanworld_v4_1_addendum.md` A5 (unchanged): every successful mission submission starts cooldown (`cooldownEndsAtTs`). This applies to gather + deposit. A clansman whose cooldown is active cannot accept a new mission submission. This means the effective gather duty cycle is: **4 ticks ON + cooldown-period OFF per batch**.
+Per `clanworld_v4_1_addendum.md` A5 (unchanged): every successful mission submission starts cooldown (`cooldownEndsAtTs`). This applies to gather + deposit. A clansman whose cooldown is active cannot accept a new mission submission. This means the effective gather duty cycle is: **4 ticks ON + cooldown-period OFF per batch** (≈ 4 ticks ON + 7 ticks OFF at 20s/tick cadence, or 4 ticks ON + 5 ticks OFF at 60s/tick).
 
 ---
 
@@ -95,14 +95,14 @@ Per `clanworld_v4_1_addendum.md` A5 (unchanged): every successful mission submis
 
 | Property | As-built canonical | Source |
 |---|---|---|
-| Base yield per batch | `WOOD_YIELD_PER_TICK × 4 = 1e18 × 4 = 4e18` | `IClanWorld.sol:50, 54`; `ClanWorld.sol:493` |
+| Base yield per batch | `WOOD_YIELD_PER_TICK × 4 = 1e18 × 4 = 4e18` | `IClanWorld.sol:50, 51`; `ClanWorld.sol:493` |
 | Crit chance | `WOOD_CRIT_BPS = 1000` (10%) | `IClanWorld.sol:55` |
 | Crit effect | multiply yield × 2 → **8e18 on crit** | `ClanWorld.sol:495-497` |
 | RNG domain key | `keccak256(abi.encode("wood_crit", tickSeed, clansmanId, missionNonce, tick))` | `ClanWorld.sol:494` |
 | Region | `REGION_FOREST` | — |
 
 **Ratified design decisions:**
-- **Crit shape is ×2 multiplicative** (not +1e18 additive as in v4 §4.7). Rationale: the as-built multiplier is simpler, internally consistent, and already tested. Restoring additive crit is tracked as item #4 in §10.
+- **Crit shape is ×2 multiplicative** (not +1e18 additive as in v4 §4.7). Rationale: the as-built multiplier is simpler, internally consistent, and already tested. Note: v4 §4.7 describes crit as a per-tick additive bonus — in a continuous model this means +1e18 per crit tick; in the batched model the equivalent per-mission interpretation is ambiguous (4 rolls of +1e18 each, or a single roll applied to the whole batch). The ×2 multiplicative shape resolves this ambiguity with a single per-batch roll that is already codified in tests. Restoring additive crit is tracked as item #4 in §10.
 - **Wood yield per tick is 1e18** (half of v4 spec's 2e18). Yield rate drift is a consequence of the batched model: 1e18/tick × 4-tick batch = 4e18 per submission. Restoration to 2e18/tick per spec is tracked as item #2 in §10.
 
 ### 3.2 Iron (Mountains)
@@ -171,7 +171,7 @@ These supersede the carry cap values in `clanworld_v4_spec.md` §4.3 and `clanwo
 | Wheat | 40e18 | **40e18** | `IClanWorld.sol:46` ✅ unchanged |
 | Fish | 8e18 | **8e18** | `IClanWorld.sol:47` ✅ unchanged |
 
-**Ratified design decision:** Wood carry cap is **10e18**, not 15e18. `WOOD_CAP` is aliased to the generic `WOOD_CAP = CLANSMAN_CARRY_CAP` constant (10e18). Restoring to spec's 15e18 is tracked as item #10 in §10.
+**Ratified design decision:** Wood carry cap is **10e18**, not 15e18. `WOOD_CAP` is aliased to the generic `CLANSMAN_CARRY_CAP` constant (10e18). Restoring to spec's 15e18 is tracked as item #10 in §10.
 
 **Carry enforcement mechanics (unchanged from spec):** each gather helper enforces the per-resource cap independently. Yield is clamped to `cap - currentCarry` if it would overflow. If carry is already at cap when resolution fires, the mission terminates immediately (no yield credited). This matches spec §4.8.
 
@@ -198,7 +198,7 @@ Execution order in `_settleClan` (per tick): `_applyUpkeep` → wheat-plot regro
 
 v4 §4.11 states: "If the vault cannot satisfy both wheat and fish demands in full, **starvation status begins on the next tick**." The implementation sets `clan.starvationStartsAtTick = tick` (i.e., the current tick) inside `_applyUpkeep`, and derives `_isStarving = starvationStartsAtTick != 0 && starvationStartsAtTick <= currentTick`. This means `_isStarving == true` at the end of the tick the upkeep fails.
 
-**Rationale for ratifying same-tick:** simpler state derivation; defenders contributing 0 takes effect immediately on the failure tick (cleaner UX for players — starvation is visible at the tick where it happens, not one tick later). Restoration to next-tick semantics is tracked as item #14 in §10.
+**Rationale for ratifying same-tick:** simpler state derivation; defenders contributing 0 takes effect immediately on the failure tick (cleaner UX for players — starvation is visible at the tick where it happens, not one tick later). This also directly affects the bandit combat path: `_resolveBanditAttack` calls `_isStarving` to zero-out defender contribution, so same-tick starvation means a clan that runs out of food mid-attack loses its defense that same tick rather than the next. Restoration to next-tick semantics is tracked as item #14 in §10.
 
 ### 5.3 Starvation effects (unchanged from spec, A10)
 
@@ -257,18 +257,20 @@ Starvation clears in the same `_applyUpkeep` tick where the vault CAN satisfy bo
 
 ---
 
-## 9. Winter mechanics — deferred (Phase 5.6 / Phase 7)
+## 9. Winter mechanics — deferred (Phase 10)
 
-The following winter mechanics are declared in constants but **not wired in the implementation**. They are explicitly out of scope for Phase 5B and will be implemented under Phase 5.6 (starvation upkeep) and Phase 7 (winter season):
+The following winter mechanics are declared in constants but **not wired in the implementation**. They are explicitly out of scope for Phase 5B and will be implemented under Phase 10 (winter / elimination):
 
 | Mechanic | v4 spec rule | Impl status | Constant declared |
 |---|---|---|---|
-| Winter wheat plot lockdown (§7.4) | plots enter `WinterLocked` at winter start; no harvest | NOT IMPLEMENTED — `_gatherWheat` does not check `winterActive`; `WinterLocked` enum value is dead | `WheatPlotState.WinterLocked` in `IClanWorld.sol:125` |
+| Winter wheat plot lockdown (§7.4) | plots enter `WinterLocked` at winter start; no harvest | NOT IMPLEMENTED — `_gatherWheat` does not check `winterActive`; `WinterLocked` enum value is dead | `WheatPlotState.WinterLocked` in `IClanWorld.sol:126` |
 | Winter upkeep 2× (§7.3) | wheat + fish consumption doubles during winter | NOT IMPLEMENTED — `_applyUpkeep` uses flat rate regardless of `winterActive` | `WINTER_UPKEEP_MULTIPLIER_BPS = 20000` in `IClanWorld.sol` (unused) |
 | Winter wood burn (§7.3) | 1e18 wood per base per tick during winter | NOT IMPLEMENTED — `_applyUpkeep` does not touch `vaultWood`; no winter check | `WINTER_WOOD_BURN_PER_BASE = 1e18` in `IClanWorld.sol:71` (unused) |
 | WinterLocked → Regrowing at winter end (v4_2 §7.4) | on winter end, locked plots → Regrowing | NOT IMPLEMENTED | — |
 
 **Behavior during winter (as-built):** Gathering and deposit work exactly as described in §2–§7 above, regardless of whether winter is active. Upkeep rates are flat (non-doubled). Wood burn does not fire.
+
+**Additional vestigial constant:** `WOOD_CRIT_BONUS` (at `IClanWorld.sol:52-54`) is declared but unused — the implementation performs the wood crit inline as a ×2 multiply rather than reading this constant. It is flagged here alongside the unused winter constants as dead code for a future cleanup pass.
 
 ---
 
@@ -281,7 +283,7 @@ The following 14 drift items are tracked for evaluation under the `spec-v4-resto
 | 1 | **Continuous tick-by-tick yield** (§3.10) — gather resolves once per tick, looping until stopped or blocked | Batched: 1 gather submission = 4-tick batch = 1 settlement; mission terminates after each batch | Large — requires reworking the mission lifecycle for gather actions; touches `getActionDuration`, `_resolveAction`, cooldown semantics for continuous actions |
 | 2 | **Wood base yield 2e18/tick** (§4.7) — 2e18 per action tick (with continuous model) | 1e18/tick × 4 = 4e18/batch in batched model | Tiny constant change — but only meaningful after item #1 restores continuous model |
 | 3 | **Wood crit chance 20%** (§4.7) | `WOOD_CRIT_BPS = 1000` (10%) | Tiny — 1 constant |
-| 4 | **Wood crit shape additive +1e18** (§4.7) — crit ADDS +1e18 → total 3e18/tick | Crit DOUBLES yield → 8e18/batch | Small — modify crit branch in `_gatherWood` |
+| 4 | **Wood crit shape additive +1e18** (§4.7) — crit ADDS +1e18 per tick (spec ambiguous on per-tick vs per-mission cadence in batched model) | Crit DOUBLES yield → 8e18/batch | Small — modify crit branch in `_gatherWood` |
 | 5 | **Iron base yield 0.5e18/tick** (§4.7) | 0.125e18/tick × 4 = 0.5e18/batch | Tiny constant — but meaningful only after #1 |
 | 6 | **Iron gold bonus per-tick roll** (§4.7) — roll at every action tick | Rolls once per 4-tick batch call | Small — loop the roll or roll once per tick in continuous model |
 | 7 | **Fish docks 25%/tick × 1e18** (§4.7) | 25% per batch call × 1e18 | Tiny constant — meaningful after #1 |
@@ -293,7 +295,7 @@ The following 14 drift items are tracked for evaluation under the `spec-v4-resto
 | 13 | **Winter wood burn 1e18/base/tick** (§7.3) | Not implemented; `WINTER_WOOD_BURN_PER_BASE = 1e18` declared, unused | Small — add wood burn branch in `_applyUpkeep` when `winterActive` |
 | 14 | **Starvation onset next-tick** (§4.11) — starvation begins on the tick after upkeep failure | Starvation activates same tick as failure (`starvationStartsAtTick = tick`) | Small — change to `starvationStartsAtTick = tick + 1`; audit consumers for off-by-one |
 
-Items 11–13 partially overlap with Phase 5.6 (starvation upkeep) and Phase 7 (winter season) scope. Those phases will address them regardless.
+Items 11–13 partially overlap with Phase 10 (winter / elimination) scope. Those phases will address them regardless.
 
 ---
 
@@ -304,10 +306,10 @@ These supersede the economy-related constants in `clanworld_v4_2_state_schema_in
 | Constant | Spec value (deprecated) | As-built canonical | Source |
 |---|---|---|---|
 | `WOOD_YIELD_PER_TICK` | 2e18 (implied by continuous) | **1e18** | `IClanWorld.sol:50` |
-| `WOOD_CRIT_BONUS` | +1e18 additive | **×2 multiplicative (no separate constant)** | `ClanWorld.sol:495-497` |
+| `WOOD_CRIT_BONUS` | +1e18 additive | **×2 multiplicative (constant declared at `IClanWorld.sol:52-54` but unused by impl; impl does ×2 inline)** | `ClanWorld.sol:495-497` |
 | `WOOD_CRIT_BPS` | 2000 (20%) | **1000 (10%)** | `IClanWorld.sol:55` |
 | `WOOD_CAP` | 15e18 | **10e18 (= `CLANSMAN_CARRY_CAP`)** | `IClanWorld.sol:43-44` |
-| `IRON_YIELD_PER_TICK` | 5e17 (implied by continuous) | **1.25e17** | `IClanWorld.sol:57` |
+| `IRON_YIELD_PER_TICK` | 5e17 (implied by continuous) | **1.25e17** | `IClanWorld.sol:58` |
 | `GOLD_FROM_IRON_BPS` | 200 (2%) | **200 (2%)** ✅ unchanged | `IClanWorld.sol:59` |
 | `GOLD_FROM_IRON_AMOUNT` | 1e18 | **1e18** ✅ unchanged | `IClanWorld.sol:60` |
 | `FISH_DOCKS_BPS` | 2500 (25%) | **2500 (25%)** ✅ unchanged | `IClanWorld.sol:65` |
@@ -319,7 +321,9 @@ These supersede the economy-related constants in `clanworld_v4_2_state_schema_in
 | `FISH_CAP` | 8e18 | **8e18** ✅ unchanged | `IClanWorld.sol:47` |
 | `WHEAT_UPKEEP_PER_CLANSMAN` | 1e18 | **1e18** ✅ unchanged | `IClanWorld.sol:69` |
 | `FISH_UPKEEP_PER_CLANSMAN` | 1e17 | **1e17** ✅ unchanged | `IClanWorld.sol:70` |
-| `WINTER_UPKEEP_MULTIPLIER_BPS` | 20000 (2×) | **20000 (declared, unused — see §9)** | `IClanWorld.sol` |
+| `WHEAT_PLOT_REGROW_TICKS` | 4 | **4** ✅ unchanged | `IClanWorld.sol:75` |
+| `WHEAT_PLOT_STARTING_WHEAT` | 100e18 | **100e18** ✅ unchanged | `IClanWorld.sol:76` |
+| `WINTER_UPKEEP_MULTIPLIER_BPS` | 20000 (2×) | **20000 (declared, unused — see §9)** | `IClanWorld.sol:72` |
 | `WINTER_WOOD_BURN_PER_BASE` | 1e18 | **1e18 (declared, unused — see §9)** | `IClanWorld.sol:71` |
 
 ---
@@ -340,14 +344,16 @@ When running interactive UAT against this contract, **expect the as-built mechan
 - ✅ Winter upkeep doubling NOT active; flat upkeep rates apply year-round
 - ✅ Winter wood burn NOT active
 
+**Aggregate throughput note (for Phase 6 market calibration):** Per-batch gathering + the 60-second cooldown between submissions means effective resource throughput is roughly ¼–⅛ of what a naive reading of the v4 per-tick yield rates would imply. Plan market exchange rates and upgrade costs against per-batch figures, not per-tick spec values.
+
 If a UAT scenario expects v4-spec continuous yields, per-tick rates, or winter lockdown behavior, it will fail against this contract. Use this addendum as the oracle.
 
 ---
 
 ## 13. References
 
-- **Spec-compliance UAT report:** [`docs/reviews/pr193-spec-compliance-uat.md`](../reviews/pr193-spec-compliance-uat.md) — full mechanic-by-mechanic table, test-coverage gap analysis, UAT scenario predictions
-- **Path A precedent (bandit mechanics):** [`docs/planning/clanworld_v4_6_bandit_phase9_redesign.md`](./clanworld_v4_6_bandit_phase9_redesign.md)
+- **Spec-compliance UAT report:** [`docs/reviews/pr193-spec-compliance-uat.md`](../reviews/pr193-spec-compliance-uat.md) — full mechanic-by-mechanic table, test-coverage gap analysis, UAT scenario predictions (in flight: PR #342)
+- **Path A precedent (bandit mechanics):** [`docs/planning/clanworld_v4_6_bandit_phase9_redesign.md`](./clanworld_v4_6_bandit_phase9_redesign.md) (in flight: PR #341)
 - **Source v4 docs being superseded for economy mechanics:**
   - `clanworld_v4_spec.md` §3.10, §4.3–4.13, §7.3–7.5, §12.4–12.5
   - `clanworld_v4_1_addendum.md` A5, A6, A10
