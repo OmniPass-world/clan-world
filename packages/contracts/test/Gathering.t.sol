@@ -131,4 +131,79 @@ contract GatheringTest is Test {
         assertFalse(world.getActiveMission(csId).active, "mission inactive");
         assertGt(cs.cooldownEndsAtTs, block.timestamp, "cooldown starts on settlement");
     }
+
+    // -------------------------------------------------------------------------
+    // Per-tick yield parity tests (H2): confirm per-tick constants × duration
+    // produce the same per-call totals as the old flat yields.
+    // -------------------------------------------------------------------------
+
+    function _submitOrder(uint32 clanId, uint32 csId, uint8 region, ActionType action)
+        internal
+        returns (OrderResult[] memory)
+    {
+        ClanOrder[] memory orders = new ClanOrder[](1);
+        orders[0] = ClanOrder({
+            clansmanId: csId,
+            gotoRegion: region,
+            action: action,
+            targetClanId: 0,
+            marketToken: address(0),
+            marketAmount: 0,
+            maxGoldIn: 0
+        });
+        vm.prank(elder);
+        return world.submitClanOrders(clanId, orders);
+    }
+
+    function _settleOrder(uint32 clanId, uint32 csId, uint8 region, ActionType action)
+        internal
+        returns (Clansman memory)
+    {
+        OrderResult[] memory result = _submitOrder(clanId, csId, region, action);
+        assertEq(uint8(result[0].status), uint8(StatusCode.OK), "order accepted");
+        Mission memory mission = world.getActiveMission(csId);
+        _advanceUntilCurrentTick(mission.settlesAtTick + 1);
+        world.settleClan(clanId);
+        return world.getClansman(csId);
+    }
+
+    // Iron: IRON_YIELD_PER_TICK * duration = IRON_BASE_YIELD = 5e17
+    function test_mineIronYieldsIronBaseYield() public {
+        // Use prevrandao that avoids gold-bonus path (or just check carryIron)
+        vm.prevrandao(bytes32(uint256(1)));
+        uint32 clanId = _mintClan();
+        uint32 csId = _firstCs(clanId);
+
+        Clansman memory cs = _settleOrder(clanId, csId, ClanWorldConstants.REGION_MOUNTAINS, ActionType.MineIron);
+
+        uint256 expectedYield =
+            ClanWorldConstants.IRON_YIELD_PER_TICK * uint256(world.getActionDuration(ActionType.MineIron));
+        assertEq(expectedYield, ClanWorldConstants.IRON_BASE_YIELD, "constant parity: per-tick*duration == base");
+        assertEq(cs.carryIron, expectedYield, "iron yield equals IRON_BASE_YIELD");
+    }
+
+    // Fish (docks): when roll succeeds, yield = FISH_YIELD_PER_TICK * duration = 1e18
+    function test_fishDocksYieldsOneEther_onSuccessfulRoll() public {
+        // prevrandao 1 → fishRoll = keccak256("fish_roll",...) % 10000 < 2500 (25%)
+        // Try multiple seeds until we get a hit
+        uint256 cleanState = vm.snapshotState();
+        bool hit = false;
+        for (uint256 seed = 1; seed < 100; seed++) {
+            vm.revertToState(cleanState);
+            vm.prevrandao(bytes32(seed));
+            uint32 clanId = _mintClan();
+            uint32 csId = _firstCs(clanId);
+            Clansman memory cs =
+                _settleOrder(clanId, csId, ClanWorldConstants.REGION_WEST_DOCKS, ActionType.FishDocks);
+            if (cs.carryFish > 0) {
+                uint256 expectedYield =
+                    ClanWorldConstants.FISH_YIELD_PER_TICK * uint256(world.getActionDuration(ActionType.FishDocks));
+                assertEq(expectedYield, 1e18, "constant parity: per-tick*duration == 1e18");
+                assertEq(cs.carryFish, expectedYield, "fish docks yield equals 1e18 on success");
+                hit = true;
+                break;
+            }
+        }
+        assertTrue(hit, "did not get a fish roll hit in 100 seeds");
+    }
 }
