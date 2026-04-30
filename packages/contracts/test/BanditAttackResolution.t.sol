@@ -25,6 +25,12 @@ contract BanditAttackHarness is ClanWorld {
         _bandits[id].targetClanId = targetClanId;
     }
 
+    function forceBanditAttackAttempt(uint32 banditId, uint32 targetClanId) external {
+        _bandits[banditId].state = BanditState.Attacking;
+        _bandits[banditId].targetClanId = targetClanId;
+        _bandits[banditId].tickEnteredState = _world.currentTick;
+    }
+
     function setWallLevel(uint32 clanId, uint8 wallLevel) external {
         _clans[clanId].wallLevel = wallLevel;
     }
@@ -581,6 +587,28 @@ contract BanditAttackResolutionTest is Test {
 
         assertEq(world.getClan(clanId).blueprintBalance, blueprintBefore, "blueprint unchanged");
         assertEq(uint8(world.getBandit(banditId).state), uint8(BanditState.Escaped), "bandit escaped");
+    }
+
+    function test_sixthFailedAttackTerminallyEscapesAndBurnsCarry() public {
+        uint32 clanId = _mintClan();
+        uint32 banditId = _forceAttack(clanId, 1);
+        world.setBanditCarry(banditId, 100e18, 100e18, 100e18, 100e18, 100e18);
+
+        for (uint8 attempt = 1; attempt <= ClanWorldConstants.BANDIT_MAX_ATTACK_ATTEMPTS; attempt++) {
+            world.setWallLevel(clanId, 1);
+            world.forceBanditAttackAttempt(banditId, clanId);
+            _advanceTick();
+
+            if (attempt < ClanWorldConstants.BANDIT_MAX_ATTACK_ATTEMPTS) {
+                assertEq(world.getBandit(banditId).id, banditId, "bandit remains before cap");
+                assertEq(world.getBandit(banditId).attackAttemptsMade, attempt, "attempt counted");
+                assertEq(uint8(world.getBandit(banditId).state), uint8(BanditState.Escaped), "nonterminal escape");
+            }
+        }
+
+        assertEq(world.getBandit(banditId).id, 0, "bandit deleted at attempt cap");
+        assertEq(uint8(world.getBandit(banditId).state), uint8(BanditState.None), "terminal escape removed troop");
+        assertEq(world.getBandit(banditId).carryWood, 0, "carry burned with deletion");
     }
 
     function test_twoAliveDefendersWithSufficientDefenseDefeatBanditWithoutWallChip() public {

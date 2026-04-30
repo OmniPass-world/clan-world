@@ -86,12 +86,11 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     /// @dev Caps market queue work per heartbeat; overflow is deferred to the next tick.
     uint256 public constant MAX_MARKET_ACTIONS_PER_TICK = 32;
     uint256 internal constant DOMAIN_BANDIT_SPAWN = uint256(keccak256("clanworld.bandit.spawn.v1"));
-    uint256 internal constant DOMAIN_BANDIT_TARGET_PICK = uint256(keccak256("bandit_target_pick"));
     uint64 internal constant MIN_SPAWN_COOLDOWN_TICKS = ClanWorldConstants.BANDIT_COOLDOWN_TICKS;
     uint16 internal constant BANDIT_SPAWN_PROBABILITY_INCREMENT_BPS = 1000;
     uint16 internal constant BANDIT_SPAWN_MAX_PROBABILITY_BPS = 8000;
-    uint8 internal constant MAX_BANDITS_PER_REGION = 3;
-    uint8 internal constant MAX_TOTAL_BANDITS = 8;
+    uint8 internal constant MAX_BANDITS_PER_REGION = 1;
+    uint8 internal constant MAX_TOTAL_BANDITS = 1;
     uint8 internal constant MAX_CLANS = 12;
     /// @dev Bandit spawn weights are a heartbeat-time heuristic. V1 has
     ///      MAX_CLANS = 12, so scanning 8 clans per tick covers the live cap in
@@ -105,8 +104,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     uint256 internal constant MAX_BANDIT_EAGER_SETTLE_BASE_SCAN_PER_REGION = 12;
     uint256 internal constant MAX_BANDIT_EAGER_SETTLE_DEFENDING_CLANS_PER_REGION = 12;
     uint256 internal constant MAX_BANDIT_EAGER_SETTLE_DEFENDER_SCAN_PER_REGION = 48;
-    uint32 internal constant MIN_BANDIT_SPAWN_STRENGTH = 100;
-    uint32 internal constant BANDIT_SPAWN_STRENGTH_SPREAD = 151;
+    uint8 internal constant BANDIT_TIER_COUNT = 5;
     uint32 internal constant CLANSMAN_MAX_DEFENSE_DAMAGE = 100;
     uint32 internal constant WALL_HP_PER_LEVEL = 100;
     uint32 internal constant BASE_HP_PER_LEVEL = 25;
@@ -1528,6 +1526,10 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     // =========================================================================
 
     function _spawnBandit(uint8 region, uint32 strength) internal returns (uint32 id) {
+        return _spawnBandit(region, _tierForBanditAttackPower(strength), strength);
+    }
+
+    function _spawnBandit(uint8 region, uint8 tier, uint32 strength) internal returns (uint32 id) {
         require(
             region >= ClanWorldConstants.REGION_FOREST && region <= ClanWorldConstants.REGION_DEEP_SEA,
             "ClanWorld: invalid bandit region"
@@ -1542,6 +1544,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             targetClanId: 0,
             tickEnteredState: _world.currentTick,
             strength: strength,
+            tier: tier,
+            attackAttemptsMade: 0,
             carryWood: 0,
             carryIron: 0,
             carryWheat: 0,
@@ -1559,7 +1563,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             _world.activeBanditId = id;
         }
 
-        emit BanditSpawned(id, region, 0, _banditStrengthForLegacyEvent(strength));
+        emit BanditSpawned(id, region, tier, _banditStrengthForLegacyEvent(strength));
     }
 
     function _transitionBanditToAttacking(uint32 id, uint32 targetClanId) internal {
@@ -1647,8 +1651,20 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         }
     }
 
+    function _terminalEscapeBandit(uint32 id, uint64 closedTick) internal {
+        BanditTroop storage bandit = _bandits[id];
+        if (bandit.id == ClanWorldConstants.BANDIT_ID_NULL) {
+            return;
+        }
+
+        BanditState oldState = bandit.state;
+        emit BanditStateChanged(id, oldState, BanditState.Escaped, bandit.region, _world.currentTick);
+        emit BanditEscaped(id, closedTick);
+        _deleteBandit(id);
+    }
+
     function _findOldestActiveBandit() internal view returns (uint32 oldestBanditId) {
-        // V1 caps live troops at MAX_TOTAL_BANDITS = 8, so scanning the region
+        // V1 caps live troops at MAX_TOTAL_BANDITS = 1, so scanning the region
         // indexes is bounded even though storage mappings cannot be enumerated.
         for (uint8 region = ClanWorldConstants.REGION_FOREST; region <= ClanWorldConstants.REGION_DEEP_SEA; region++) {
             uint32[] storage regionBandits = _banditsByRegion[region];
@@ -1701,8 +1717,6 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     }
 
     function _pickBanditAttackTarget(BanditTroop storage bandit) internal view returns (uint32 targetClanId) {
-        uint32[MAX_CLANS] memory tiedClanIds;
-        uint256 tiedCount;
         uint256 bestLootValue;
 
         for (uint256 i = 0; i < _allClanIds.length; i++) {
@@ -1713,25 +1727,13 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             }
 
             uint256 lootValue = _lootValueRaw(clan);
-            if (tiedCount == 0 || lootValue > bestLootValue) {
+            if (targetClanId == ClanWorldConstants.CLAN_ID_NULL || lootValue > bestLootValue) {
                 bestLootValue = lootValue;
-                tiedClanIds[0] = clanId;
-                tiedCount = 1;
-            } else if (lootValue == bestLootValue) {
-                tiedClanIds[tiedCount] = clanId;
-                tiedCount++;
+                targetClanId = clanId;
+            } else if (lootValue == bestLootValue && clanId < targetClanId) {
+                targetClanId = clanId;
             }
         }
-
-        if (tiedCount == 0) {
-            return ClanWorldConstants.CLAN_ID_NULL;
-        }
-        if (tiedCount == 1) {
-            return tiedClanIds[0];
-        }
-
-        uint256 selected = RNG.rngBounded(_world.currentTickSeed, DOMAIN_BANDIT_TARGET_PICK, bandit.id, tiedCount);
-        return tiedClanIds[selected];
     }
 
     function _banditStrengthForLegacyEvent(uint32 strength) internal pure returns (uint16) {
@@ -1798,6 +1800,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
 
         bytes32 tickSeed = _world.currentTickSeed;
         uint32 banditAttackPower = bandit.strength;
+        bandit.attackAttemptsMade += 1;
         uint32 totalClansmanDefense = _totalBanditClansmanDefense(banditId, targetClanId, tickSeed);
         bool defeated = uint256(totalClansmanDefense) >= uint256(banditAttackPower) * 2;
 
@@ -1835,8 +1838,12 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             emit BlueprintEarned(targetClanId, banditId, BLUEPRINT_UNIT, closedTick);
             _transitionBanditState(banditId, BanditState.Defeated);
         } else {
-            _transitionBanditState(banditId, BanditState.Escaped);
-            emit BanditEscaped(banditId, closedTick);
+            if (bandit.attackAttemptsMade >= ClanWorldConstants.BANDIT_MAX_ATTACK_ATTEMPTS) {
+                _terminalEscapeBandit(banditId, closedTick);
+            } else {
+                _transitionBanditState(banditId, BanditState.Escaped);
+                emit BanditEscaped(banditId, closedTick);
+            }
         }
     }
 
@@ -2107,7 +2114,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         if (selectedRegion != ClanWorldConstants.REGION_NOOP) {
             // _spawnBandit resets only the selected region's accumulator; other
             // eligible regions retain their accumulated pressure for later ticks.
-            _spawnBandit(selectedRegion, _banditSpawnStrength(tickSeed, selectedRegion));
+            uint8 tier = _banditSpawnTier(tickSeed, selectedRegion);
+            _spawnBandit(selectedRegion, tier, getBanditAttackPower(tier));
         }
 
         _refreshBanditSpawnWorldPreview(regionWeights);
@@ -2146,11 +2154,29 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
         return uint8(selected + 1);
     }
 
-    function _banditSpawnStrength(bytes32 tickSeed, uint8 region) internal pure returns (uint32) {
-        uint256 nonce = uint256(keccak256(abi.encodePacked("bandit_spawn_strength", region)));
-        uint256 roll = RNG.rngBounded(tickSeed, DOMAIN_BANDIT_SPAWN, nonce, BANDIT_SPAWN_STRENGTH_SPREAD);
+    function _banditSpawnTier(bytes32 tickSeed, uint8 region) internal pure returns (uint8) {
+        uint256 nonce = uint256(keccak256(abi.encodePacked("bandit_spawn_tier", region)));
+        uint256 roll = RNG.rngBounded(tickSeed, DOMAIN_BANDIT_SPAWN, nonce, BANDIT_TIER_COUNT);
         // forge-lint: disable-next-line(unsafe-typecast)
-        return MIN_BANDIT_SPAWN_STRENGTH + uint32(roll);
+        return uint8(roll + 1);
+    }
+
+    function getBanditAttackPower(uint8 tier) internal pure returns (uint16) {
+        if (tier == 1) return 30;
+        if (tier == 2) return 45;
+        if (tier == 3) return 60;
+        if (tier == 4) return 80;
+        if (tier == 5) return 95;
+        return 0;
+    }
+
+    function _tierForBanditAttackPower(uint32 attackPower) internal pure returns (uint8) {
+        if (attackPower == 30) return 1;
+        if (attackPower == 45) return 2;
+        if (attackPower == 60) return 3;
+        if (attackPower == 80) return 4;
+        if (attackPower == 95) return 5;
+        return 0;
     }
 
     function _eagerSettleForBandits(uint64 closedTick) internal {
@@ -3266,6 +3292,8 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
                 targetClanId: 0,
                 tickEnteredState: 0,
                 strength: 0,
+                tier: 0,
+                attackAttemptsMade: 0,
                 carryWood: 0,
                 carryIron: 0,
                 carryWheat: 0,
@@ -3552,6 +3580,7 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
     function getActiveBanditView() external view override returns (ActiveBanditView memory) {
         BanditTroop memory bandit = _bandits[_world.activeBanditId];
         uint64 nextActionTick = 0;
+        uint8 maxAttemptsRemaining = 0;
         bool exists = bandit.id != ClanWorldConstants.BANDIT_ID_NULL && bandit.state != BanditState.None;
         if (exists) {
             if (bandit.state == BanditState.Spawned) {
@@ -3561,6 +3590,9 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             } else if (bandit.state == BanditState.Resting) {
                 nextActionTick = bandit.tickEnteredState + ClanWorldConstants.BANDIT_REST_TICKS;
             }
+            if (bandit.attackAttemptsMade < ClanWorldConstants.BANDIT_MAX_ATTACK_ATTEMPTS) {
+                maxAttemptsRemaining = ClanWorldConstants.BANDIT_MAX_ATTACK_ATTEMPTS - bandit.attackAttemptsMade;
+            }
         }
 
         return ActiveBanditView({
@@ -3568,11 +3600,11 @@ contract ClanWorld is IClanWorld, ReentrancyGuard {
             banditId: bandit.id,
             state: bandit.state,
             currentRegion: bandit.region,
-            attackAttemptsMade: 0,
-            maxAttemptsRemaining: 0,
+            attackAttemptsMade: bandit.attackAttemptsMade,
+            maxAttemptsRemaining: maxAttemptsRemaining,
             stateEnteredTick: bandit.tickEnteredState,
             nextActionTick: nextActionTick,
-            tier: 0,
+            tier: bandit.tier,
             attackPower: _banditStrengthForLegacyEvent(bandit.strength),
             carryWood: bandit.carryWood,
             carryIron: bandit.carryIron,

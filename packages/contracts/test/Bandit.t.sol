@@ -59,6 +59,8 @@ contract BanditTest is Test {
         assertEq(bandit.targetClanId, 0, "no target while spawned");
         assertEq(bandit.tickEnteredState, world.getWorldState().currentTick, "entered tick");
         assertEq(bandit.strength, 250, "strength");
+        assertEq(bandit.tier, 0, "custom strength has no v4 tier");
+        assertEq(bandit.attackAttemptsMade, 0, "no attacks yet");
 
         uint32[] memory regionBandits = world.getBanditsInRegion(ClanWorldConstants.REGION_MOUNTAINS);
         assertEq(regionBandits.length, 1, "region index length");

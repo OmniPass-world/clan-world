@@ -307,6 +307,8 @@ struct BanditTroop {
     uint32 targetClanId; // 0 if not attacking
     uint64 tickEnteredState;
     uint32 strength; // hp / combat power
+    uint8 tier;
+    uint8 attackAttemptsMade;
     uint256 carryWood;
     uint256 carryIron;
     uint256 carryWheat;
