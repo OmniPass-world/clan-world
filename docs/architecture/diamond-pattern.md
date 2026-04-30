@@ -111,7 +111,20 @@ Logic that is stateless or has no external-call risk moves into a `library` (e.g
 - Market execution loop: Pattern B — `_executeScheduledMarketActions` becomes an external selector on MarketFacet, called from heartbeat via `IClanWorld(address(this))`
 - State-reading shared logic (`_poolReserves`): Pattern A — move to `LibMarket` (pure computation against treasury state)
 
-**Note:** Functions in Pattern A (library) do NOT appear in the Diamond's selector table. Functions in Pattern B (external self-calls) DO appear as selectors and can be called by anyone unless access-controlled. All Pattern B functions that modify state must be access-controlled to `address(this)` only.
+**Pattern B access control:** Functions in Pattern A (library) do NOT appear in the Diamond's selector table. Functions in Pattern B (external self-calls) DO appear as selectors and can be called by any external caller unless explicitly guarded. Access control for Pattern B internal-orchestration functions:
+
+```solidity
+// All Pattern B "internal-only" selectors MUST enforce this guard:
+modifier onlyDiamond() {
+    require(msg.sender == address(this), "ClanWorld: only diamond");
+    _;
+}
+
+// e.g., in MarketFacet:
+function _executeScheduledMarketActions(uint64 tick) external onlyDiamond { ... }
+```
+
+`msg.sender == address(this)` is the correct guard here because: (1) under `delegatecall`, `address(this)` is the Diamond proxy; (2) only calls routed through the proxy have `msg.sender == proxy`; (3) external callers cannot spoof `msg.sender` as the proxy address. This provides real access control — not just any facet, but specifically the proxy itself initiating the call via the heartbeat execution path.
 
 ### Function assignment by facet
 
@@ -385,7 +398,11 @@ Even "harmless" reordering (swapping two adjacent fields of the same type) chang
 
 Rule 1 says "append to `AppStorage`." Rule 4 extends this: the same append-only constraint applies to **all structs nested inside `AppStorage`**, including `WorldState`, `TreasuryState`, `Clan`, `Clansman`, `Mission`, and `WheatPlot`.
 
-Adding a field inside `WorldState` shifts the storage slots of every `AppStorage` field that comes after it, just as if you had inserted a field in `AppStorage` directly. The snapshot check covers this: `forge inspect` reports the full recursive layout, so any nested-struct change shows up as a diff.
+Adding a field inside `WorldState` shifts the storage slots of every `AppStorage` field that comes after it, just as if you had inserted a field in `AppStorage` directly.
+
+**Special case: structs used as mapping values.** `AppStorage` contains `mapping(uint32 => Clan) clans`. Adding a field at the END of the `Clan` struct is safe on already-deployed data ONLY because mapping slot calculation is `keccak256(key . mappingSlot)` — each Clan's base slot is computed independently, and new fields land at `base + N` (extending beyond existing fields). This is safe for append-only. However, INSERTING a field in the middle of `Clan` shifts the position of every existing field within every Clan instance — this is catastrophic data corruption. The append-only rule applies equally to value-type structs inside mappings.
+
+The snapshot check covers nested structs: `forge inspect CoreFacet storageLayout` reports the full recursive layout, so any nested-struct change shows up as a diff.
 
 ### Stack depth mitigation for large AppStorage
 
@@ -787,6 +804,23 @@ Both engines returned NEEDS WORK on R1 revision.
 | R2-L2 | LOW | Codex | Delayed Phase 3 heartbeat isolation keeps fragile model during migration | Deferred — acknowledged explicitly in §Heartbeat Failure Model; same failure mode as monolith today |
 | R2-L3 | LOW | Codex + Gemini | Alternatives (minimal dispatcher, logic-only facets, data-first redesign) | Deferred — brief note in §Known Limitations |
 | R2-L4 | LOW | Gemini | `via_ir` retention for per-facet compilation | Deferred — existing Open Question #6 for Liam |
+
+### Round 4 — 2026-04-30
+
+**Engines:** Codex + Gemini Pro (gemini-2.5-pro-preview-05-06)
+
+Both engines returned NEEDS WORK but R4 findings were primarily:
+- Philosophical opposition to single AppStorage (architectural preference, not doc gap — decision is documented with rationale in §4)
+- Repetition of previously-addressed concerns (stack depth, timeline, alternatives)
+- Two new concrete doc fixes
+
+**New findings summary:**
+
+| ID | Severity | Engine | Finding | Disposition |
+|---|---|---|---|---|
+| R4-H1 | MED | Gemini | Struct-in-mapping slot concern — unclear if appending to `Clan` struct is safe for deployed mapping data | **ADDRESSED** in §Storage Safety Rule 4 — clarified that appending to mapping-value structs IS safe (base slot independent); inserting mid-struct is NOT safe (same rule as always) |
+| R4-H2 | MED | Codex | Pattern B `msg.sender == address(this)` "not real authorization" — any facet could call it | **ADDRESSED** in §Facet Boundaries — `onlyDiamond()` modifier defined and explained; clarification that `msg.sender == proxy` requires the call to route through the proxy, which is genuine access control |
+| R4-L1–L8 | LOW | Both | Repeated concerns: single AppStorage blast radius, heartbeat brittleness, timeline optimism, alternatives, governance implementation, library bytecode duplication | All previously addressed or deferred; no new actionable doc changes |
 
 ### Round 3 — 2026-04-30
 
