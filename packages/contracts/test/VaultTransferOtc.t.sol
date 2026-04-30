@@ -79,7 +79,6 @@ contract VaultTransferOtcTest is Test {
         assertEq(proposal.wheat, 16e18, "proposal wheat");
         assertEq(proposal.fish, 2e18, "proposal fish");
         assertEq(proposal.iron, 3e18, "proposal iron");
-        assertFalse(proposal.accepted, "proposal not accepted");
 
         vm.expectEmit(true, true, true, true, address(world));
         emit VaultTransferAccepted(
@@ -203,6 +202,19 @@ contract VaultTransferOtcTest is Test {
         assertEq(world.getClan(clanB).vaultWood, 5e18, "target credited from settled deposit");
     }
 
+    function test_acceptVaultTransfer_revertsWhenClanStaleByOver200Ticks() public {
+        (uint32 clanA, uint32 clanB,) = _mintThreeClans();
+        world.setVault(clanA, 100e18, 1_100e18, 110e18, 100e18);
+        world.setVault(clanB, 100e18, 1_100e18, 110e18, 100e18);
+        uint256 proposalId = _propose(clanA, clanB, 1e18, 0, 0, 0, 300);
+
+        _advanceTicks(250);
+
+        vm.expectRevert("ClanWorld: must settle first");
+        vm.prank(elderB);
+        world.acceptVaultTransfer(proposalId);
+    }
+
     function test_vaultTransfer_twoClanNoInterference() public {
         (uint32 clanA, uint32 clanB, uint32 clanC) = _mintThreeClans();
         world.setVault(clanA, 100e18, 100e18, 100e18, 100e18);
@@ -278,5 +290,11 @@ contract VaultTransferOtcTest is Test {
     function _advanceTick() internal {
         vm.warp(block.timestamp + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS);
         world.heartbeat();
+    }
+
+    function _advanceTicks(uint64 ticks) internal {
+        for (uint64 i = 0; i < ticks; i++) {
+            _advanceTick();
+        }
     }
 }

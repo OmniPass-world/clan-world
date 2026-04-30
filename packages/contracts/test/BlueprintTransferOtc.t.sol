@@ -52,8 +52,6 @@ contract BlueprintTransferOtcTest is Test {
         assertEq(proposal.to, clanB, "proposal to");
         assertEq(proposal.amount, amount, "proposal amount");
         assertEq(proposal.expiryTick, 10, "proposal expiry");
-        assertFalse(proposal.accepted, "proposal not accepted");
-        assertFalse(proposal.cancelled, "proposal not cancelled");
 
         vm.expectEmit(true, true, true, true, address(world));
         emit BlueprintTransferAccepted(proposalId, clanA, clanB, amount, world.getWorldState().currentTick);

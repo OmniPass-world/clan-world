@@ -11,7 +11,7 @@ contract GoldTransferOtcTest is Test {
         uint32 indexed fromClanId,
         uint32 indexed toClanId,
         uint256 amount,
-        uint256 expiryTick
+        uint64 expiryTick
     );
     event GoldTransferAccepted(
         uint256 indexed proposalId,
@@ -34,7 +34,7 @@ contract GoldTransferOtcTest is Test {
     function test_proposeGoldTransfer_storesProposalAndEmits() public {
         (uint32 clanA, uint32 clanB,) = _mintThreeClans();
         uint256 amount = 1e18;
-        uint256 expiryTick = 10;
+        uint64 expiryTick = 10;
 
         vm.expectEmit(true, true, true, true, address(world));
         emit GoldTransferProposed(1, clanA, clanB, amount, expiryTick);
@@ -46,9 +46,7 @@ contract GoldTransferOtcTest is Test {
         assertEq(proposal.from, clanA, "proposal from");
         assertEq(proposal.to, clanB, "proposal to");
         assertEq(proposal.amount, amount, "proposal amount");
-        assertEq(proposal.expiryTick, uint64(expiryTick), "proposal expiry");
-        assertFalse(proposal.accepted, "proposal not accepted");
-        assertFalse(proposal.cancelled, "proposal not cancelled");
+        assertEq(proposal.expiryTick, expiryTick, "proposal expiry");
     }
 
     function test_acceptGoldTransfer_transfersAtomicallyAndEmits() public {
@@ -186,6 +184,23 @@ contract GoldTransferOtcTest is Test {
         assertGt(postCancelProposalId, newProposalId, "cap slot reopened after cancel");
     }
 
+    function test_goldTransfer_expiredProposalsDoNotConsumeCap() public {
+        (uint32 clanA, uint32 clanB,) = _mintThreeClans();
+
+        uint64 expiryTick = world.getWorldState().currentTick + 10;
+        for (uint256 i = 0; i < world.MAX_OPEN_OTC_PROPOSALS_PER_CLAN(); i++) {
+            _propose(clanA, clanB, 1, expiryTick);
+        }
+
+        vm.expectRevert("ERR_OTC_CAP");
+        _propose(clanA, clanB, 1, expiryTick);
+
+        _advanceTicks(11);
+
+        uint256 newProposalId = _propose(clanA, clanB, 1, world.getWorldState().currentTick + 10);
+        assertGt(newProposalId, world.MAX_OPEN_OTC_PROPOSALS_PER_CLAN(), "expired slots reaped on propose");
+    }
+
     function _mintThreeClans() internal returns (uint32 clanA, uint32 clanB, uint32 clanC) {
         vm.prank(elderA);
         (clanA,) = world.mintClan(elderA);
@@ -199,7 +214,7 @@ contract GoldTransferOtcTest is Test {
         assertEq(uint8(world.getClan(clanC).clanState), uint8(ClanState.ACTIVE), "clan C alive");
     }
 
-    function _propose(uint32 fromClanId, uint32 toClanId, uint256 amount, uint256 expiryTick)
+    function _propose(uint32 fromClanId, uint32 toClanId, uint256 amount, uint64 expiryTick)
         internal
         returns (uint256 proposalId)
     {
@@ -210,5 +225,11 @@ contract GoldTransferOtcTest is Test {
     function _advanceTick() internal {
         vm.warp(block.timestamp + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS);
         world.heartbeat();
+    }
+
+    function _advanceTicks(uint64 ticks) internal {
+        for (uint64 i = 0; i < ticks; i++) {
+            _advanceTick();
+        }
     }
 }

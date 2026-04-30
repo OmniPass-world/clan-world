@@ -79,8 +79,6 @@ contract BundledTransferOtcTest is Test {
         assertEq(proposal.iron, 5e18, "proposal iron");
         assertEq(proposal.blueprint, 4e18, "proposal blueprint");
         assertEq(proposal.expiryTick, 10, "proposal expiry");
-        assertFalse(proposal.accepted, "proposal not accepted");
-        assertFalse(proposal.cancelled, "proposal not cancelled");
 
         vm.expectEmit(true, true, true, true, address(world));
         emit BundledTransferAccepted(

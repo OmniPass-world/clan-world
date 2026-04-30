@@ -120,7 +120,7 @@ contract ClanWorldStub is IClanWorld {
     // OTC transfers
     // -------------------------------------------------------------------------
 
-    function proposeGoldTransfer(uint32, uint32, uint256, uint256) external pure override returns (uint256) {
+    function proposeGoldTransfer(uint32, uint32, uint256, uint64) external pure override returns (uint256) {
         return 1;
     }
 
@@ -161,14 +161,6 @@ contract ClanWorldStub is IClanWorld {
     function acceptBundledTransfer(uint256) external override {}
 
     function cancelBundledTransfer(uint256) external override {}
-
-    function transferGold(uint32, uint32, uint256) external override {}
-
-    function transferVaultResource(uint32, uint32, ResourceType, uint256) external override {}
-
-    function transferBlueprint(uint32, uint32, uint256) external override {}
-
-    function transferBundle(uint32, uint32, uint256, uint256, uint256, uint256, uint256, uint256) external override {}
 
     // -------------------------------------------------------------------------
     // Raw read getters
@@ -307,13 +299,11 @@ contract ClanWorldStub is IClanWorld {
     }
 
     function getOtcGoldProposal(uint256) external pure override returns (OtcProposal memory) {
-        return OtcProposal({from: 0, to: 0, amount: 0, expiryTick: 0, accepted: false, cancelled: false});
+        return OtcProposal({from: 0, to: 0, amount: 0, expiryTick: 0});
     }
 
     function getOtcVaultTransferProposal(uint256) external pure override returns (VaultTransferProposal memory) {
-        return VaultTransferProposal({
-            from: 0, to: 0, wood: 0, wheat: 0, fish: 0, iron: 0, expiryTick: 0, accepted: false, cancelled: false
-        });
+        return VaultTransferProposal({from: 0, to: 0, wood: 0, wheat: 0, fish: 0, iron: 0, expiryTick: 0});
     }
 
     function getOtcBlueprintTransferProposal(uint256)
@@ -322,22 +312,12 @@ contract ClanWorldStub is IClanWorld {
         override
         returns (BlueprintTransferProposal memory)
     {
-        return BlueprintTransferProposal({from: 0, to: 0, amount: 0, expiryTick: 0, accepted: false, cancelled: false});
+        return BlueprintTransferProposal({from: 0, to: 0, amount: 0, expiryTick: 0});
     }
 
     function getOtcBundledTransferProposal(uint256) external pure override returns (BundledTransferProposal memory) {
         return BundledTransferProposal({
-            from: 0,
-            to: 0,
-            gold: 0,
-            wood: 0,
-            wheat: 0,
-            fish: 0,
-            iron: 0,
-            blueprint: 0,
-            expiryTick: 0,
-            accepted: false,
-            cancelled: false
+            from: 0, to: 0, gold: 0, wood: 0, wheat: 0, fish: 0, iron: 0, blueprint: 0, expiryTick: 0
         });
     }
 
