@@ -67,6 +67,19 @@ contract BanditSpawnHarness is ClanWorld {
     function banditSpawnRoll(bytes32 tickSeed, uint8 region) external pure returns (uint256) {
         return _banditSpawnRoll(tickSeed, region);
     }
+
+    function banditSpawnTier(bytes32 tickSeed, uint8 region) external pure returns (uint8) {
+        return _banditSpawnTier(tickSeed, region);
+    }
+
+    function banditAttackPower(uint8 tier) external pure returns (uint16) {
+        return getBanditAttackPower(tier);
+    }
+
+    function pickBanditAttackTarget(uint32 banditId) external view returns (uint32) {
+        BanditTroop storage bandit = _bandits[banditId];
+        return _pickBanditAttackTarget(bandit);
+    }
 }
 
 contract BanditSpawnTest is Test {
@@ -390,14 +403,29 @@ contract BanditSpawnTest is Test {
     function test_spawnedBanditEntersStateMachine() public {
         _advancePastInitialCooldown(world);
         _mintForestClan(world);
+        bytes32 seed = keccak256("spawn-state-machine");
         world.setBanditSpawnState(ClanWorldConstants.REGION_FOREST, 0, 10000);
 
-        world.evaluateBanditSpawns(keccak256("spawn-state-machine"));
+        world.evaluateBanditSpawns(seed);
 
         BanditTroop memory bandit = world.getBandit(1);
         WorldState memory state = world.getWorldState();
+        uint8 expectedTier = world.banditSpawnTier(seed, ClanWorldConstants.REGION_FOREST);
         assertEq(uint8(bandit.state), uint8(BanditState.Spawned), "spawned state");
         assertEq(bandit.tickEnteredState, state.currentTick, "entered current tick");
         assertEq(state.activeBanditId, bandit.id, "active bandit set");
+        assertEq(bandit.tier, expectedTier, "tier set from spawn roll");
+        assertEq(bandit.strength, world.banditAttackPower(expectedTier), "tier attack power");
+        assertEq(bandit.attackAttemptsMade, 0, "spawned with no attempts");
+    }
+
+    function test_targetTieBreakUsesLowestClanId() public {
+        (uint32 firstForestClan, uint32 secondForestClan) = _mintUntilTwoForestClans(world);
+        uint32 banditId = world.spawnBandit(ClanWorldConstants.REGION_FOREST, 45);
+
+        uint32 targetClanId = world.pickBanditAttackTarget(banditId);
+
+        assertEq(targetClanId, firstForestClan, "lowest clan id wins equal loot tie");
+        assertLt(firstForestClan, secondForestClan, "test setup has ordered clan ids");
     }
 }
