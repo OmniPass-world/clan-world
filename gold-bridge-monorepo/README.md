@@ -196,6 +196,9 @@ Keep ownership and pauser roles controlled by a multisig for production. A singl
 - `pnpm ntt:addresses`: print deployed NTT addresses.
 - `pnpm base:set-minter`: set Base token minter to the Base NTT manager.
 - `pnpm web:export-config`: write generated frontend config.
+- `pnpm artifacts:export`: write a public deployment summary without secrets.
+- `pnpm preflight`: check token decimals, Base minter handoff, and NTT status.
+- `pnpm liquidity:recover-base`: dry-run or execute a Base to Solana GOLD recovery transfer.
 - `pnpm web`: run the SPA locally.
 - `pnpm metrics`: fetch basic supply metrics from Solana and Base RPCs.
 

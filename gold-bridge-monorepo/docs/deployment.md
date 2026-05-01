@@ -38,8 +38,10 @@ Use:
 10. Run `pnpm ntt:push`.
 11. Run `pnpm ntt:addresses`.
 12. Run `pnpm base:set-minter`.
-13. Run `pnpm web:export-config`.
-14. Run `pnpm web`.
+13. Run `pnpm preflight`.
+14. Run `pnpm artifacts:export`.
+15. Run `pnpm web:export-config`.
+16. Run `pnpm web`.
 
 ## Rate limits
 
@@ -58,6 +60,22 @@ After deployment, verify:
 - Transceiver addresses match both ways.
 - Rate limits are not zero unless intentionally disabled.
 - Pauser and owner roles are controlled by the intended accounts.
+
+`pnpm preflight` automates the checks that are easiest to miss: Solana mint decimals, Base token decimals, Base token minter, and NTT deployment status.
+
+## Production checklist
+
+Before a mainnet deployment:
+
+1. Generate fresh production Solana and EVM deployer wallets.
+2. Back up key material offline before funding either wallet.
+3. Fund deployers only with the amount needed for deployment and tiny proof transfers.
+4. Set `WORMHOLE_NETWORK=Mainnet`, `NTT_BASE_CHAIN=Base`, production RPC URLs, and the real Solana GOLD mint.
+5. Deploy Base GOLD, add both NTT chains, set conservative rate limits, push config, and hand minter authority to the Base NTT manager.
+6. Run `pnpm preflight` and archive the output.
+7. Run `pnpm artifacts:export` and archive the JSON with `deployment.json`, tx hashes, and owner/pauser role notes.
+8. Prove one tiny Solana -> Base transfer and one tiny Base -> Solana transfer before raising limits.
+9. Confirm liquidity recovery works on a tiny amount before seeding meaningful ClanWorld liquidity.
 
 ## Rate-limit precision warning
 

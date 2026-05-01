@@ -2,7 +2,7 @@
 
 Living plan for getting Solana-canonical GOLD bridged to Base with Wormhole NTT, then replacing ClanWorld's current deployed/native GOLD ERC20 with the Base-side bridged GOLD token.
 
-Last updated: 2026-04-30 06:55 EDT
+Last updated: 2026-05-01 02:35 EDT
 
 ## Goal
 
@@ -13,7 +13,7 @@ Solana GOLD remains the canonical asset. Wormhole NTT locks GOLD on Solana, mint
 - Standalone bridge scaffold: about 70% ready.
 - Bridge token readiness: Base GOLD is now fixed at 9 decimals with the NTT mint/burn/minter surface and ordinary ERC-20 allowance pulls for later ClanWorld compatibility.
 - ClanWorld integration: intentionally deferred. Do not modify existing ClanWorld contracts/scripts/tests until the bridge and token deployment flow are proven.
-- Current phase: testnet bridge proof complete. Solana devnet GOLD, Base Sepolia GOLD, NTT locking/burning config, minter handoff, web config export, and tiny two-way transfer proof are complete.
+- Current phase: deployment hardening and operator tooling. Testnet bridge proof is complete; the next layer is artifact export, repeatable preflight checks, liquidity recovery helpers, and a production deployment checklist.
 
 ## Phase 1 Execution Plan: Bridge Repo Correctness and Tooling
 
@@ -344,7 +344,7 @@ Gotchas:
 
 ## Component 5: End-to-End Game Flow and Operational Readiness
 
-Status: Not started
+Status: In progress
 
 Purpose: make the bridged token useful in the actual game and produce deploy/test evidence.
 
@@ -357,7 +357,11 @@ Checklist:
 - [ ] Run local/anvil deployment with external GOLD mode.
 - [ ] Run Base Sepolia deployment using bridged GOLD.
 - [ ] Run smoke test: bridge GOLD to Base Sepolia, seed ClanWorld pools, perform market sell/buy, verify pool reserves and clan gold changes.
-- [ ] Add a liquidity recovery script/runbook to pull recoverable GOLD back to the treasury before redeploying or retiring a ClanWorld contract/pool setup.
+- [x] Add a liquidity recovery script/runbook to pull recoverable wallet-held Base GOLD back to Solana before redeploying or retiring a setup.
+- [x] Add a deployment artifact export command that writes public addresses, tx hashes, chain names, and modes without secrets.
+- [x] Add preflight checks for Solana mint decimals, Base token decimals, Base token minter handoff, and NTT status.
+- [x] Add a production deployment checklist covering fresh wallets, backups, funding, tiny proof transfers, artifact archival, and recovery proof.
+- [ ] Design contract-level recovery for ClanWorld-held pool/treasury GOLD before meaningful liquidity is seeded.
 - [ ] Record final deployment addresses and verification steps.
 - [ ] Produce go/no-go checklist before mainnet.
 
@@ -365,12 +369,16 @@ Findings:
 
 - ClanWorld currently treats `clan.goldBalance` as internal game accounting. There is no player-facing bridged-GOLD deposit/withdraw path yet.
 - Market pools are seeded with real ERC20 balances once, then ClanWorld updates internal pool reserves during market actions.
+- Operator-held Base GOLD can now be recovered to Solana with `pnpm liquidity:recover-base`; the command defaults to dry run and requires `RECOVERY_EXECUTE=true` to submit.
+- `pnpm artifacts:export` writes `artifacts/deployment-summary.json`; the `artifacts` directory is ignored, so archive the JSON intentionally with deployment evidence.
+- `pnpm preflight` is the quick confidence command after deployment changes. It does not replace transfer proofs, but it catches the easy-to-miss decimals and minter mistakes.
 
 Gotchas:
 
 - "Replace the GOLD ERC20" and "make bridged GOLD the live player economy" are different milestones.
 - Liquidity recovery needs to be designed before meaningful pool funding. If we seed bridged GOLD into ClanWorld/pools and later decide to redeploy, we need a scripted, tested way to recover every withdrawable/recoverable GOLD unit rather than relying on manual contract poking.
 - Mainnet readiness needs operational controls: multisig ownership, conservative rate limits, pausing plan, monitoring, tx hash logs, and recovery runbook.
+- The current recovery helper only controls the configured EVM deployer wallet. It cannot pull GOLD out of a ClanWorld contract unless that contract exposes a withdrawal/recovery path during final integration.
 
 ## Verification Log
 
@@ -433,6 +441,17 @@ Gotchas:
 - 2026-04-30 EDT: Ran `pnpm review`; passed.
 - 2026-04-30 EDT: Ran `PATH="/home/claude/.foundry/bin:$PATH" pnpm test:contracts`; passed, 6 tests.
 - 2026-04-30 EDT: Ran `pnpm --filter @gold-bridge/web typecheck`; passed.
+- 2026-05-01 EDT: Added `pnpm artifacts:export`, `pnpm preflight`, and `pnpm liquidity:recover-base` operator hardening commands.
+- 2026-05-01 EDT: Updated deployment and operations docs with preflight, artifact archival, production checklist, and dry-run-first Base GOLD recovery flow.
+- 2026-05-01 EDT: Ran `bash -n scripts/15-preflight.sh scripts/16-recover-base-liquidity.sh scripts/lib/env.sh`; passed.
+- 2026-05-01 EDT: Ran `node --check scripts/14-export-deployment-artifacts.mjs`; passed.
+- 2026-05-01 EDT: Ran `pnpm review`; passed.
+- 2026-05-01 EDT: Ran `pnpm artifacts:export -- --stdout`; printed public testnet deployment summary without secrets.
+- 2026-05-01 EDT: Ran `RECOVERY_DESTINATION_SOLANA_ADDRESS=BJmjhXs5h6d8o15kK1YppkiJExu6FWBDJyJFUyfp9L2p RECOVERY_AMOUNT=0.1 pnpm liquidity:recover-base`; dry run passed and did not submit a transfer.
+- 2026-05-01 EDT: Ran `pnpm preflight`; passed. Confirmed Solana mint decimals `9`, Base token decimals `9`, Base token minter `0x3df4e9Cd48B7c8290F80546547854ac8C82Dc276`, and NTT config synced on chain.
+- 2026-05-01 EDT: Ran `pnpm artifacts:export`; wrote ignored local artifact `artifacts/deployment-summary.json`.
+- 2026-05-01 EDT: Ran `PATH="/home/claude/.foundry/bin:$PATH" pnpm test:contracts`; passed, 6 tests.
+- 2026-05-01 EDT: Ran `pnpm --filter @gold-bridge/web typecheck`; passed.
 
 ## Open Questions
 
@@ -441,11 +460,12 @@ Gotchas:
 - Confirm production Solana GOLD uses 9 decimals before mainnet deployment; bridge token is currently fixed at 9 decimals.
 - Is bridged GOLD only the treasury/pool backing asset for now, or should clan balances become externally depositable/withdrawable?
 - Do we redeploy ClanWorld for the bridged GOLD switch, or design a migration path for an existing deployment?
-- Who controls Base token owner/minter, NTT manager owners, and pauser roles during testnet and production?
+- Who controls Base token owner, NTT manager owners, and pauser roles during testnet and production?
+- What exact ClanWorld contract-level recovery path should exist before we seed meaningful bridged GOLD liquidity?
 
 ## Next Actions
 
-1. Prepare Solana devnet + Base Sepolia `.env` values.
-2. Deploy the 9-decimal Base GOLD token with `pnpm deploy:base-token`.
-3. Initialize and configure Wormhole NTT in Solana locking mode and Base burning mode.
-4. Run tiny two-way transfer proofs and record addresses/tx hashes before returning to ClanWorld integration.
+1. Verify the new operator scripts against the live testnet deployment.
+2. Export and review `artifacts/deployment-summary.json`.
+3. Commit and push the hardening pass.
+4. Then plan the ClanWorld-facing recovery/integration boundary without modifying existing game contracts yet.

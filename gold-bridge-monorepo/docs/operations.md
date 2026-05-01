@@ -4,6 +4,8 @@
 
 Run `pnpm metrics` to fetch basic supply metrics from Solana and Base.
 
+Run `pnpm preflight` before and after deployment changes. It checks token decimals, Base minter handoff, and NTT status.
+
 Watch these values:
 
 - Solana GOLD total supply.
@@ -32,6 +34,30 @@ If anything looks wrong:
 5. Check Base token minter.
 6. Check Solana custody balances.
 7. Do not rotate keys or change ownership until you understand the incident.
+
+## Liquidity recovery
+
+Before redeploying a bridge token, replacing ClanWorld contracts, or retiring a test setup, recover any operator-held Base GOLD back to Solana.
+
+Set:
+
+- `RECOVERY_DESTINATION_SOLANA_ADDRESS`: the Solana wallet or token-owner address that should receive unlocked GOLD.
+- `RECOVERY_AMOUNT`: the human GOLD amount to bridge back, such as `0.5`.
+- `RECOVERY_EXECUTE=false`: the default dry run.
+
+Run:
+
+```bash
+pnpm liquidity:recover-base
+```
+
+After the preview looks right, submit the recovery transfer with:
+
+```bash
+RECOVERY_EXECUTE=true pnpm liquidity:recover-base
+```
+
+This helper recovers Base GOLD controlled by the configured EVM private key. ClanWorld pool or treasury liquidity still needs contract-level withdrawal support during final integration; do not seed meaningful liquidity until that path is designed and tested.
 
 ## Mainnet hardening
 
