@@ -28,8 +28,10 @@
     "base:proxy-info": "bash scripts/17-print-base-proxy-info.sh",
     "timelock:schedule": "bash scripts/18-timelock-schedule.sh",
     "timelock:execute": "bash scripts/19-timelock-execute.sh",
+    "cockpit:api": "node scripts/20-cockpit-api.mjs",
     "metrics": "node scripts/13-fetch-metrics.mjs",
     "web": "pnpm --filter @gold-bridge/web dev",
+    "cockpit": "pnpm cockpit:api",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test:contracts": "pnpm --filter @gold-bridge/contracts test"

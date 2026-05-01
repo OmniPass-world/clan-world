@@ -38,3 +38,133 @@ export interface HistoryItem {
   sourceTx?: string;
   targetTx?: string;
 }
+
+export interface CockpitCheck {
+  id: string;
+  label: string;
+  ok: boolean;
+  detail?: string;
+}
+
+export interface CockpitAction {
+  id: string;
+  label: string;
+  description: string;
+  group: string;
+  command: string;
+  mutates: boolean;
+  risk: 'low' | 'medium' | 'high' | 'critical' | string;
+  envFields: Record<string, string>;
+  requiredConfirmation: string;
+}
+
+export interface CockpitActionPreview extends CockpitAction {
+  cwd: string;
+  envOverrides: Record<string, string>;
+  willUseLocalSecrets: boolean;
+}
+
+export interface CockpitActionResult {
+  id: string;
+  label: string;
+  command: string;
+  envOverrides: Record<string, string>;
+  startedAt: string;
+  finishedAt: string;
+  ok: boolean;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
+export interface CockpitState {
+  generatedAt: string;
+  environment: {
+    wormholeNetwork: string;
+    isMainnet: boolean;
+    nttProjectDir: string;
+    envFilePresent: boolean;
+    hasSolanaKeypairPath: boolean;
+    hasEvmPrivateKey: boolean;
+    walletConnectProjectIdConfigured: boolean;
+    rpc: { solana: string; base: string };
+  };
+  addresses: {
+    solana: {
+      chain: string;
+      explorerCluster?: string;
+      deployer: string;
+      token: string;
+      manager: string;
+      transceiver: string;
+      owner: string;
+      mode: string;
+    };
+    base: {
+      chain: string;
+      explorerUrl: string;
+      deployer: string;
+      token: string;
+      implementation: string;
+      proxyAdmin: string;
+      timelock: string;
+      manager: string;
+      transceiver: string;
+      owner: string;
+      pauser: string;
+      mode: string;
+    };
+  };
+  ntt: Record<string, {
+    version: string;
+    mode: string;
+    paused: boolean | null;
+    owner: string;
+    manager: string;
+    transceiverThreshold: number | null;
+    outboundLimit: string;
+    inboundLimits: Record<string, string>;
+  }>;
+  authority: {
+    configured: Record<string, string>;
+    base: {
+      tokenOwner: string;
+      tokenMinter: string;
+      proxyAdminOwner: string;
+      timelock: string;
+      timelockMinDelay: string;
+      recoveryDisabled: boolean | null;
+    };
+    solana: { nttOwner: string };
+  };
+  balances: {
+    solanaDeployerSol: string;
+    solanaDeployerGold: string;
+    baseDeployerEth: string;
+    baseDeployerGold: string;
+    errors: string[];
+  };
+  token: {
+    solanaSupply: string;
+    baseSupply: string;
+    baseDecimals: string;
+    owner: string;
+    minter: string;
+    recoveryDisabled: boolean | null;
+    errors: string[];
+  };
+  proxy: {
+    admin: string;
+    implementation: string;
+    proxyAdminOwner: string;
+    timelockMinDelay: string;
+    errors: string[];
+  };
+  transactions: Record<string, string>;
+  artifacts: {
+    deploymentSummaryPath: string;
+    deploymentJsonPresent: boolean;
+    generatedWebConfigPresent: boolean;
+  };
+  checks: CockpitCheck[];
+}

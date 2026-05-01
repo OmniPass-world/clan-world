@@ -2,7 +2,7 @@
 
 Living plan for getting Solana-canonical GOLD bridged to Base with Wormhole NTT, then replacing ClanWorld's current deployed/native GOLD ERC20 with the Base-side bridged GOLD token.
 
-Last updated: 2026-05-01 03:56 EDT
+Last updated: 2026-05-01 04:35 EDT
 
 ## Goal
 
@@ -539,5 +539,28 @@ Gotchas:
 
 ## Next Actions
 
-1. Commit and push the proxy-token testnet proof updates.
+1. Build the local deployment cockpit around the existing bridge scripts and artifacts.
 2. Plan ClanWorld external bridged-GOLD integration without modifying existing contracts until the other GOLD PR is ready to merge.
+
+## Deployment Cockpit Plan
+
+Status: in progress.
+
+Goal: local operator dashboard for deployment, configuration, upgrade, recovery, proof transfers, and bridge monitoring.
+
+MVP decisions:
+
+- Local operator app: React frontend plus localhost Node helper.
+- Hybrid signing: connected wallets for visibility and future signing, existing local scripts for current deploy steps.
+- Networks: Solana devnet/Base Sepolia and Solana mainnet/Base mainnet.
+- Mainnet authority: no raw mainnet private keys required by default; use wallet/multisig/timelock preparation for production.
+- Safety UX: preview every mutating step and require typed confirmations for high-risk/mainnet actions.
+
+Progress:
+
+- [x] Add local cockpit API that reads `.env`, NTT `deployment.json`, deployment artifacts, RPC state, proxy slots, token owner/minter, and balances without returning secrets.
+- [x] Add guided action previews/runs for existing deploy, NTT, preflight, proof, artifact, timelock, and recovery scripts.
+- [x] Replace the bridge landing UI with an operator cockpit while keeping the Wormhole Connect bridge tab available.
+- [x] Add overview, addresses, authority, deploy, upgrade, recovery, and bridge tabs.
+- [x] Add first wallet connection layer for injected EVM and Solana operator identity.
+- [ ] Add stronger mainnet wallet/multisig calldata export flows before production use.
