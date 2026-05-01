@@ -526,6 +526,352 @@ async function buildReadinessReport({ write = false, manualNotes = {} } = {}) {
   return report;
 }
 
+async function buildDeploymentGuide() {
+  const state = await buildState();
+  const readiness = await buildReadinessReport();
+  const steps = guideSteps(state, readiness);
+  const phases = guidePhases(steps);
+  const currentStep = steps.find((step) => step.status === 'ready')
+    || steps.find((step) => step.status === 'manual')
+    || steps.find((step) => step.status !== 'done')
+    || steps[steps.length - 1];
+  const blockingIssues = steps
+    .filter((step) => step.status === 'blocked' || step.status === 'failed')
+    .flatMap((step) => step.blockedBy.map((issue) => `${step.label}: ${issue}`));
+  return {
+    generatedAt: new Date().toISOString(),
+    currentStepId: currentStep?.id || '',
+    recommendedNextAction: nextActionText(currentStep),
+    blockingIssues,
+    phases,
+    steps,
+  };
+}
+
+function guidePhases(steps) {
+  const definitions = [
+    ['environment', 'Environment and Wallets', 'Confirm local tools, chain pair, RPCs, and operator wallets.'],
+    ['base-proxy', 'Base GOLD Proxy', 'Deploy or reconcile the upgradeable 9-decimal Base GOLD token stack.'],
+    ['ntt', 'NTT Project and Managers', 'Create the Wormhole NTT project and deploy locking/burning managers.'],
+    ['handoff', 'Rate Limits and Minter Handoff', 'Set conservative limits and hand Base minting to the NTT manager.'],
+    ['proof', 'Verification and Proof Transfers', 'Run preflight, status, and tiny two-way bridge proofs.'],
+    ['evidence', 'Artifacts and Go/No-Go', 'Export public evidence and record remaining human approvals.'],
+  ];
+  return definitions.map(([id, label, description]) => {
+    const phaseSteps = steps.filter((step) => step.phase === id);
+    return {
+      id,
+      label,
+      description,
+      stepIds: phaseSteps.map((step) => step.id),
+      done: phaseSteps.filter((step) => step.status === 'done').length,
+      total: phaseSteps.length,
+    };
+  });
+}
+
+function guideSteps(state, readiness) {
+  const readinessById = Object.fromEntries(readiness.items.map((item) => [item.id, item]));
+  const done = (ok) => ok ? 'done' : 'ready';
+  const blocked = (depends) => depends.some((id) => {
+    const step = id.includes(':') ? null : null;
+    return step;
+  });
+  const steps = [
+    step({
+      id: 'environment',
+      phase: 'environment',
+      label: 'Confirm environment',
+      description: 'Make sure the helper, RPCs, tooling, and chain pair are correct before touching contracts.',
+      why: 'Most deployment mistakes start as wrong-network or stale-env mistakes.',
+      mode: 'read-only',
+      status: done(state.environment.envFilePresent && Boolean(state.environment.rpc.solana) && Boolean(state.environment.rpc.base)),
+      primaryActionId: 'doctor',
+      risk: 'low',
+      fixedInputs: [
+        field('wormholeNetwork', 'Wormhole network', state.environment.wormholeNetwork, false, true),
+        field('solanaChain', 'Solana chain', state.addresses.solana.chain, false, true),
+        field('baseChain', 'Base chain', state.addresses.base.chain, false, true),
+        field('decimals', 'GOLD decimals', '9', false, true),
+      ],
+      editableInputs: [
+        field('SOLANA_RPC_URL', 'Solana RPC', state.environment.rpc.solana, true),
+        field('BASE_RPC_URL', 'Base RPC', state.environment.rpc.base, true),
+        field('NTT_PROJECT_DIR', 'NTT project dir', state.environment.nttProjectDir, true),
+      ],
+      outputs: [
+        field('envFile', '.env present', String(state.environment.envFilePresent), false),
+        field('walletConnect', 'WalletConnect project id', state.environment.walletConnectProjectIdConfigured ? 'configured' : 'development fallback or missing', false),
+      ],
+      postconditions: [
+        evidence('Doctor', 'Run the Doctor check from this step or the Deploy tab.', '', state.environment.envFilePresent ? 'pass' : 'fail'),
+      ],
+    }),
+    step({
+      id: 'connect-wallets',
+      phase: 'environment',
+      label: 'Connect operator wallets',
+      description: 'Connect the EVM deployer through Reown/AppKit and the Solana wallet for identity and destination prefills.',
+      why: 'The guide can compare connected wallets to expected deployers and use the EVM wallet for Base transactions.',
+      mode: 'manual',
+      status: 'manual',
+      risk: 'low',
+      fixedInputs: [field('mainnetPolicy', 'Mainnet key policy', state.environment.isMainnet ? 'wallet/timelock only' : 'testnet local scripts allowed', false, true)],
+      editableInputs: [field('VITE_WALLET_CONNECT_PROJECT_ID', 'WalletConnect project id', state.environment.walletConnectProjectIdConfigured ? 'configured' : '', true)],
+      outputs: [
+        field('expectedEvmSigner', 'Expected EVM signer', state.addresses.base.deployer || 'connected wallet on fresh deploy', false),
+        field('expectedSolanaSigner', 'Expected Solana signer', state.addresses.solana.deployer || 'configured payer', false),
+      ],
+      postconditions: [evidence('Wallet state', 'Visible in the top status strip after connection.', '', 'manual')],
+    }),
+    step({
+      id: 'deploy-base-proxy',
+      phase: 'base-proxy',
+      label: 'Deploy Base GOLD proxy',
+      description: 'Wallet-sign the Base GOLD proxy stack deployment and reconcile local addresses.',
+      why: 'This creates the 9-decimal Base representation that Wormhole NTT will mint/burn.',
+      mode: 'wallet-signed',
+      status: stepStatus(Boolean(state.addresses.base.token && state.proxy.admin), ['environment']),
+      dependsOn: ['environment'],
+      primaryIntentId: 'deploy-base-gold-proxy',
+      risk: 'high',
+      fixedInputs: [
+        field('proxyPattern', 'Proxy pattern', 'TransparentUpgradeableProxy', false, true),
+        field('tokenDecimals', 'Token decimals', '9', false, true),
+      ],
+      editableInputs: [
+        field('BASE_TOKEN_NAME', 'Token name', 'Gold', true),
+        field('BASE_TOKEN_SYMBOL', 'Token symbol', 'GOLD', true),
+        field('TIMELOCK_DELAY_SECONDS', 'Timelock delay seconds', state.proxy.timelockMinDelay || '86400', true),
+      ],
+      advancedInputs: [
+        field('TIMELOCK_PROPOSER', 'Timelock proposer', state.authority.configured.timelockProposer, true),
+        field('TIMELOCK_EXECUTOR', 'Timelock executor', state.authority.configured.timelockExecutor, true),
+        field('TIMELOCK_ADMIN', 'Timelock admin', state.authority.configured.timelockAdmin, true),
+      ],
+      outputs: [
+        field('BASE_TOKEN_ADDRESS', 'Base GOLD proxy', state.addresses.base.token, false),
+        field('BASE_TOKEN_IMPLEMENTATION_ADDRESS', 'Implementation', state.addresses.base.implementation || state.proxy.implementation, false),
+        field('BASE_PROXY_ADMIN_ADDRESS', 'ProxyAdmin', state.addresses.base.proxyAdmin || state.proxy.admin, false),
+        field('BASE_TIMELOCK_ADDRESS', 'Timelock', state.addresses.base.timelock, false),
+      ],
+      postconditions: [
+        readinessEvidence(readinessById, 'proxy-shape'),
+        readinessEvidence(readinessById, 'base-decimals'),
+      ],
+    }),
+    step({
+      id: 'ntt-init',
+      phase: 'ntt',
+      label: 'Initialize NTT project',
+      description: 'Create the local Wormhole NTT project and RPC override file.',
+      why: 'NTT CLI owns the deployment.json shape used by later manager deploys and status checks.',
+      mode: 'local-cli',
+      status: stepStatus(state.artifacts.deploymentJsonPresent, ['deploy-base-proxy']),
+      dependsOn: ['deploy-base-proxy'],
+      primaryActionId: 'ntt-init',
+      risk: 'medium',
+      editableInputs: [
+        field('NTT_PROJECT_DIR', 'NTT project dir', state.environment.nttProjectDir, true),
+        field('SOLANA_RPC_URL', 'Solana RPC', state.environment.rpc.solana, true),
+        field('BASE_RPC_URL', 'Base RPC', state.environment.rpc.base, true),
+      ],
+      postconditions: [evidence('deployment.json', state.artifacts.deploymentJsonPresent ? 'present' : 'not present', '', state.artifacts.deploymentJsonPresent ? 'pass' : 'fail')],
+    }),
+    step({
+      id: 'deploy-solana-ntt',
+      phase: 'ntt',
+      label: 'Deploy Solana NTT manager',
+      description: 'Run the local CLI helper to deploy Solana locking-mode NTT manager and transceiver.',
+      why: 'Solana remains canonical and locking-mode keeps canonical GOLD on Solana while Base mints/burns.',
+      mode: 'local-cli',
+      status: stepStatus(state.ntt.solana?.mode === 'locking' && Boolean(state.addresses.solana.manager), ['ntt-init']),
+      dependsOn: ['ntt-init'],
+      primaryActionId: 'ntt-add-solana',
+      risk: 'high',
+      fixedInputs: [field('mode', 'NTT mode', 'locking', false, true)],
+      editableInputs: [
+        field('SOLANA_TOKEN_MINT', 'Solana GOLD mint', state.addresses.solana.token, true),
+        field('NTT_SOLANA_PRIORITY_FEE', 'Priority fee', '', true),
+      ],
+      advancedInputs: [field('NTT_SOLANA_PROGRAM_KEYPAIR', 'Program keypair path', '', true, false, true)],
+      outputs: [
+        field('SOLANA_NTT_MANAGER_ADDRESS', 'Solana NTT manager', state.addresses.solana.manager, false),
+        field('SOLANA_NTT_TRANSCEIVER_ADDRESS', 'Solana transceiver', state.addresses.solana.transceiver, false),
+      ],
+      postconditions: [readinessEvidence(readinessById, 'solana-ntt-mode')],
+    }),
+    step({
+      id: 'deploy-base-ntt',
+      phase: 'ntt',
+      label: 'Deploy Base NTT manager',
+      description: 'Run the local CLI helper to deploy Base burning-mode NTT manager and transceiver.',
+      why: 'Base burning mode lets NTT mint inbound GOLD and burn outbound Base GOLD.',
+      mode: 'local-cli',
+      status: stepStatus(state.ntt.base?.mode === 'burning' && Boolean(state.addresses.base.manager), ['deploy-solana-ntt']),
+      dependsOn: ['deploy-solana-ntt'],
+      primaryActionId: 'ntt-add-base',
+      risk: 'high',
+      fixedInputs: [field('mode', 'NTT mode', 'burning', false, true)],
+      editableInputs: [field('BASE_TOKEN_ADDRESS', 'Base GOLD proxy', state.addresses.base.token, true)],
+      outputs: [
+        field('BASE_NTT_MANAGER_ADDRESS', 'Base NTT manager', state.addresses.base.manager, false),
+        field('BASE_NTT_TRANSCEIVER_ADDRESS', 'Base transceiver', state.addresses.base.transceiver, false),
+      ],
+      postconditions: [readinessEvidence(readinessById, 'base-ntt-mode')],
+    }),
+    step({
+      id: 'push-rate-limits',
+      phase: 'handoff',
+      label: 'Push conservative rate limits',
+      description: 'Review deployment.json rate limits and push NTT config to both chains.',
+      why: 'Rate limits reduce blast radius before meaningful liquidity exists.',
+      mode: 'local-cli',
+      status: stepStatus(readinessById['rate-limits']?.status === 'pass', ['deploy-base-ntt']),
+      dependsOn: ['deploy-base-ntt'],
+      primaryActionId: 'ntt-push',
+      risk: 'high',
+      editableInputs: [
+        field('solanaOutboundLimit', 'Solana outbound limit', state.ntt.solana?.outboundLimit || '', true),
+        field('baseOutboundLimit', 'Base outbound limit', state.ntt.base?.outboundLimit || '', true),
+      ],
+      postconditions: [readinessEvidence(readinessById, 'rate-limits')],
+    }),
+    step({
+      id: 'handoff-minter',
+      phase: 'handoff',
+      label: 'Schedule and execute minter handoff',
+      description: 'Wallet-sign timelock operations so Base GOLD minter becomes the Base NTT manager.',
+      why: 'Inbound bridge transfers cannot mint Base GOLD until this handoff is complete.',
+      mode: 'wallet-signed',
+      status: stepStatus(equalsAddress(state.token.minter, state.addresses.base.manager), ['push-rate-limits']),
+      dependsOn: ['push-rate-limits'],
+      primaryIntentId: equalsAddress(state.token.minter, state.addresses.base.manager) ? 'execute-set-minter' : 'schedule-set-minter',
+      risk: 'high',
+      fixedInputs: [
+        field('target', 'Token target', state.addresses.base.token, false, true),
+        field('newMinter', 'New minter', state.addresses.base.manager, false, true),
+      ],
+      outputs: [field('minter', 'Current minter', state.token.minter, false)],
+      postconditions: [readinessEvidence(readinessById, 'base-minter')],
+    }),
+    step({
+      id: 'preflight',
+      phase: 'proof',
+      label: 'Run preflight and NTT status',
+      description: 'Run read-only checks against token decimals, proxy ownership, minter, and NTT on-chain config.',
+      why: 'This catches the easy-to-miss wiring mistakes before bridge proof transfers.',
+      mode: 'read-only',
+      status: stepStatus(state.checks.every((check) => check.ok), ['handoff-minter']),
+      dependsOn: ['handoff-minter'],
+      primaryActionId: 'preflight',
+      risk: 'low',
+      postconditions: state.checks.map((checkItem) => evidence(checkItem.label, checkItem.detail || '', '', checkItem.ok ? 'pass' : 'fail')),
+    }),
+    step({
+      id: 'proof-transfers',
+      phase: 'proof',
+      label: 'Run tiny two-way proof transfers',
+      description: 'Run a tiny Solana to Base transfer and a tiny Base to Solana transfer, then record tx evidence.',
+      why: 'A two-way proof is the strongest rehearsal evidence before production liquidity.',
+      mode: 'local-cli',
+      status: stepStatus(Boolean(state.transactions.solanaToBaseProof && state.transactions.baseToSolanaProof), ['preflight']),
+      dependsOn: ['preflight'],
+      primaryActionId: state.transactions.solanaToBaseProof ? 'test-base-to-solana' : 'test-solana-to-base',
+      risk: 'high',
+      editableInputs: [
+        field('TEST_TRANSFER_AMOUNT', 'Proof amount', '0.5', true),
+        field('TEST_TRANSFER_DESTINATION_ADDRESS', 'Destination wallet', '', true),
+      ],
+      postconditions: [
+        readinessEvidence(readinessById, 'proof-solana-base'),
+        readinessEvidence(readinessById, 'proof-base-solana'),
+      ],
+    }),
+    step({
+      id: 'export-artifacts',
+      phase: 'evidence',
+      label: 'Export artifacts and web config',
+      description: 'Generate app config and deployment-summary evidence after all addresses and proof txs are known.',
+      why: 'This creates the public address book and deployment evidence needed for handoff.',
+      mode: 'local-cli',
+      status: stepStatus(state.artifacts.generatedWebConfigPresent && Boolean(state.transactions.solanaToBaseProof), ['proof-transfers']),
+      dependsOn: ['proof-transfers'],
+      primaryActionId: state.artifacts.generatedWebConfigPresent ? 'artifacts-export' : 'web-export',
+      risk: 'medium',
+      outputs: [
+        field('deploymentSummaryPath', 'Deployment summary', state.artifacts.deploymentSummaryPath, false),
+        field('webConfig', 'Generated web config', String(state.artifacts.generatedWebConfigPresent), false),
+      ],
+      postconditions: [readinessEvidence(readinessById, 'deployment-artifact')],
+    }),
+    step({
+      id: 'go-no-go',
+      phase: 'evidence',
+      label: 'Export Go/No-Go report',
+      description: 'Review computed checks, fill manual approval notes, and export a readiness report.',
+      why: 'This is the final operator evidence bundle before production or ClanWorld handoff.',
+      mode: 'manual',
+      status: readiness.canGo ? 'done' : 'manual',
+      dependsOn: ['export-artifacts'],
+      risk: 'critical',
+      postconditions: readiness.items.map((item) => evidence(item.label, item.detail, item.evidence || '', item.status)),
+    }),
+  ];
+
+  const statusById = {};
+  for (const current of steps) {
+    const blockers = (current.dependsOn || []).filter((dep) => statusById[dep] !== 'done');
+    current.blockedBy = [...(current.blockedBy || []), ...blockers.map((dep) => `Complete ${steps.find((stepItem) => stepItem.id === dep)?.label || dep} first.`)];
+    if (blockers.length && current.status !== 'done') current.status = 'blocked';
+    statusById[current.id] = current.status;
+  }
+  return steps;
+}
+
+function step(config) {
+  return {
+    dependsOn: [],
+    fixedInputs: [],
+    editableInputs: [],
+    advancedInputs: [],
+    outputs: [],
+    postconditions: [],
+    evidence: [],
+    blockedBy: [],
+    ...config,
+  };
+}
+
+function stepStatus(done, blockers = []) {
+  if (done) return 'done';
+  return blockers.length ? 'ready' : 'ready';
+}
+
+function field(key, label, value, editable, fixed = false, secret = false, help = '') {
+  return { key, label, value: String(value || ''), editable, fixed, secret, help };
+}
+
+function evidence(label, value, href = '', status = '') {
+  return { label, value: String(value || ''), href, status };
+}
+
+function readinessEvidence(items, id) {
+  const item = items[id];
+  if (!item) return evidence(id, 'not loaded', '', 'unknown');
+  return evidence(item.label, item.detail, item.evidence || '', item.status);
+}
+
+function nextActionText(step) {
+  if (!step) return 'Guide complete.';
+  if (step.status === 'done') return 'All guide steps are complete.';
+  if (step.status === 'blocked') return step.blockedBy[0] || 'Resolve blockers before continuing.';
+  if (step.primaryIntentId) return `Prepare wallet transaction: ${step.label}.`;
+  if (step.primaryActionId) return `Preview and run: ${step.label}.`;
+  if (step.mode === 'manual') return `Review and record evidence: ${step.label}.`;
+  return step.label;
+}
+
 function readinessItems(state) {
   const expectedDecimals = '9';
   const hasTx = (key) => Boolean(state.transactions?.[key]);
@@ -871,6 +1217,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'OPTIONS') return send(res, 204, {});
     const url = new URL(req.url || '/', `http://${req.headers.host}`);
     if (req.method === 'GET' && url.pathname === '/api/state') return send(res, 200, await buildState());
+    if (req.method === 'GET' && url.pathname === '/api/guide') return send(res, 200, await buildDeploymentGuide());
     if (req.method === 'GET' && url.pathname === '/api/readiness') return send(res, 200, await buildReadinessReport());
     if (req.method === 'POST' && url.pathname === '/api/readiness/export') {
       const body = await parseBody(req);

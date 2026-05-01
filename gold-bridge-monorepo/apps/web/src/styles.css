@@ -226,6 +226,91 @@ pre {
 .readiness-badge.unknown { color: #b9dafb; background: #172536; border: 1px solid #34506f; }
 .readiness-badge.manual { color: #f5d38b; background: #322815; border: 1px solid #604d24; }
 
+.guide-layout {
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr) 320px;
+  gap: 14px;
+  align-items: start;
+}
+.guide-rail, .guide-evidence-panel { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow: auto; }
+.guide-phases { display: grid; gap: 14px; margin-top: 14px; }
+.guide-phase {
+  border-top: 1px solid #27303c;
+  padding-top: 12px;
+  display: grid;
+  gap: 8px;
+}
+.guide-phase p { font-size: 0.88rem; }
+.guide-step-list { display: grid; gap: 6px; }
+.guide-step-button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  width: 100%;
+  background: #111820;
+}
+.guide-step-button.active { border-color: #5c8fc5; background: #172536; }
+.guide-step-button.done { border-color: #245c46; }
+.guide-step-button.blocked, .guide-step-button.failed { border-color: #63323a; }
+.guide-main { display: grid; gap: 14px; }
+.guide-status-stack { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.guide-status {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 0.2rem 0.52rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #b9dafb;
+  background: #172536;
+  border: 1px solid #34506f;
+}
+.guide-status.done, .guide-status.pass { color: #99f0c4; background: #123126; border-color: #245c46; }
+.guide-status.ready, .guide-status.manual { color: #f5d38b; background: #322815; border-color: #604d24; }
+.guide-status.blocked, .guide-status.failed, .guide-status.fail { color: #ffc0c0; background: #331b1f; border-color: #63323a; }
+.guide-why, .guide-control, .guide-details {
+  border: 1px solid #303a48;
+  border-radius: 8px;
+  background: #111820;
+  padding: 14px;
+}
+.guide-why strong { color: #eef2f8; }
+.guide-section { display: grid; gap: 10px; }
+.guide-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.guide-field {
+  border: 1px solid #303a48;
+  border-radius: 8px;
+  background: #0f151d;
+  padding: 12px;
+  display: grid;
+  gap: 5px;
+}
+.guide-field.editable { border-color: #3d536d; }
+.guide-field span, .guide-field small, .guide-evidence span { color: #aab6c4; }
+.guide-field strong, .guide-evidence strong { overflow-wrap: anywhere; }
+.guide-field small { width: fit-content; border: 1px solid #303a48; border-radius: 999px; padding: 0.12rem 0.42rem; }
+.guide-details summary { cursor: pointer; color: #d8e4f2; font-weight: 700; }
+.guide-details .guide-field-grid { margin-top: 10px; }
+.guide-evidence-list, .guide-issue-list { display: grid; gap: 8px; }
+.guide-evidence {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border-bottom: 1px solid #27303c;
+  padding: 8px 0;
+}
+.guide-evidence a { overflow-wrap: anywhere; }
+
 .bridge-card {
   min-height: 540px;
   overflow: hidden;
@@ -238,8 +323,9 @@ pre {
 }
 
 @media (max-width: 1100px) {
-  .cockpit-grid, .two-column { grid-template-columns: 1fr; }
-  .check-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cockpit-grid, .two-column, .guide-layout { grid-template-columns: 1fr; }
+  .guide-rail, .guide-evidence-panel { position: static; max-height: none; }
+  .check-grid, .guide-field-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 700px) {
@@ -248,7 +334,7 @@ pre {
   .header-actions { justify-content: flex-start; }
   .tab-bar { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 4px; }
   .tab-bar button { min-width: max-content; }
-  .check-grid, .env-grid { grid-template-columns: 1fr; }
+  .check-grid, .env-grid, .guide-field-grid { grid-template-columns: 1fr; }
   .readiness-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .data-row { grid-template-columns: 1fr; gap: 4px; }
+  .data-row, .guide-evidence { grid-template-columns: 1fr; gap: 4px; }
 }

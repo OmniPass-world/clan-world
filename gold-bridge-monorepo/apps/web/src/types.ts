@@ -128,6 +128,65 @@ export interface ReadinessReport {
   exportPath?: string;
 }
 
+export type GuideStepStatus = 'blocked' | 'ready' | 'running' | 'waiting' | 'done' | 'failed' | 'manual';
+export type GuideStepMode = 'wallet-signed' | 'local-cli' | 'read-only' | 'manual';
+
+export interface GuideField {
+  key: string;
+  label: string;
+  value: string;
+  editable: boolean;
+  fixed?: boolean;
+  secret?: boolean;
+  help?: string;
+}
+
+export interface GuideEvidence {
+  label: string;
+  value: string;
+  href?: string;
+  status?: GuideStepStatus | ReadinessStatus;
+}
+
+export interface GuideStep {
+  id: string;
+  phase: string;
+  label: string;
+  description: string;
+  why: string;
+  mode: GuideStepMode;
+  status: GuideStepStatus;
+  dependsOn: string[];
+  primaryActionId?: string;
+  primaryIntentId?: string;
+  fixedInputs: GuideField[];
+  editableInputs: GuideField[];
+  advancedInputs: GuideField[];
+  outputs: GuideField[];
+  postconditions: GuideEvidence[];
+  evidence: GuideEvidence[];
+  risk: 'low' | 'medium' | 'high' | 'critical' | string;
+  blockedBy: string[];
+}
+
+export interface GuidePhase {
+  id: string;
+  label: string;
+  description: string;
+  stepIds: string[];
+  done: number;
+  total: number;
+}
+
+export interface DeploymentGuide {
+  generatedAt: string;
+  currentStepId: string;
+  recommendedNextAction: string;
+  blockingIssues: string[];
+  phases: GuidePhase[];
+  steps: GuideStep[];
+}
+
 export interface CockpitState {
   generatedAt: string;
   environment: {

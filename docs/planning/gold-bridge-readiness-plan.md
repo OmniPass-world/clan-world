@@ -568,5 +568,6 @@ Progress:
 - [x] Add wallet-signed UI cards that prepare, sign, wait for receipts, and reconcile local `.env` deployment state.
 - [x] Add app-visible Go/No-Go checklist backed by on-chain state, artifacts, deployment config, contract code, proof txs, and manual approval notes.
 - [x] Add readiness report export for deployment evidence archival.
+- [x] Add guided deployment spine with phases, dependencies, blockers, fixed/prefilled/editable fields, active wallet/CLI controls, outputs, and post-step evidence.
 - [ ] Run a fresh full cockpit-assisted rehearsal with connected EVM wallet signing.
 - [ ] Replace remaining NTT/Solana CLI-only deploy steps with wallet-native or safer mainnet handoff flows before production use.

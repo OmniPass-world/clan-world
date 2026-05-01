@@ -6,6 +6,7 @@ import {
   fetchCockpitIntents,
   fetchCockpitActions,
   fetchCockpitState,
+  fetchDeploymentGuide,
   fetchReadinessReport,
   previewCockpitAction,
   previewCockpitIntent,
@@ -14,11 +15,12 @@ import {
   runCockpitAction
 } from '../lib/cockpitApi';
 import { evmExplorerAddress, evmExplorerTx, shortenAddress, solanaExplorerAddress, solanaExplorerTx } from '../lib/format';
-import type { CockpitAction, CockpitActionPreview, CockpitActionResult, CockpitIntent, CockpitIntentResult, CockpitState, ReadinessReport, ReadinessStatus } from '../types';
+import type { CockpitAction, CockpitActionPreview, CockpitActionResult, CockpitIntent, CockpitIntentResult, CockpitState, DeploymentGuide, GuideEvidence, GuideField, GuideStep, ReadinessReport, ReadinessStatus } from '../types';
 
-type Tab = 'overview' | 'go-no-go' | 'addresses' | 'authority' | 'deploy' | 'upgrade' | 'recovery' | 'bridge';
+type Tab = 'guide' | 'overview' | 'go-no-go' | 'addresses' | 'authority' | 'deploy' | 'upgrade' | 'recovery' | 'bridge';
 
 const tabs: Array<{ id: Tab; label: string }> = [
+  { id: 'guide', label: 'Guide' },
   { id: 'overview', label: 'Overview' },
   { id: 'go-no-go', label: 'Go/No-Go' },
   { id: 'addresses', label: 'Addresses' },
@@ -30,8 +32,9 @@ const tabs: Array<{ id: Tab; label: string }> = [
 ];
 
 export function CockpitDashboard() {
-  const [tab, setTab] = useState<Tab>('overview');
+  const [tab, setTab] = useState<Tab>('guide');
   const [state, setState] = useState<CockpitState | null>(null);
+  const [guide, setGuide] = useState<DeploymentGuide | null>(null);
   const [readiness, setReadiness] = useState<ReadinessReport | null>(null);
   const [actions, setActions] = useState<CockpitAction[]>([]);
   const [intents, setIntents] = useState<CockpitIntent[]>([]);
@@ -45,8 +48,9 @@ export function CockpitDashboard() {
     setLoading(true);
     setError('');
     try {
-      const [nextState, nextActions, nextIntents, nextReadiness] = await Promise.all([fetchCockpitState(), fetchCockpitActions(), fetchCockpitIntents(), fetchReadinessReport()]);
+      const [nextState, nextGuide, nextActions, nextIntents, nextReadiness] = await Promise.all([fetchCockpitState(), fetchDeploymentGuide(), fetchCockpitActions(), fetchCockpitIntents(), fetchReadinessReport()]);
       setState(nextState);
+      setGuide(nextGuide);
       setActions(nextActions);
       setIntents(nextIntents);
       setReadiness(nextReadiness);
@@ -90,6 +94,7 @@ export function CockpitDashboard() {
 
       {state && (
         <>
+          {tab === 'guide' && <Guide guide={guide} actions={actions} intents={intents} onRefresh={() => void refresh()} />}
           {tab === 'overview' && <Overview state={state} evmWallet={evmAccount.address || ''} evmChainId={chainId} solanaWallet={solanaWallet} />}
           {tab === 'go-no-go' && <GoNoGo readiness={readiness} onRefresh={() => void refresh()} />}
           {tab === 'addresses' && <Addresses state={state} />}
@@ -125,6 +130,184 @@ function EnvironmentPill({ state }: { state: CockpitState | null }) {
       {state.environment.wormholeNetwork} · {state.addresses.solana.chain} / {state.addresses.base.chain}
     </div>
   );
+}
+
+function Guide({ guide, actions, intents, onRefresh }: { guide: DeploymentGuide | null; actions: CockpitAction[]; intents: CockpitIntent[]; onRefresh: () => void }) {
+  const [selectedStepId, setSelectedStepId] = useState('');
+  const activeStep = guide?.steps.find((step) => step.id === (selectedStepId || guide.currentStepId)) || guide?.steps[0];
+  const activeAction = activeStep?.primaryActionId ? actions.find((action) => action.id === activeStep.primaryActionId) : undefined;
+  const activeIntent = activeStep?.primaryIntentId ? intents.find((intent) => intent.id === activeStep.primaryIntentId) : undefined;
+
+  useEffect(() => {
+    if (guide?.currentStepId && !selectedStepId) setSelectedStepId(guide.currentStepId);
+  }, [guide?.currentStepId, selectedStepId]);
+
+  if (!guide || !activeStep) {
+    return <section className="panel"><h2>Guided Deployment</h2><p>Guide not loaded.</p></section>;
+  }
+
+  return (
+    <div className="guide-layout">
+      <aside className="panel guide-rail">
+        <div className="panel-title-row">
+          <div>
+            <h2>Guided Deployment</h2>
+            <p>{guide.recommendedNextAction}</p>
+          </div>
+          <button onClick={onRefresh}>Refresh</button>
+        </div>
+        <div className="guide-phases">
+          {guide.phases.map((phase) => (
+            <div className="guide-phase" key={phase.id}>
+              <div className="panel-title-row">
+                <strong>{phase.label}</strong>
+                <span>{phase.done}/{phase.total}</span>
+              </div>
+              <p>{phase.description}</p>
+              <div className="guide-step-list">
+                {phase.stepIds.map((stepId) => {
+                  const step = guide.steps.find((item) => item.id === stepId);
+                  if (!step) return null;
+                  return (
+                    <button
+                      className={step.id === activeStep.id ? `guide-step-button active ${step.status}` : `guide-step-button ${step.status}`}
+                      key={step.id}
+                      onClick={() => setSelectedStepId(step.id)}
+                    >
+                      <span>{step.label}</span>
+                      <GuideStatus status={step.status} />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </aside>
+
+      <section className="panel guide-main">
+        <div className="panel-title-row">
+          <div>
+            <p className="eyebrow">{activeStep.mode}</p>
+            <h2>{activeStep.label}</h2>
+            <p>{activeStep.description}</p>
+          </div>
+          <div className="guide-status-stack">
+            <GuideStatus status={activeStep.status} />
+            <RiskPill risk={activeStep.risk} />
+          </div>
+        </div>
+
+        <div className="guide-why">
+          <strong>Why this matters</strong>
+          <p>{activeStep.why}</p>
+        </div>
+
+        {activeStep.blockedBy.length > 0 && (
+          <div className="banner warning">
+            {activeStep.blockedBy.map((blocker) => <div key={blocker}>{blocker}</div>)}
+          </div>
+        )}
+
+        <GuideFields title="Fixed" fields={activeStep.fixedInputs} />
+        <GuideFields title="Prefilled and editable" fields={activeStep.editableInputs} />
+        <GuideFields title="Advanced" fields={activeStep.advancedInputs} collapsed />
+        <GuideFields title="Outputs" fields={activeStep.outputs} />
+        <GuideEvidenceList title="Post-step checks" items={activeStep.postconditions} />
+
+        {activeIntent && (
+          <section className="guide-control">
+            <h3>Wallet-signed control</h3>
+            <WalletIntentCard intent={activeIntent} />
+          </section>
+        )}
+        {activeAction && (
+          <section className="guide-control">
+            <h3>Local helper control</h3>
+            <ActionCard action={activeAction} />
+          </section>
+        )}
+        {!activeIntent && !activeAction && activeStep.mode === 'manual' && (
+          <section className="guide-control">
+            <h3>Manual step</h3>
+            <p>Record this evidence in Go/No-Go once reviewed.</p>
+          </section>
+        )}
+      </section>
+
+      <aside className="panel guide-evidence-panel">
+        <h2>Live evidence</h2>
+        <Rows rows={[
+          ['Current step', activeStep.label],
+          ['Execution mode', activeStep.mode],
+          ['Primary action', activeStep.primaryActionId || activeStep.primaryIntentId || 'manual'],
+          ['Dependencies', activeStep.dependsOn.join(', ') || 'none'],
+        ]} />
+        <GuideEvidenceList title="Evidence" items={activeStep.evidence} />
+        {guide.blockingIssues.length > 0 && (
+          <>
+            <h3>Blocking issues</h3>
+            <div className="guide-issue-list">
+              {guide.blockingIssues.slice(0, 8).map((issue) => <p className="warning" key={issue}>{issue}</p>)}
+            </div>
+          </>
+        )}
+      </aside>
+    </div>
+  );
+}
+
+function GuideFields({ title, fields, collapsed = false }: { title: string; fields: GuideField[]; collapsed?: boolean }) {
+  if (!fields.length) return null;
+  const content = (
+    <div className="guide-field-grid">
+      {fields.map((field) => (
+        <div className={field.editable ? 'guide-field editable' : 'guide-field'} key={`${field.key}-${field.label}`}>
+          <span>{field.label}</span>
+          <strong>{field.secret && field.value ? '[set]' : field.value || 'not set'}</strong>
+          {field.fixed && <small>fixed</small>}
+          {field.editable && <small>editable</small>}
+          {field.help && <p>{field.help}</p>}
+        </div>
+      ))}
+    </div>
+  );
+  if (collapsed) {
+    return (
+      <details className="guide-details">
+        <summary>{title}</summary>
+        {content}
+      </details>
+    );
+  }
+  return (
+    <div className="guide-section">
+      <h3>{title}</h3>
+      {content}
+    </div>
+  );
+}
+
+function GuideEvidenceList({ title, items }: { title: string; items: GuideEvidence[] }) {
+  if (!items.length) return null;
+  return (
+    <div className="guide-section">
+      <h3>{title}</h3>
+      <div className="guide-evidence-list">
+        {items.map((item) => (
+          <div className="guide-evidence" key={`${item.label}-${item.value}`}>
+            <span>{item.label}</span>
+            {item.href ? <a href={item.href} target="_blank" rel="noreferrer">{item.value || item.href}</a> : <strong>{item.value || 'not set'}</strong>}
+            {item.status && <GuideStatus status={String(item.status)} />}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function GuideStatus({ status }: { status: string }) {
+  return <span className={`guide-status ${status}`}>{status}</span>;
 }
 
 function Overview({ state, evmWallet, evmChainId, solanaWallet }: { state: CockpitState; evmWallet: string; evmChainId: number; solanaWallet: string }) {
@@ -347,7 +530,7 @@ function Workflow({ state, actions, intents }: { state: CockpitState; actions: C
       <section className="panel">
         <h2>Wallet-signed Base operations</h2>
         <div className="action-list">
-          {intents.map((intent) => <WalletIntentCard intent={intent} key={intent.id} state={state} />)}
+          {intents.map((intent) => <WalletIntentCard intent={intent} key={intent.id} />)}
         </div>
       </section>
       {orderedGroups.map((group) => (
@@ -355,7 +538,7 @@ function Workflow({ state, actions, intents }: { state: CockpitState; actions: C
           <h2>{groupLabel(group)}</h2>
           <div className="action-list">
             {actions.filter((item) => item.group === group).map((action) => (
-              <ActionCard action={action} key={action.id} state={state} />
+              <ActionCard action={action} key={action.id} />
             ))}
           </div>
         </section>
@@ -381,13 +564,13 @@ function Upgrade({ state, actions, intents }: { state: CockpitState; actions: Co
       <section className="panel">
         <h2>Wallet-signed upgrade operations</h2>
         <div className="action-list">
-          {intents.map((intent) => <WalletIntentCard intent={intent} key={intent.id} state={state} />)}
+          {intents.map((intent) => <WalletIntentCard intent={intent} key={intent.id} />)}
         </div>
       </section>
       <section className="panel wide">
         <h2>Local CLI fallback</h2>
         <div className="action-list">
-          {actions.map((action) => <ActionCard action={action} key={action.id} state={state} />)}
+          {actions.map((action) => <ActionCard action={action} key={action.id} />)}
         </div>
       </section>
     </div>
@@ -410,20 +593,20 @@ function Recovery({ state, actions, intents }: { state: CockpitState; actions: C
       <section className="panel">
         <h2>Wallet-signed recovery governance</h2>
         <div className="action-list">
-          {intents.map((intent) => <WalletIntentCard intent={intent} key={intent.id} state={state} />)}
+          {intents.map((intent) => <WalletIntentCard intent={intent} key={intent.id} />)}
         </div>
       </section>
       <section className="panel wide">
         <h2>Bridge-back CLI operations</h2>
         <div className="action-list">
-          {actions.map((action) => <ActionCard action={action} key={action.id} state={state} />)}
+          {actions.map((action) => <ActionCard action={action} key={action.id} />)}
         </div>
       </section>
     </div>
   );
 }
 
-function WalletIntentCard({ intent }: { intent: CockpitIntent; state: CockpitState }) {
+function WalletIntentCard({ intent }: { intent: CockpitIntent }) {
   const account = useAccount();
   const chainId = useChainId();
   const { switchChainAsync } = useSwitchChain();
@@ -566,7 +749,7 @@ function normalizeDeployArgs(preview: CockpitIntent) {
   return preview.args || [];
 }
 
-function ActionCard({ action }: { action: CockpitAction; state: CockpitState }) {
+function ActionCard({ action }: { action: CockpitAction }) {
   const [env, setEnv] = useState<Record<string, string>>(action.envFields || {});
   const [preview, setPreview] = useState<CockpitActionPreview | null>(null);
   const [confirmation, setConfirmation] = useState('');

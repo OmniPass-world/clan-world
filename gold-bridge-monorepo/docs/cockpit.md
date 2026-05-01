@@ -34,6 +34,7 @@ For phone signing, set `VITE_WALLET_CONNECT_PROJECT_ID` to a Reown project id. T
 - Wallets: Reown AppKit EVM connection, network switching, WalletConnect/mobile signing, plus a Solana identity button.
 - Wallet-signed EVM operations: Base proxy deploy, V2 implementation deploy, timelock minter handoff, timelock upgrade calls, and recovery governance calls.
 - Go/No-Go: on-chain and artifact-backed readiness checks with manual note fields for human approvals; exported reports include those notes.
+- Guide: a step-by-step deployment spine with phases, blockers, fixed/prefilled/editable fields, active controls, post-step checks, and live evidence for each deployment step.
 
 ## Safety model
 
@@ -50,9 +51,8 @@ The second pass makes Base/EVM operations wallet-signed. Wormhole NTT project ge
 ## Fresh rehearsal flow
 
 1. Start the API and web app.
-2. Open the Deploy tab and connect the EVM deployer through Reown/AppKit.
-3. Use the wallet-signed Base proxy deploy card, then reconcile the receipt.
-4. Run the local CLI NTT setup lane for Solana and Base.
-5. Use the wallet-signed minter handoff schedule/execute cards.
-6. Run preflight, NTT status, artifact export, web config export, and tiny proof transfers.
-7. Open Go/No-Go and export a readiness report after all critical evidence is green.
+2. Open the Guide tab and connect the EVM deployer through Reown/AppKit.
+3. Work down the active step card; each step shows fixed values, editable values, outputs, postconditions, and the right wallet or CLI control.
+4. Use wallet-signed cards for Base proxy and timelock work.
+5. Use local CLI cards for NTT project generation, Solana NTT manager deployment, NTT push/status, and proof transfers.
+6. Export artifacts and the Go/No-Go readiness report after all critical evidence is green.

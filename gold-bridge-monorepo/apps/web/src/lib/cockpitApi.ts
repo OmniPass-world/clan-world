@@ -5,6 +5,7 @@ import type {
   CockpitIntent,
   CockpitIntentResult,
   CockpitState,
+  DeploymentGuide,
   ReadinessReport
 } from '../types';
 
@@ -72,6 +73,10 @@ export function reconcileCockpitIntent(
 
 export function fetchReadinessReport() {
   return api<ReadinessReport>('/api/readiness');
+}
+
+export function fetchDeploymentGuide() {
+  return api<DeploymentGuide>('/api/guide');
 }
 
 export function exportReadinessReport(manualNotes: Record<string, string>) {
