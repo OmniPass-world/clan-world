@@ -105,6 +105,29 @@ export interface CockpitIntentResult {
   notes: string[];
 }
 
+export type ReadinessStatus = 'pass' | 'fail' | 'unknown' | 'manual';
+
+export interface ReadinessItem {
+  id: string;
+  category: string;
+  label: string;
+  status: ReadinessStatus;
+  detail: string;
+  evidence?: string;
+  fix?: string;
+  critical: boolean;
+}
+
+export interface ReadinessReport {
+  generatedAt: string;
+  network: string;
+  canGo: boolean;
+  summary: Record<ReadinessStatus, number>;
+  items: ReadinessItem[];
+  manualNotes?: Record<string, string>;
+  exportPath?: string;
+}
+
 export interface CockpitState {
   generatedAt: string;
   environment: {
@@ -174,6 +197,7 @@ export interface CockpitState {
   };
   token: {
     solanaSupply: string;
+    solanaDecimals?: string;
     baseSupply: string;
     baseDecimals: string;
     owner: string;

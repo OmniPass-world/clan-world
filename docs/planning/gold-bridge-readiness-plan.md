@@ -2,7 +2,7 @@
 
 Living plan for getting Solana-canonical GOLD bridged to Base with Wormhole NTT, then replacing ClanWorld's current deployed/native GOLD ERC20 with the Base-side bridged GOLD token.
 
-Last updated: 2026-05-01 05:18 EDT
+Last updated: 2026-05-01 05:42 EDT
 
 ## Goal
 
@@ -566,4 +566,7 @@ Progress:
 - [x] Add Reown AppKit EVM wallet connection and network switching for phone/mobile signing.
 - [x] Add EVM transaction-intent API for Base proxy deploy, V2 implementation deploy, timelock minter handoff, V2 upgrade, recovery allowlist, and recovery disable.
 - [x] Add wallet-signed UI cards that prepare, sign, wait for receipts, and reconcile local `.env` deployment state.
+- [x] Add app-visible Go/No-Go checklist backed by on-chain state, artifacts, deployment config, contract code, proof txs, and manual approval notes.
+- [x] Add readiness report export for deployment evidence archival.
+- [ ] Run a fresh full cockpit-assisted rehearsal with connected EVM wallet signing.
 - [ ] Replace remaining NTT/Solana CLI-only deploy steps with wallet-native or safer mainnet handoff flows before production use.

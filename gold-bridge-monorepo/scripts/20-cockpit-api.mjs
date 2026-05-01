@@ -503,6 +503,100 @@ function check(id, label, ok, detail = '') {
   return { id, label, ok: Boolean(ok), detail };
 }
 
+async function buildReadinessReport({ write = false, manualNotes = {} } = {}) {
+  const state = await buildState();
+  const items = readinessItems(state);
+  const summary = { pass: 0, fail: 0, unknown: 0, manual: 0 };
+  for (const item of items) summary[item.status] += 1;
+  const report = {
+    generatedAt: new Date().toISOString(),
+    network: state.environment.wormholeNetwork,
+    canGo: items.every((item) => !item.critical || item.status === 'pass' || item.status === 'manual'),
+    summary,
+    items,
+    manualNotes,
+  };
+  if (write) {
+    const stamp = report.generatedAt.replace(/[:.]/g, '-');
+    const outPath = path.join(root, 'artifacts', `readiness-report-${stamp}.json`);
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+    fs.writeFileSync(outPath, `${JSON.stringify(report, null, 2)}\n`);
+    report.exportPath = path.relative(root, outPath);
+  }
+  return report;
+}
+
+function readinessItems(state) {
+  const expectedDecimals = '9';
+  const hasTx = (key) => Boolean(state.transactions?.[key]);
+  const item = (id, category, label, status, detail, fix, critical = true, evidence = '') => ({
+    id,
+    category,
+    label,
+    status,
+    detail,
+    fix,
+    critical,
+    evidence,
+  });
+  const passFail = (ok, failDetail, passDetail) => ok
+    ? ['pass', passDetail || 'Validated.']
+    : ['fail', failDetail];
+  const unknownIfMissing = (value, label) => value ? ['pass', String(value)] : ['unknown', `${label} is not available.`];
+
+  const [solanaTokenStatus, solanaTokenDetail] = unknownIfMissing(state.addresses.solana.token, 'Solana token mint');
+  const [baseTokenStatus, baseTokenDetail] = unknownIfMissing(state.addresses.base.token, 'Base token');
+  const [solanaDecimalsStatus, solanaDecimalsDetail] = state.token.solanaDecimals
+    ? passFail(state.token.solanaDecimals === expectedDecimals, `Expected Solana decimals ${expectedDecimals}, got ${state.token.solanaDecimals}.`, `Solana decimals ${state.token.solanaDecimals}.`)
+    : ['unknown', 'Solana decimals not loaded from RPC.'];
+  const [baseDecimalsStatus, baseDecimalsDetail] = state.token.baseDecimals
+    ? passFail(state.token.baseDecimals === expectedDecimals, `Expected Base decimals ${expectedDecimals}, got ${state.token.baseDecimals}.`, `Base decimals ${state.token.baseDecimals}.`)
+    : ['unknown', 'Base decimals not loaded from RPC.'];
+
+  const codeOk = sourceContains('packages/contracts/src/GoldBridgeToken.sol', 'GOLD_DECIMALS = 9')
+    && fs.existsSync(path.join(root, 'packages/contracts/out/UpgradeableGoldDeployer.sol/UpgradeableGoldDeployer.json'));
+
+  return [
+    item('solana-token', 'Token', 'Solana GOLD mint configured', solanaTokenStatus, solanaTokenDetail, 'Set SOLANA_TOKEN_MINT to the canonical GOLD SPL mint.'),
+    item('solana-decimals', 'Token', 'Solana GOLD has 9 decimals', solanaDecimalsStatus, solanaDecimalsDetail, 'Confirm the canonical mint is 9 decimals or redeploy Base token design.'),
+    item('base-token', 'Token', 'Base GOLD proxy configured', baseTokenStatus, baseTokenDetail, 'Deploy or reconcile Base GOLD proxy.'),
+    item('base-decimals', 'Token', 'Base GOLD has 9 decimals', baseDecimalsStatus, baseDecimalsDetail, 'Deploy the 9-decimal GoldBridgeToken proxy.'),
+    item('contract-code', 'Code', 'Contract source/artifacts match 9-decimal bridge design', codeOk ? 'pass' : 'fail', codeOk ? 'GoldBridgeToken source and deploy artifact found.' : 'Contract source or Foundry artifact missing.', 'Run forge build/test and confirm GoldBridgeToken fixes decimals at 9.'),
+    item('proxy-shape', 'Base Proxy', 'Base token is ERC-1967 proxy', state.proxy.admin && state.proxy.implementation ? 'pass' : 'fail', state.proxy.admin ? `ProxyAdmin ${state.proxy.admin}, implementation ${state.proxy.implementation}.` : 'Proxy slots were not found.', 'Deploy the transparent proxy stack or fix BASE_TOKEN_ADDRESS.'),
+    item('token-owner', 'Authorities', 'Token owner is timelock', equalsAddress(state.token.owner, state.addresses.base.timelock) ? 'pass' : 'fail', `owner=${state.token.owner || 'unknown'}, timelock=${state.addresses.base.timelock || 'unknown'}.`, 'Transfer token ownership to the timelock.'),
+    item('proxy-admin-owner', 'Authorities', 'ProxyAdmin owner is timelock', equalsAddress(state.proxy.proxyAdminOwner, state.addresses.base.timelock) ? 'pass' : 'fail', `proxyAdminOwner=${state.proxy.proxyAdminOwner || 'unknown'}, timelock=${state.addresses.base.timelock || 'unknown'}.`, 'Transfer ProxyAdmin ownership to the timelock.'),
+    item('base-minter', 'Authorities', 'Base minter is Base NTT manager', equalsAddress(state.token.minter, state.addresses.base.manager) ? 'pass' : 'fail', `minter=${state.token.minter || 'unknown'}, manager=${state.addresses.base.manager || 'unknown'}.`, 'Schedule and execute setMinter(Base NTT manager).'),
+    item('timelock-delay', 'Authorities', 'Production timelock delay is nonzero on mainnet', state.environment.isMainnet ? (Number(state.proxy.timelockMinDelay || 0) > 0 ? 'pass' : 'fail') : 'manual', state.environment.isMainnet ? `delay=${state.proxy.timelockMinDelay || 'unknown'} seconds.` : `Testnet delay=${state.proxy.timelockMinDelay || 'unknown'} seconds; choose production delay manually.`, 'Set production TIMELOCK_DELAY_SECONDS before mainnet deployment.'),
+    item('solana-ntt-mode', 'NTT', 'Solana NTT is locking mode', state.ntt.solana?.mode === 'locking' ? 'pass' : 'fail', `mode=${state.ntt.solana?.mode || 'unknown'}.`, 'Deploy/add Solana NTT in locking mode.'),
+    item('base-ntt-mode', 'NTT', 'Base NTT is burning mode', state.ntt.base?.mode === 'burning' ? 'pass' : 'fail', `mode=${state.ntt.base?.mode || 'unknown'}.`, 'Deploy/add Base NTT in burning mode.'),
+    item('ntt-not-paused', 'NTT', 'NTT managers are not paused', state.ntt.solana?.paused === false && state.ntt.base?.paused === false ? 'pass' : 'fail', `solana=${String(state.ntt.solana?.paused)}, base=${String(state.ntt.base?.paused)}.`, 'Unpause managers only after confirming configuration.'),
+    item('rate-limits', 'NTT', 'Rate limits are configured and conservative', hasRateLimit(state.ntt.solana) && hasRateLimit(state.ntt.base) ? 'pass' : 'fail', `solana outbound=${state.ntt.solana?.outboundLimit || 'unknown'}, base outbound=${state.ntt.base?.outboundLimit || 'unknown'}.`, 'Set nonzero conservative outbound and inbound limits in deployment.json and push.'),
+    item('deployment-artifact', 'Evidence', 'Deployment summary artifact exists', state.artifacts.deploymentJsonPresent && state.artifacts.generatedWebConfigPresent ? 'pass' : 'fail', `deploymentJson=${state.artifacts.deploymentJsonPresent}, webConfig=${state.artifacts.generatedWebConfigPresent}.`, 'Run artifacts export and web config export.'),
+    item('proof-solana-base', 'Evidence', 'Tiny Solana to Base proof recorded', hasTx('solanaToBaseProof') ? 'pass' : 'fail', state.transactions.solanaToBaseProof || 'missing tx.', 'Run a tiny Solana -> Base transfer and record tx.'),
+    item('proof-base-solana', 'Evidence', 'Tiny Base to Solana proof recorded', hasTx('baseToSolanaProof') ? 'pass' : 'fail', state.transactions.baseToSolanaProof || 'missing tx.', 'Run a tiny Base -> Solana transfer and record tx.'),
+    item('walletconnect-project', 'Operations', 'Production WalletConnect project id configured', state.environment.isMainnet ? (state.environment.walletConnectProjectIdConfigured ? 'pass' : 'fail') : 'manual', state.environment.walletConnectProjectIdConfigured ? 'WalletConnect project id configured.' : 'Development fallback may be in use.', 'Set VITE_WALLET_CONNECT_PROJECT_ID for production.', false),
+    item('external-review', 'Operations', 'External/security review completed', 'manual', 'Requires human review evidence.', 'Attach review notes before mainnet liquidity.', true),
+    item('clanworld-integration', 'ClanWorld', 'ClanWorld integration plan approved', 'manual', 'Deferred until the other GOLD PR is ready.', 'Approve final bridged GOLD handoff plan before ClanWorld liquidity.', true),
+  ];
+}
+
+function sourceContains(relativePath, pattern) {
+  try {
+    return fs.readFileSync(path.join(root, relativePath), 'utf8').includes(pattern);
+  } catch {
+    return false;
+  }
+}
+
+function equalsAddress(a, b) {
+  return Boolean(a && b && String(a).toLowerCase() === String(b).toLowerCase());
+}
+
+function hasRateLimit(ntt) {
+  if (!ntt?.outboundLimit || ntt.outboundLimit === '0' || ntt.outboundLimit === '0.000000000') return false;
+  return Object.values(ntt.inboundLimits || {}).some((value) => value && value !== '0' && value !== '0.000000000');
+}
+
 async function liveState(currentEnv, addresses, deployment) {
   const balances = {
     solanaDeployerSol: '',
@@ -513,6 +607,7 @@ async function liveState(currentEnv, addresses, deployment) {
   };
   const token = {
     solanaSupply: '',
+    solanaDecimals: '',
     baseSupply: '',
     baseDecimals: '',
     owner: '',
@@ -551,6 +646,7 @@ async function populateSolanaLive(rpcUrl, addresses, balances, token) {
     if (addresses.solana.token) {
       const supply = await solanaRpc(rpcUrl, 'getTokenSupply', [addresses.solana.token]);
       token.solanaSupply = supply?.value?.uiAmountString || '';
+      token.solanaDecimals = supply?.value?.decimals !== undefined ? String(supply.value.decimals) : '';
     }
     if (addresses.solana.deployer && addresses.solana.token) {
       const accounts = await solanaRpc(rpcUrl, 'getTokenAccountsByOwner', [
@@ -775,6 +871,11 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'OPTIONS') return send(res, 204, {});
     const url = new URL(req.url || '/', `http://${req.headers.host}`);
     if (req.method === 'GET' && url.pathname === '/api/state') return send(res, 200, await buildState());
+    if (req.method === 'GET' && url.pathname === '/api/readiness') return send(res, 200, await buildReadinessReport());
+    if (req.method === 'POST' && url.pathname === '/api/readiness/export') {
+      const body = await parseBody(req);
+      return send(res, 200, await buildReadinessReport({ write: true, manualNotes: body.manualNotes || {} }));
+    }
     if (req.method === 'GET' && url.pathname === '/api/actions') {
       const currentEnv = env();
       return send(res, 200, { actions: ACTIONS.map((item) => publicAction(item, currentEnv)) });

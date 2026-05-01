@@ -6,18 +6,21 @@ import {
   fetchCockpitIntents,
   fetchCockpitActions,
   fetchCockpitState,
+  fetchReadinessReport,
   previewCockpitAction,
   previewCockpitIntent,
   reconcileCockpitIntent,
+  exportReadinessReport,
   runCockpitAction
 } from '../lib/cockpitApi';
 import { evmExplorerAddress, evmExplorerTx, shortenAddress, solanaExplorerAddress, solanaExplorerTx } from '../lib/format';
-import type { CockpitAction, CockpitActionPreview, CockpitActionResult, CockpitIntent, CockpitIntentResult, CockpitState } from '../types';
+import type { CockpitAction, CockpitActionPreview, CockpitActionResult, CockpitIntent, CockpitIntentResult, CockpitState, ReadinessReport, ReadinessStatus } from '../types';
 
-type Tab = 'overview' | 'addresses' | 'authority' | 'deploy' | 'upgrade' | 'recovery' | 'bridge';
+type Tab = 'overview' | 'go-no-go' | 'addresses' | 'authority' | 'deploy' | 'upgrade' | 'recovery' | 'bridge';
 
 const tabs: Array<{ id: Tab; label: string }> = [
   { id: 'overview', label: 'Overview' },
+  { id: 'go-no-go', label: 'Go/No-Go' },
   { id: 'addresses', label: 'Addresses' },
   { id: 'authority', label: 'Authority' },
   { id: 'deploy', label: 'Deploy' },
@@ -29,6 +32,7 @@ const tabs: Array<{ id: Tab; label: string }> = [
 export function CockpitDashboard() {
   const [tab, setTab] = useState<Tab>('overview');
   const [state, setState] = useState<CockpitState | null>(null);
+  const [readiness, setReadiness] = useState<ReadinessReport | null>(null);
   const [actions, setActions] = useState<CockpitAction[]>([]);
   const [intents, setIntents] = useState<CockpitIntent[]>([]);
   const [solanaWallet, setSolanaWallet] = useState('');
@@ -41,10 +45,11 @@ export function CockpitDashboard() {
     setLoading(true);
     setError('');
     try {
-      const [nextState, nextActions, nextIntents] = await Promise.all([fetchCockpitState(), fetchCockpitActions(), fetchCockpitIntents()]);
+      const [nextState, nextActions, nextIntents, nextReadiness] = await Promise.all([fetchCockpitState(), fetchCockpitActions(), fetchCockpitIntents(), fetchReadinessReport()]);
       setState(nextState);
       setActions(nextActions);
       setIntents(nextIntents);
+      setReadiness(nextReadiness);
     } catch (err) {
       setError(String((err as Error).message || err));
     } finally {
@@ -86,6 +91,7 @@ export function CockpitDashboard() {
       {state && (
         <>
           {tab === 'overview' && <Overview state={state} evmWallet={evmAccount.address || ''} evmChainId={chainId} solanaWallet={solanaWallet} />}
+          {tab === 'go-no-go' && <GoNoGo readiness={readiness} onRefresh={() => void refresh()} />}
           {tab === 'addresses' && <Addresses state={state} />}
           {tab === 'authority' && <Authority state={state} />}
           {tab === 'deploy' && <Workflow state={state} actions={actions.filter((item) => ['setup', 'deploy', 'config', 'verify', 'proof', 'artifact'].includes(item.group))} intents={intents.filter((item) => ['deploy-base-gold-proxy', 'schedule-set-minter', 'execute-set-minter'].includes(item.id))} />}
@@ -163,6 +169,104 @@ function Overview({ state, evmWallet, evmChainId, solanaWallet }: { state: Cockp
         <h2>Latest proof txs</h2>
         <TransactionRows state={state} />
       </section>
+    </div>
+  );
+}
+
+function GoNoGo({ readiness, onRefresh }: { readiness: ReadinessReport | null; onRefresh: () => void }) {
+  const [manualNotes, setManualNotes] = useState<Record<string, string>>(() => {
+    try {
+      return JSON.parse(window.localStorage.getItem('gold-readiness-manual-notes') || '{}');
+    } catch {
+      return {};
+    }
+  });
+  const [exportPath, setExportPath] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  function setNote(id: string, value: string) {
+    const next = { ...manualNotes, [id]: value };
+    setManualNotes(next);
+    window.localStorage.setItem('gold-readiness-manual-notes', JSON.stringify(next));
+  }
+
+  async function exportNow() {
+    setBusy(true);
+    setError('');
+    try {
+      const report = await exportReadinessReport(manualNotes);
+      setExportPath(report.exportPath || '');
+      onRefresh();
+    } catch (err) {
+      setError(String((err as Error).message || err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!readiness) {
+    return <section className="panel"><h2>Go/No-Go</h2><p>Readiness report not loaded.</p></section>;
+  }
+
+  const grouped = readiness.items.reduce<Record<string, typeof readiness.items>>((acc, item) => {
+    acc[item.category] = acc[item.category] || [];
+    acc[item.category].push(item);
+    return acc;
+  }, {});
+
+  return (
+    <div className="workflow-list">
+      <section className="panel">
+        <div className="panel-title-row">
+          <div>
+            <h2>Mainnet Go/No-Go</h2>
+            <p>Computed from on-chain reads, contract artifacts, NTT deployment state, generated config, and recorded proof evidence.</p>
+          </div>
+          <StatusPill ok={readiness.canGo} label={readiness.canGo ? 'GO' : 'NO-GO'} />
+        </div>
+        <div className="readiness-summary">
+          {(['pass', 'fail', 'unknown', 'manual'] as ReadinessStatus[]).map((status) => (
+            <div className={`summary-chip ${status}`} key={status}>
+              <strong>{readiness.summary[status]}</strong>
+              <span>{status}</span>
+            </div>
+          ))}
+        </div>
+        <div className="button-row">
+          <button onClick={onRefresh}>Refresh evidence</button>
+          <button onClick={() => void exportNow()} disabled={busy}>{busy ? 'Exporting' : 'Export report'}</button>
+        </div>
+        {exportPath && <p className="muted">Exported {exportPath}</p>}
+        {error && <p className="warning">{error}</p>}
+      </section>
+
+      {Object.entries(grouped).map(([category, items]) => (
+        <section className="panel" key={category}>
+          <h2>{category}</h2>
+          <div className="readiness-list">
+            {items.map((item) => (
+              <article className={`readiness-item ${item.status}`} key={item.id}>
+                <div className="panel-title-row">
+                  <div>
+                    <h3>{item.label}</h3>
+                    <p>{item.detail}</p>
+                  </div>
+                  <StatusBadge status={item.status} critical={item.critical} />
+                </div>
+                {item.evidence && <p className="muted">{item.evidence}</p>}
+                {item.fix && item.status !== 'pass' && <p className="warning">{item.fix}</p>}
+                {item.status === 'manual' && (
+                  <label className="confirm-field">
+                    <span>Operator note</span>
+                    <input value={manualNotes[item.id] || ''} onChange={(event) => setNote(item.id, event.target.value)} placeholder="Record review, owner, or approval evidence" />
+                  </label>
+                )}
+              </article>
+            ))}
+          </div>
+        </section>
+      ))}
     </div>
   );
 }
@@ -584,6 +688,10 @@ function Metric({ title, value }: { title: string; value: string }) {
 
 function StatusPill({ ok, label }: { ok: boolean; label: string }) {
   return <span className={ok ? 'status-pill ok' : 'status-pill warn'}>{label}</span>;
+}
+
+function StatusBadge({ status, critical }: { status: ReadinessStatus; critical: boolean }) {
+  return <span className={`readiness-badge ${status}`}>{critical ? `${status} · critical` : status}</span>;
 }
 
 function RiskPill({ risk }: { risk: string }) {

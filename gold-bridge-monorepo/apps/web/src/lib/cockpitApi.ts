@@ -4,7 +4,8 @@ import type {
   CockpitActionResult,
   CockpitIntent,
   CockpitIntentResult,
-  CockpitState
+  CockpitState,
+  ReadinessReport
 } from '../types';
 
 const API_BASE = import.meta.env.VITE_COCKPIT_API_URL || 'http://127.0.0.1:8787';
@@ -66,5 +67,16 @@ export function reconcileCockpitIntent(
   return api<CockpitIntentResult>(`/api/intents/${id}/reconcile`, {
     method: 'POST',
     body: JSON.stringify({ txHash, contractAddress, confirmation })
+  });
+}
+
+export function fetchReadinessReport() {
+  return api<ReadinessReport>('/api/readiness');
+}
+
+export function exportReadinessReport(manualNotes: Record<string, string>) {
+  return api<ReadinessReport>('/api/readiness/export', {
+    method: 'POST',
+    body: JSON.stringify({ manualNotes })
   });
 }
