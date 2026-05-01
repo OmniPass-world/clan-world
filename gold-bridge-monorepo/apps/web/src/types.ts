@@ -77,6 +77,34 @@ export interface CockpitActionResult {
   stderr: string;
 }
 
+export interface CockpitIntent {
+  id: string;
+  label: string;
+  description: string;
+  kind: 'transaction' | 'deployment';
+  chainId: number;
+  risk: 'low' | 'medium' | 'high' | 'critical' | string;
+  expectedSigner?: string;
+  to?: `0x${string}`;
+  value?: string;
+  data?: `0x${string}`;
+  abi?: unknown[];
+  bytecode?: `0x${string}`;
+  args?: unknown[];
+  requiredConfirmation: string;
+  expectedStateChange: string;
+  artifactUpdate?: string[];
+}
+
+export interface CockpitIntentResult {
+  id: string;
+  txHash: string;
+  contractAddress?: string;
+  updates: Record<string, string>;
+  backupPath?: string;
+  notes: string[];
+}
+
 export interface CockpitState {
   generatedAt: string;
   environment: {

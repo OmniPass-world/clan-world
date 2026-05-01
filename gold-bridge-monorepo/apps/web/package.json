@@ -10,15 +10,21 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
+    "@reown/appkit": "^1.8.19",
+    "@reown/appkit-adapter-solana": "^1.8.19",
+    "@reown/appkit-adapter-wagmi": "^1.8.19",
+    "@tanstack/react-query": "^5.100.7",
     "@vitejs/plugin-react": "^4.3.4",
     "@wormhole-foundation/wormhole-connect": "^5.1.1",
-    "vite": "^6.2.5",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "viem": "^2.48.7",
+    "vite": "^6.2.5",
+    "wagmi": "^3.6.9"
   },
   "devDependencies": {
-    "typescript": "^5.8.3",
     "@types/react": "^19.0.12",
-    "@types/react-dom": "^19.0.4"
+    "@types/react-dom": "^19.0.4",
+    "typescript": "^5.8.3"
   }
 }

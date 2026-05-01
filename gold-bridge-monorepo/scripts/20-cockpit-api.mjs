@@ -22,6 +22,8 @@ const ADMIN_SLOT = '0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b
 const IMPLEMENTATION_SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
 const ZERO_WORD = '0x0000000000000000000000000000000000000000000000000000000000000000';
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+const BYTES32_ZERO = ZERO_WORD;
+const BASE_CHAIN_IDS = { BaseSepolia: 84532, Base: 8453 };
 
 const ACTIONS = [
   action('doctor', 'Doctor', 'Validate local tools and .env presence.', 'setup', 'pnpm run doctor', { mutates: false }),
@@ -75,6 +77,21 @@ const ACTIONS = [
   }),
 ];
 
+const INTENTS = [
+  intent('deploy-base-gold-proxy', 'Deploy Base GOLD proxy with wallet', 'Wallet-signed deployment of the one-shot upgradeable GOLD deployer helper.', 'deployment', 'high'),
+  intent('deploy-gold-v2-implementation', 'Deploy GOLD V2 implementation', 'Wallet-signed deployment of the recovery-free GOLD implementation.', 'deployment', 'high'),
+  intent('schedule-set-minter', 'Schedule minter handoff', 'Schedule setMinter(Base NTT manager) through the timelock.', 'transaction', 'high'),
+  intent('execute-set-minter', 'Execute minter handoff', 'Execute the scheduled setMinter(Base NTT manager) operation.', 'transaction', 'high'),
+  intent('schedule-upgrade-v2', 'Schedule V2 upgrade', 'Schedule ProxyAdmin upgradeAndCall(proxy, V2 implementation, empty bytes) through timelock.', 'transaction', 'critical'),
+  intent('execute-upgrade-v2', 'Execute V2 upgrade', 'Execute the scheduled V2 upgrade operation through timelock.', 'transaction', 'critical'),
+  intent('schedule-recovery-allowlist', 'Schedule recovery allowlist', 'Schedule setRecoveryAllowed(source, allowed) through timelock.', 'transaction', 'critical'),
+  intent('disable-recovery-forever', 'Disable recovery forever', 'Schedule disableRecoveryForever() through timelock.', 'transaction', 'critical'),
+];
+
+function intent(id, label, description, kind, risk) {
+  return { id, label, description, kind, risk };
+}
+
 function action(id, label, description, group, command, options = {}) {
   const [bin, ...args] = command.split(' ');
   return {
@@ -96,10 +113,20 @@ function isMainnet(currentEnv) {
     || String(currentEnv.NTT_BASE_CHAIN || '').toLowerCase() === 'base';
 }
 
+function baseChainId(currentEnv) {
+  return BASE_CHAIN_IDS[currentEnv.NTT_BASE_CHAIN || 'BaseSepolia'] || 84532;
+}
+
 function confirmationFor(actionDef, currentEnv) {
   if (!actionDef.mutates) return '';
   if (isMainnet(currentEnv) || actionDef.risk === 'critical') return `type ${actionDef.id.toUpperCase()} ${currentEnv.WORMHOLE_NETWORK || 'UNKNOWN'}`;
   if (actionDef.risk === 'high') return `type ${actionDef.id}`;
+  return '';
+}
+
+function intentConfirmation(intentDef, currentEnv) {
+  if (isMainnet(currentEnv) || intentDef.risk === 'critical') return `type ${intentDef.id.toUpperCase()} ${currentEnv.WORMHOLE_NETWORK || 'UNKNOWN'}`;
+  if (intentDef.risk === 'high') return `type ${intentDef.id}`;
   return '';
 }
 
@@ -203,6 +230,136 @@ function maskEnv(values) {
     masked[key] = key.includes('PRIVATE_KEY') || key.includes('SECRET') || key.includes('MNEMONIC') ? '[redacted]' : value;
   }
   return masked;
+}
+
+function publicIntent(intentDef, currentEnv) {
+  return {
+    ...intentDef,
+    chainId: baseChainId(currentEnv),
+    requiredConfirmation: intentConfirmation(intentDef, currentEnv),
+  };
+}
+
+function previewIntent(id, body = {}) {
+  const currentEnv = env();
+  const intentDef = INTENTS.find((candidate) => candidate.id === id);
+  if (!intentDef) throw httpError(404, `Unknown intent: ${id}`);
+  const args = body.args || {};
+  if (isMainnet(currentEnv) && id === 'deploy-base-gold-proxy') {
+    throw httpError(400, 'Mainnet Base proxy deployment is dry-run/export only until final rehearsal is approved.');
+  }
+  const common = {
+    ...publicIntent(intentDef, currentEnv),
+    expectedSigner: expectedBaseSigner(currentEnv),
+    value: '0',
+    artifactUpdate: [],
+  };
+
+  if (id === 'deploy-base-gold-proxy') {
+    const artifact = contractArtifact('UpgradeableGoldDeployer.sol', 'UpgradeableGoldDeployer');
+    const deployer = expectedBaseSigner(currentEnv);
+    return {
+      ...common,
+      abi: artifact.abi,
+      bytecode: artifact.bytecode.object || artifact.bytecode,
+      args: [
+        currentEnv.BASE_TOKEN_NAME || 'Gold',
+        currentEnv.BASE_TOKEN_SYMBOL || 'GOLD',
+        currentEnv.EVM_INITIAL_MINTER || deployer,
+        currentEnv.TIMELOCK_PROPOSER || deployer,
+        currentEnv.TIMELOCK_EXECUTOR || ZERO_ADDRESS,
+        currentEnv.TIMELOCK_ADMIN || ZERO_ADDRESS,
+        BigInt(currentEnv.TIMELOCK_DELAY_SECONDS || 86400).toString(),
+      ],
+      expectedStateChange: 'Deploy helper, implementation, timelock, proxy token, and ProxyAdmin; reconcile writes Base token addresses.',
+      artifactUpdate: ['BASE_TOKEN_ADDRESS', 'BASE_TOKEN_IMPLEMENTATION_ADDRESS', 'BASE_TIMELOCK_ADDRESS', 'BASE_PROXY_ADMIN_ADDRESS', 'BASE_TOKEN_DEPLOY_TX'],
+    };
+  }
+
+  if (id === 'deploy-gold-v2-implementation') {
+    const artifact = contractArtifact('GoldBridgeTokenV2.sol', 'GoldBridgeTokenV2');
+    return {
+      ...common,
+      abi: artifact.abi,
+      bytecode: artifact.bytecode.object || artifact.bytecode,
+      args: [],
+      expectedStateChange: 'Deploy a new GoldBridgeTokenV2 implementation; reconcile records the candidate implementation address.',
+      artifactUpdate: ['BASE_TOKEN_V2_IMPLEMENTATION_ADDRESS'],
+    };
+  }
+
+  const addresses = currentAddresses(currentEnv);
+  if (!addresses.base.timelock) throw httpError(400, 'BASE_TIMELOCK_ADDRESS is required for wallet-signed timelock intents.');
+  const value = BigInt(args.TIMELOCK_VALUE || 0).toString();
+  let target = addresses.base.token;
+  let inner = '0x';
+  let expectedStateChange = '';
+
+  if (id === 'schedule-set-minter' || id === 'execute-set-minter') {
+    target = addresses.base.token;
+    inner = encodeCall('setMinter', [addresses.base.manager || args.BASE_NTT_MANAGER_ADDRESS]);
+    expectedStateChange = 'Base GOLD minter becomes the Base NTT manager.';
+  } else if (id === 'schedule-upgrade-v2' || id === 'execute-upgrade-v2') {
+    target = addresses.base.proxyAdmin || args.BASE_PROXY_ADMIN_ADDRESS;
+    const implementation = args.NEW_IMPLEMENTATION_ADDRESS || currentEnv.BASE_TOKEN_V2_IMPLEMENTATION_ADDRESS || '';
+    inner = encodeCall('upgradeAndCall', [addresses.base.token, implementation, '0x']);
+    expectedStateChange = 'Base GOLD proxy implementation slot points to the supplied V2 implementation.';
+  } else if (id === 'schedule-recovery-allowlist') {
+    target = addresses.base.token;
+    inner = encodeCall('setRecoveryAllowed', [args.RECOVERY_SOURCE_ADDRESS, args.RECOVERY_ALLOWED || 'true']);
+    expectedStateChange = 'Recovery allowlist for the source address is updated through the timelock.';
+  } else if (id === 'disable-recovery-forever') {
+    target = addresses.base.token;
+    inner = '0xf43809e2';
+    expectedStateChange = 'Base GOLD recovery hook is permanently disabled.';
+  }
+
+  if (!target || !isAddress(target)) throw httpError(400, `Missing or invalid target for ${id}.`);
+  const isExecute = id.startsWith('execute-');
+  const data = isExecute
+    ? encodeCall('execute', [target, value, inner, args.TIMELOCK_PREDECESSOR || BYTES32_ZERO, args.TIMELOCK_SALT || BYTES32_ZERO])
+    : encodeCall('schedule', [target, value, inner, args.TIMELOCK_PREDECESSOR || BYTES32_ZERO, args.TIMELOCK_SALT || BYTES32_ZERO, args.TIMELOCK_DELAY_SECONDS || currentEnv.TIMELOCK_DELAY_SECONDS || '0']);
+
+  return {
+    ...common,
+    to: addresses.base.timelock,
+    data,
+    expectedStateChange,
+  };
+}
+
+async function reconcileIntent(id, body = {}) {
+  const currentEnv = env();
+  const intentDef = INTENTS.find((candidate) => candidate.id === id);
+  if (!intentDef) throw httpError(404, `Unknown intent: ${id}`);
+  const required = intentConfirmation(intentDef, currentEnv);
+  if (required && body.confirmation !== required) throw httpError(400, `Confirmation mismatch. Expected: ${required}`);
+  if (!body.txHash) throw httpError(400, 'txHash is required.');
+
+  const updates = {};
+  const notes = [];
+  if (id === 'deploy-base-gold-proxy') {
+    if (!body.contractAddress || !isAddress(body.contractAddress)) throw httpError(400, 'contractAddress is required for deploy reconciliation.');
+    const baseRpc = currentEnv.BASE_RPC_URL || currentEnv.VITE_BASE_RPC_URL;
+    const helper = body.contractAddress;
+    updates.BASE_TOKEN_ADDRESS = addressFromWord(await ethCall(baseRpc, helper, '0xec556889'));
+    updates.BASE_TOKEN_IMPLEMENTATION_ADDRESS = addressFromWord(await ethCall(baseRpc, helper, '0x5c60da1b'));
+    updates.BASE_TIMELOCK_ADDRESS = addressFromWord(await ethCall(baseRpc, helper, '0xd33219b4'));
+    const adminWord = await evmRpc(baseRpc, 'eth_getStorageAt', [updates.BASE_TOKEN_ADDRESS, ADMIN_SLOT, 'latest']);
+    updates.BASE_PROXY_ADMIN_ADDRESS = addressFromWord(adminWord);
+    updates.BASE_TOKEN_DEPLOY_TX = body.txHash;
+    notes.push(`Deployed helper ${helper}.`);
+  } else if (id === 'deploy-gold-v2-implementation') {
+    if (!body.contractAddress || !isAddress(body.contractAddress)) throw httpError(400, 'contractAddress is required for V2 implementation reconciliation.');
+    updates.BASE_TOKEN_V2_IMPLEMENTATION_ADDRESS = body.contractAddress;
+    notes.push('Recorded V2 implementation candidate.');
+  } else {
+    updates[`${id.toUpperCase().replaceAll('-', '_')}_TX`] = body.txHash;
+    notes.push('Transaction hash recorded for operator evidence.');
+  }
+
+  const backupPath = writeEnvUpdates(updates);
+  return { id, txHash: body.txHash, contractAddress: body.contractAddress || '', updates, backupPath, notes };
 }
 
 async function buildState() {
@@ -461,11 +618,6 @@ async function jsonRpc(url, body) {
   return json.result;
 }
 
-function encodeCall(signature, address) {
-  if (signature !== 'balanceOf(address)') throw new Error(`Unsupported signature: ${signature}`);
-  return `0x70a08231${address.toLowerCase().replace(/^0x/, '').padStart(64, '0')}`;
-}
-
 function addressFromWord(word) {
   if (!word || word === '0x') return '';
   return `0x${word.slice(-40)}`;
@@ -474,6 +626,111 @@ function addressFromWord(word) {
 function booleanFromWord(word) {
   if (!word || word === '0x') return null;
   return BigInt(word) !== 0n;
+}
+
+function currentAddresses(currentEnv) {
+  const deployment = safeLoadDeployment(currentEnv);
+  const summary = readJson(path.join(root, 'artifacts', 'deployment-summary.json'));
+  const baseChainName = currentEnv.NTT_BASE_CHAIN || 'BaseSepolia';
+  const solanaChainName = currentEnv.NTT_SOLANA_CHAIN || 'Solana';
+  const baseDeployment = chainConfig(deployment, baseChainName) || {};
+  const solanaDeployment = chainConfig(deployment, solanaChainName) || {};
+  return {
+    solana: {
+      token: currentEnv.SOLANA_TOKEN_MINT || solanaDeployment.token || summary?.chains?.solana?.tokenMint || '',
+      manager: currentEnv.SOLANA_NTT_MANAGER_ADDRESS || solanaDeployment.manager || summary?.chains?.solana?.manager || '',
+    },
+    base: {
+      token: currentEnv.BASE_TOKEN_ADDRESS || baseDeployment.token || summary?.chains?.base?.tokenAddress || '',
+      manager: currentEnv.BASE_NTT_MANAGER_ADDRESS || baseDeployment.manager || summary?.chains?.base?.manager || '',
+      timelock: currentEnv.BASE_TIMELOCK_ADDRESS || summary?.chains?.base?.timelock || '',
+      proxyAdmin: currentEnv.BASE_PROXY_ADMIN_ADDRESS || summary?.chains?.base?.proxyAdmin || '',
+    },
+  };
+}
+
+function expectedBaseSigner(currentEnv) {
+  return currentEnv.EVM_DEPLOYER_ADDRESS || '';
+}
+
+function contractArtifact(sourceFile, contractName) {
+  const artifactPath = path.join(root, 'packages/contracts/out', sourceFile, `${contractName}.json`);
+  if (!fs.existsSync(artifactPath)) {
+    throw httpError(400, `Missing contract artifact: ${path.relative(root, artifactPath)}. Run pnpm test:contracts or forge build first.`);
+  }
+  return JSON.parse(fs.readFileSync(artifactPath, 'utf8'));
+}
+
+function isAddress(value) {
+  return /^0x[a-fA-F0-9]{40}$/.test(String(value || ''));
+}
+
+function strip0x(value) {
+  return String(value || '').replace(/^0x/, '');
+}
+
+function encodeUint(value) {
+  return BigInt(value || 0).toString(16).padStart(64, '0');
+}
+
+function encodeAddress(value) {
+  if (!isAddress(value)) throw httpError(400, `Invalid address: ${value || 'empty'}`);
+  return strip0x(value).padStart(64, '0').toLowerCase();
+}
+
+function encodeBool(value) {
+  return encodeUint(String(value) === 'true' || value === true ? 1 : 0);
+}
+
+function encodeBytes32(value) {
+  const raw = strip0x(value || BYTES32_ZERO);
+  if (!/^[a-fA-F0-9]{64}$/.test(raw)) throw httpError(400, `Invalid bytes32: ${value}`);
+  return raw.toLowerCase();
+}
+
+function encodeBytes(value) {
+  const raw = strip0x(value || '0x');
+  if (!/^[a-fA-F0-9]*$/.test(raw) || raw.length % 2 !== 0) throw httpError(400, `Invalid bytes: ${value}`);
+  return `${encodeUint(raw.length / 2)}${raw.padEnd(Math.ceil(raw.length / 64) * 64, '0')}`;
+}
+
+function encodeCall(name, args) {
+  if (name === 'balanceOf(address)') return `0x70a08231${encodeAddress(args)}`;
+  if (name === 'setMinter') return `0xfca3b5aa${encodeAddress(args[0])}`;
+  if (name === 'setRecoveryAllowed') return `0x36aec413${encodeAddress(args[0])}${encodeBool(args[1])}`;
+  if (name === 'execute') {
+    const [target, value, data, predecessor, salt] = args;
+    return `0x134008d3${encodeAddress(target)}${encodeUint(value)}${encodeUint(160)}${encodeBytes32(predecessor)}${encodeBytes32(salt)}${encodeBytes(data)}`;
+  }
+  if (name === 'schedule') {
+    const [target, value, data, predecessor, salt, delay] = args;
+    return `0x01d5062a${encodeAddress(target)}${encodeUint(value)}${encodeUint(192)}${encodeBytes32(predecessor)}${encodeBytes32(salt)}${encodeUint(delay)}${encodeBytes(data)}`;
+  }
+  if (name === 'upgradeAndCall') {
+    const [proxy, implementation, data] = args;
+    return `0x9623609d${encodeAddress(proxy)}${encodeAddress(implementation)}${encodeUint(96)}${encodeBytes(data)}`;
+  }
+  throw new Error(`Unsupported call: ${name}`);
+}
+
+function writeEnvUpdates(updates) {
+  if (!Object.keys(updates).length) return '';
+  const original = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
+  const backupPath = `${envPath}.${new Date().toISOString().replace(/[:.]/g, '-')}.bak`;
+  fs.writeFileSync(backupPath, original);
+  const lines = original ? original.split(/\r?\n/) : [];
+  const remaining = { ...updates };
+  const next = lines.map((line) => {
+    const match = line.match(/^([A-Z0-9_]+)=/);
+    if (!match || !(match[1] in remaining)) return line;
+    const key = match[1];
+    const value = remaining[key];
+    delete remaining[key];
+    return `${key}=${value}`;
+  });
+  for (const [key, value] of Object.entries(remaining)) next.push(`${key}=${value}`);
+  fs.writeFileSync(envPath, `${next.join('\n').replace(/\n*$/, '')}\n`);
+  return path.relative(root, backupPath);
 }
 
 function formatUnits(raw, decimals) {
@@ -522,11 +779,21 @@ const server = http.createServer(async (req, res) => {
       const currentEnv = env();
       return send(res, 200, { actions: ACTIONS.map((item) => publicAction(item, currentEnv)) });
     }
+    if (req.method === 'GET' && url.pathname === '/api/intents') {
+      const currentEnv = env();
+      return send(res, 200, { intents: INTENTS.map((item) => publicIntent(item, currentEnv)) });
+    }
     const actionMatch = url.pathname.match(/^\/api\/actions\/([^/]+)\/(preview|run)$/);
     if (req.method === 'POST' && actionMatch) {
       const [, id, mode] = actionMatch;
       const body = await parseBody(req);
       return send(res, 200, mode === 'preview' ? previewAction(id, body) : await runAction(id, body));
+    }
+    const intentMatch = url.pathname.match(/^\/api\/intents\/([^/]+)\/(preview|reconcile)$/);
+    if (req.method === 'POST' && intentMatch) {
+      const [, id, mode] = intentMatch;
+      const body = await parseBody(req);
+      return send(res, 200, mode === 'preview' ? previewIntent(id, body) : await reconcileIntent(id, body));
     }
     return send(res, 404, { error: 'Not found' });
   } catch (error) {

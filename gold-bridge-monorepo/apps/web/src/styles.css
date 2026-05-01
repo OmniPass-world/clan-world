@@ -169,6 +169,20 @@ pre {
 .result-box.ok { border-color: #245c46; }
 .result-box.failed { border-color: #63323a; }
 .warning { color: #ffb9b9; }
+.muted { color: #aab6c4; }
+.wallet-intent-strip {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: #aab6c4;
+  font-size: 0.86rem;
+}
+.wallet-intent-strip span {
+  border: 1px solid #303a48;
+  border-radius: 999px;
+  padding: 0.18rem 0.5rem;
+  background: #0f151d;
+}
 
 .bridge-card {
   min-height: 540px;

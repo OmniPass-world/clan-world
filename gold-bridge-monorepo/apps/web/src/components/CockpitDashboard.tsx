@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
+import { AppKitButton, AppKitNetworkButton } from '@reown/appkit/react';
+import { useAccount, useChainId, usePublicClient, useSwitchChain, useWalletClient } from 'wagmi';
 import { BridgePanel } from './BridgePanel';
 import {
+  fetchCockpitIntents,
   fetchCockpitActions,
   fetchCockpitState,
   previewCockpitAction,
+  previewCockpitIntent,
+  reconcileCockpitIntent,
   runCockpitAction
 } from '../lib/cockpitApi';
 import { evmExplorerAddress, evmExplorerTx, shortenAddress, solanaExplorerAddress, solanaExplorerTx } from '../lib/format';
-import type { CockpitAction, CockpitActionPreview, CockpitActionResult, CockpitState } from '../types';
+import type { CockpitAction, CockpitActionPreview, CockpitActionResult, CockpitIntent, CockpitIntentResult, CockpitState } from '../types';
 
 type Tab = 'overview' | 'addresses' | 'authority' | 'deploy' | 'upgrade' | 'recovery' | 'bridge';
 
@@ -25,18 +30,21 @@ export function CockpitDashboard() {
   const [tab, setTab] = useState<Tab>('overview');
   const [state, setState] = useState<CockpitState | null>(null);
   const [actions, setActions] = useState<CockpitAction[]>([]);
-  const [evmWallet, setEvmWallet] = useState('');
+  const [intents, setIntents] = useState<CockpitIntent[]>([]);
   const [solanaWallet, setSolanaWallet] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const evmAccount = useAccount();
+  const chainId = useChainId();
 
   async function refresh() {
     setLoading(true);
     setError('');
     try {
-      const [nextState, nextActions] = await Promise.all([fetchCockpitState(), fetchCockpitActions()]);
+      const [nextState, nextActions, nextIntents] = await Promise.all([fetchCockpitState(), fetchCockpitActions(), fetchCockpitIntents()]);
       setState(nextState);
       setActions(nextActions);
+      setIntents(nextIntents);
     } catch (err) {
       setError(String((err as Error).message || err));
     } finally {
@@ -58,7 +66,8 @@ export function CockpitDashboard() {
         </div>
         <div className="header-actions">
           <EnvironmentPill state={state} />
-          <button onClick={() => void connectEvmWallet(setEvmWallet)}>{evmWallet ? shortenAddress(evmWallet) : 'Connect EVM'}</button>
+          <AppKitButton />
+          <AppKitNetworkButton />
           <button onClick={() => void connectSolanaWallet(setSolanaWallet)}>{solanaWallet ? shortenAddress(solanaWallet) : 'Connect Solana'}</button>
           <button onClick={() => void refresh()} disabled={loading}>{loading ? 'Refreshing' : 'Refresh'}</button>
         </div>
@@ -76,31 +85,17 @@ export function CockpitDashboard() {
 
       {state && (
         <>
-          {tab === 'overview' && <Overview state={state} evmWallet={evmWallet} solanaWallet={solanaWallet} />}
+          {tab === 'overview' && <Overview state={state} evmWallet={evmAccount.address || ''} evmChainId={chainId} solanaWallet={solanaWallet} />}
           {tab === 'addresses' && <Addresses state={state} />}
           {tab === 'authority' && <Authority state={state} />}
-          {tab === 'deploy' && <Workflow state={state} actions={actions.filter((item) => ['setup', 'deploy', 'config', 'verify', 'proof', 'artifact'].includes(item.group))} />}
-          {tab === 'upgrade' && <Upgrade state={state} actions={actions.filter((item) => item.group === 'upgrade' || item.id === 'proxy-info')} />}
-          {tab === 'recovery' && <Recovery state={state} actions={actions.filter((item) => item.group === 'recovery')} />}
+          {tab === 'deploy' && <Workflow state={state} actions={actions.filter((item) => ['setup', 'deploy', 'config', 'verify', 'proof', 'artifact'].includes(item.group))} intents={intents.filter((item) => ['deploy-base-gold-proxy', 'schedule-set-minter', 'execute-set-minter'].includes(item.id))} />}
+          {tab === 'upgrade' && <Upgrade state={state} actions={actions.filter((item) => item.group === 'upgrade' || item.id === 'proxy-info')} intents={intents.filter((item) => ['deploy-gold-v2-implementation', 'schedule-upgrade-v2', 'execute-upgrade-v2'].includes(item.id))} />}
+          {tab === 'recovery' && <Recovery state={state} actions={actions.filter((item) => item.group === 'recovery')} intents={intents.filter((item) => ['schedule-recovery-allowlist', 'disable-recovery-forever'].includes(item.id))} />}
           {tab === 'bridge' && <BridgePanel />}
         </>
       )}
     </main>
   );
-}
-
-async function connectEvmWallet(setter: (value: string) => void) {
-  const provider = (window as unknown as { ethereum?: { request: (args: { method: string; params?: unknown[] }) => Promise<string[]> } }).ethereum;
-  if (!provider) {
-    window.alert('No EVM wallet provider found in this browser.');
-    return;
-  }
-  try {
-    const accounts = await provider.request({ method: 'eth_requestAccounts' });
-    setter(accounts[0] || '');
-  } catch (err) {
-    window.alert(String((err as Error).message || err));
-  }
 }
 
 async function connectSolanaWallet(setter: (value: string) => void) {
@@ -126,7 +121,7 @@ function EnvironmentPill({ state }: { state: CockpitState | null }) {
   );
 }
 
-function Overview({ state, evmWallet, solanaWallet }: { state: CockpitState; evmWallet: string; solanaWallet: string }) {
+function Overview({ state, evmWallet, evmChainId, solanaWallet }: { state: CockpitState; evmWallet: string; evmChainId: number; solanaWallet: string }) {
   const failed = state.checks.filter((item) => !item.ok);
   return (
     <div className="cockpit-grid">
@@ -157,6 +152,7 @@ function Overview({ state, evmWallet, solanaWallet }: { state: CockpitState; evm
         <h2>Connected wallets</h2>
         <Rows rows={[
           ['EVM wallet', evmWallet || 'not connected'],
+          ['EVM chain id', evmChainId ? String(evmChainId) : 'not connected'],
           ['Solana wallet', solanaWallet || 'not connected'],
           ['WalletConnect project id', state.environment.walletConnectProjectIdConfigured ? 'configured' : 'not configured'],
           ['Mainnet key policy', state.environment.isMainnet ? 'wallet or timelock only' : 'testnet local scripts allowed']
@@ -240,10 +236,16 @@ function Authority({ state }: { state: CockpitState }) {
   );
 }
 
-function Workflow({ state, actions }: { state: CockpitState; actions: CockpitAction[] }) {
+function Workflow({ state, actions, intents }: { state: CockpitState; actions: CockpitAction[]; intents: CockpitIntent[] }) {
   const orderedGroups = ['setup', 'deploy', 'config', 'verify', 'proof', 'artifact'];
   return (
     <div className="workflow-list">
+      <section className="panel">
+        <h2>Wallet-signed Base operations</h2>
+        <div className="action-list">
+          {intents.map((intent) => <WalletIntentCard intent={intent} key={intent.id} state={state} />)}
+        </div>
+      </section>
       {orderedGroups.map((group) => (
         <section className="panel" key={group}>
           <h2>{groupLabel(group)}</h2>
@@ -258,7 +260,7 @@ function Workflow({ state, actions }: { state: CockpitState; actions: CockpitAct
   );
 }
 
-function Upgrade({ state, actions }: { state: CockpitState; actions: CockpitAction[] }) {
+function Upgrade({ state, actions, intents }: { state: CockpitState; actions: CockpitAction[]; intents: CockpitIntent[] }) {
   return (
     <div className="two-column">
       <section className="panel">
@@ -273,7 +275,13 @@ function Upgrade({ state, actions }: { state: CockpitState; actions: CockpitActi
         ]} />
       </section>
       <section className="panel">
-        <h2>Upgrade operations</h2>
+        <h2>Wallet-signed upgrade operations</h2>
+        <div className="action-list">
+          {intents.map((intent) => <WalletIntentCard intent={intent} key={intent.id} state={state} />)}
+        </div>
+      </section>
+      <section className="panel wide">
+        <h2>Local CLI fallback</h2>
         <div className="action-list">
           {actions.map((action) => <ActionCard action={action} key={action.id} state={state} />)}
         </div>
@@ -282,7 +290,7 @@ function Upgrade({ state, actions }: { state: CockpitState; actions: CockpitActi
   );
 }
 
-function Recovery({ state, actions }: { state: CockpitState; actions: CockpitAction[] }) {
+function Recovery({ state, actions, intents }: { state: CockpitState; actions: CockpitAction[]; intents: CockpitIntent[] }) {
   return (
     <div className="two-column">
       <section className="panel">
@@ -296,13 +304,162 @@ function Recovery({ state, actions }: { state: CockpitState; actions: CockpitAct
         ]} />
       </section>
       <section className="panel">
-        <h2>Recovery operations</h2>
+        <h2>Wallet-signed recovery governance</h2>
+        <div className="action-list">
+          {intents.map((intent) => <WalletIntentCard intent={intent} key={intent.id} state={state} />)}
+        </div>
+      </section>
+      <section className="panel wide">
+        <h2>Bridge-back CLI operations</h2>
         <div className="action-list">
           {actions.map((action) => <ActionCard action={action} key={action.id} state={state} />)}
         </div>
       </section>
     </div>
   );
+}
+
+function WalletIntentCard({ intent }: { intent: CockpitIntent; state: CockpitState }) {
+  const account = useAccount();
+  const chainId = useChainId();
+  const { switchChainAsync } = useSwitchChain();
+  const { data: walletClient } = useWalletClient();
+  const publicClient = usePublicClient();
+  const [args, setArgs] = useState<Record<string, string>>(defaultIntentArgs(intent.id));
+  const [preview, setPreview] = useState<CockpitIntent | null>(null);
+  const [confirmation, setConfirmation] = useState('');
+  const [txHash, setTxHash] = useState('');
+  const [result, setResult] = useState<CockpitIntentResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const fields = Object.keys(args);
+
+  async function previewNow() {
+    setBusy(true);
+    setError('');
+    setResult(null);
+    try {
+      setPreview(await previewCockpitIntent(intent.id, args));
+    } catch (err) {
+      setError(String((err as Error).message || err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendNow() {
+    if (!preview) return;
+    if (!walletClient || !account.address) {
+      setError('Connect an EVM wallet first.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      if (chainId !== preview.chainId) await switchChainAsync({ chainId: preview.chainId });
+      let hash: `0x${string}`;
+      if (preview.kind === 'deployment') {
+        hash = await walletClient.deployContract({
+          abi: preview.abi as never,
+          bytecode: preview.bytecode as `0x${string}`,
+          args: normalizeDeployArgs(preview) as never,
+          account: account.address,
+        });
+      } else {
+        hash = await walletClient.sendTransaction({
+          account: account.address,
+          to: preview.to,
+          data: preview.data,
+          value: BigInt(preview.value || '0'),
+        });
+      }
+      setTxHash(hash);
+      const receipt = await publicClient?.waitForTransactionReceipt({ hash });
+      setResult(await reconcileCockpitIntent(intent.id, hash, confirmation, receipt?.contractAddress || undefined));
+    } catch (err) {
+      setError(String((err as Error).message || err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const confirmationOk = !preview?.requiredConfirmation || confirmation === preview.requiredConfirmation;
+  const wrongChain = Boolean(preview && chainId && chainId !== preview.chainId);
+
+  return (
+    <article className={`action-card risk-${intent.risk}`}>
+      <div className="panel-title-row">
+        <div>
+          <h3>{intent.label}</h3>
+          <p>{intent.description}</p>
+        </div>
+        <RiskPill risk={intent.risk} />
+      </div>
+      <div className="wallet-intent-strip">
+        <span>{intent.kind === 'deployment' ? 'wallet deployment' : 'wallet transaction'}</span>
+        <span>chain {preview?.chainId || intent.chainId}</span>
+        {wrongChain && <span className="warning">wrong chain</span>}
+      </div>
+      {fields.length > 0 && (
+        <div className="env-grid">
+          {fields.map((field) => (
+            <label key={field}>
+              <span>{field}</span>
+              <input value={args[field] || ''} onChange={(event) => setArgs({ ...args, [field]: event.target.value })} />
+            </label>
+          ))}
+        </div>
+      )}
+      <div className="button-row">
+        <button onClick={() => void previewNow()} disabled={busy}>{preview ? 'Preview again' : 'Prepare tx'}</button>
+        <button onClick={() => void sendNow()} disabled={busy || !preview || !confirmationOk || !account.address}>
+          {busy ? 'Working' : preview?.kind === 'deployment' ? 'Deploy with wallet' : 'Sign with wallet'}
+        </button>
+      </div>
+      {preview && (
+        <div className="preview-box">
+          <Rows rows={[
+            ['Expected signer', preview.expectedSigner || 'connected wallet'],
+            ['Connected signer', account.address || 'not connected'],
+            ['Target', preview.to || 'contract creation'],
+            ['Expected state change', preview.expectedStateChange],
+            ['Required confirmation', preview.requiredConfirmation || 'not required']
+          ]} />
+          {preview.data && <pre>{preview.data}</pre>}
+          {preview.requiredConfirmation && (
+            <label className="confirm-field">
+              <span>Type confirmation</span>
+              <input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} placeholder={preview.requiredConfirmation} />
+            </label>
+          )}
+        </div>
+      )}
+      {txHash && <p className="muted">Submitted {shortenAddress(txHash, 10)}</p>}
+      {error && <p className="warning">{error}</p>}
+      {result && (
+        <div className="result-box ok">
+          <strong>Reconciled</strong>
+          <Rows rows={Object.entries(result.updates).map(([key, value]) => [key, value])} />
+          {result.backupPath && <p className="muted">Backup: {result.backupPath}</p>}
+        </div>
+      )}
+    </article>
+  );
+}
+
+function defaultIntentArgs(id: string): Record<string, string> {
+  if (id.includes('upgrade')) return { NEW_IMPLEMENTATION_ADDRESS: '' };
+  if (id === 'schedule-recovery-allowlist') return { RECOVERY_SOURCE_ADDRESS: '', RECOVERY_ALLOWED: 'true' };
+  return {};
+}
+
+function normalizeDeployArgs(preview: CockpitIntent) {
+  if (preview.id === 'deploy-base-gold-proxy' && preview.args) {
+    const args = [...preview.args];
+    args[6] = BigInt(String(args[6] || 0));
+    return args;
+  }
+  return preview.args || [];
 }
 
 function ActionCard({ action }: { action: CockpitAction; state: CockpitState }) {

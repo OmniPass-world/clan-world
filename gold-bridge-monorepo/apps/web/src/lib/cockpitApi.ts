@@ -1,4 +1,11 @@
-import type { CockpitAction, CockpitActionPreview, CockpitActionResult, CockpitState } from '../types';
+import type {
+  CockpitAction,
+  CockpitActionPreview,
+  CockpitActionResult,
+  CockpitIntent,
+  CockpitIntentResult,
+  CockpitState
+} from '../types';
 
 const API_BASE = import.meta.env.VITE_COCKPIT_API_URL || 'http://127.0.0.1:8787';
 
@@ -35,5 +42,29 @@ export function runCockpitAction(id: string, env: Record<string, string>, confir
   return api<CockpitActionResult>(`/api/actions/${id}/run`, {
     method: 'POST',
     body: JSON.stringify({ env, confirmation })
+  });
+}
+
+export async function fetchCockpitIntents() {
+  const payload = await api<{ intents: CockpitIntent[] }>('/api/intents');
+  return payload.intents;
+}
+
+export function previewCockpitIntent(id: string, args: Record<string, string>) {
+  return api<CockpitIntent>(`/api/intents/${id}/preview`, {
+    method: 'POST',
+    body: JSON.stringify({ args })
+  });
+}
+
+export function reconcileCockpitIntent(
+  id: string,
+  txHash: string,
+  confirmation: string,
+  contractAddress?: string
+) {
+  return api<CockpitIntentResult>(`/api/intents/${id}/reconcile`, {
+    method: 'POST',
+    body: JSON.stringify({ txHash, contractAddress, confirmation })
   });
 }
