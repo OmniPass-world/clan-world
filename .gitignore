@@ -81,6 +81,9 @@ web_modules/
 .cache
 .parcel-cache
 
+# Local assistant metadata
+.codex
+
 # Next.js build output
 .next
 out
