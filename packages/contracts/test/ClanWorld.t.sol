@@ -55,6 +55,11 @@ contract ClanWorldTestHarness is ClanWorld {
         _clansmen[csId].carryWheat = wheat;
         _clansmen[csId].carryFish = fish;
     }
+
+    function setCurrentTick(uint64 tick) external {
+        _world.currentTick = tick;
+        _world.nextHeartbeatAtTick = tick + 1;
+    }
 }
 
 contract ClanWorldTest is Test {
@@ -538,7 +543,7 @@ contract ClanWorldTest is Test {
 
         assertEq(afterClan.vaultWood, beforeClan.vaultWood + woodDelta, "wood transferred");
         assertEq(afterClan.vaultIron, beforeClan.vaultIron + ironDelta, "iron transferred");
-        assertEq(afterClan.vaultFish, beforeClan.vaultFish + fishDelta - 8e17, "fish transferred after upkeep");
+        assertEq(afterClan.vaultFish, beforeClan.vaultFish + fishDelta, "fish transferred");
         assertEq(afterCs.carryWood, 0, "wood carry cleared");
         assertEq(afterCs.carryIron, 0, "iron carry cleared");
         assertEq(afterCs.carryFish, 0, "fish carry cleared");
@@ -553,7 +558,7 @@ contract ClanWorldTest is Test {
 
         OrderResult[] memory r = _submitOrderHarness(harness, clanId, csId, nonHomeRegion, ActionType.DepositResources);
 
-        assertEq(uint8(r[0].status), uint8(StatusCode.ERR_INVALID_REGION), "deposit must target home region");
+        assertEq(uint8(r[0].status), uint8(StatusCode.ERR_NOT_AT_HOMEBASE), "deposit must target home region");
     }
 
     function test_depositResources_eventHasCorrectDeltas() public {
@@ -598,16 +603,15 @@ contract ClanWorldTest is Test {
     // -------------------------------------------------------------------------
 
     function test_submitClanOrders_reverts_when_clan_too_far_behind() public {
-        uint32 clanId = _mintClan();
-        ClanFullView memory view_ = world.getClanFullView(clanId);
+        ClanWorldTestHarness harness = new ClanWorldTestHarness();
+        vm.prank(elder);
+        (uint32 clanId,) = harness.mintClan(elder);
+        ClanFullView memory view_ = harness.getClanFullView(clanId);
         uint32 csId = view_.clansmen[0].clansman.clansman.clansmanId;
 
-        // Advance 201 ticks — clan is now 201 ticks behind its lastSettledTick
-        for (uint256 i = 0; i < 201; i++) {
-            _advanceTick();
-        }
+        // Move the clock 201 ticks ahead without unrelated heartbeat side effects.
+        harness.setCurrentTick(201);
 
-        // Heartbeat now advances the clan checkpoint, so submission can proceed normally.
         ClanOrder[] memory orders = new ClanOrder[](1);
         orders[0] = ClanOrder({
             clansmanId: csId,
@@ -619,13 +623,13 @@ contract ClanWorldTest is Test {
             maxGoldIn: 0
         });
         vm.prank(elder);
-        OrderResult[] memory results = world.submitClanOrders(clanId, orders);
+        OrderResult[] memory results = harness.submitClanOrders(clanId, orders);
 
         assertEq(results.length, 1, "should return one result");
         assertEq(
             uint8(results[0].status),
-            uint8(StatusCode.OK),
-            "heartbeat eager settlement keeps order submission unblocked"
+            uint8(StatusCode.ERR_MUST_SETTLE_FIRST),
+            "clan more than 200 ticks behind must settle first"
         );
     }
 
@@ -2028,22 +2032,18 @@ contract ClanWorldTest is Test {
         assertEq(ws.currentSeasonNumber, 1, "season starts at 1");
         assertEq(ws.seasonStartTick, 0);
         assertEq(ws.seasonEndTick, ClanWorldConstants.SEASON_DURATION_TICKS);
-        assertEq(
-            ws.winterStartsAtTick, ClanWorldConstants.WINTER_PERIOD_TICKS - ClanWorldConstants.WINTER_DURATION_TICKS
-        );
+        assertEq(ws.winterStartsAtTick, ClanWorldConstants.WINTER_START_TICK);
+        assertEq(ws.winterEndsAtTick, ClanWorldConstants.WINTER_START_TICK + ClanWorldConstants.WINTER_DURATION_TICKS);
         assertFalse(ws.winterActive);
     }
 
     function test_winter_onset() public {
-        // winterStartsAtTick = 100; WinterStarted fires on the heartbeat that opens tick 100
-        // i.e. when closedTick=99, newTick=100 >= winterStartsAtTick=100.
-        // Advance 99 heartbeats so currentTick=99, then one more heartbeat fires WinterStarted at tick 100.
-        uint64 winterStart = ClanWorldConstants.WINTER_PERIOD_TICKS - ClanWorldConstants.WINTER_DURATION_TICKS; // = 100
+        // WinterStarted fires on the heartbeat that opens winterStartsAtTick.
+        uint64 winterStart = ClanWorldConstants.WINTER_START_TICK;
         for (uint64 i = 0; i < winterStart - 1; i++) {
             vm.warp(block.timestamp + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS);
             world.heartbeat();
         }
-        // currentTick == 99; next heartbeat opens tick 100 and should emit WinterStarted(100)
         vm.recordLogs();
         vm.warp(block.timestamp + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS);
         world.heartbeat();
@@ -2057,24 +2057,25 @@ contract ClanWorldTest is Test {
                 break;
             }
         }
-        assertTrue(foundWinterStarted, "WinterStarted event should have been emitted at tick 100");
+        assertTrue(foundWinterStarted, "WinterStarted event should have been emitted at winter start");
         assertTrue(world.getWorldState().winterActive, "winter should be active");
-        assertEq(world.getWorldState().currentTick, winterStart, "currentTick should be 100");
+        assertEq(world.getWorldState().currentTick, winterStart, "currentTick should be winter start");
     }
 
     function test_winter_end_and_next_cycle() public {
-        // Advance past first winter end tick (= 110)
-        uint64 winterEnd = ClanWorldConstants.WINTER_PERIOD_TICKS; // = 110
+        uint64 winterEnd = ClanWorldConstants.WINTER_START_TICK + ClanWorldConstants.WINTER_DURATION_TICKS;
         for (uint64 i = 0; i <= winterEnd; i++) {
             vm.warp(block.timestamp + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS);
             world.heartbeat();
         }
         WorldState memory ws = world.getWorldState();
         assertFalse(ws.winterActive, "winter should be over");
-        // next winter at [210, 220)
+        assertEq(ws.winterStartsAtTick, ClanWorldConstants.WINTER_START_TICK + ClanWorldConstants.WINTER_PERIOD_TICKS);
         assertEq(
-            ws.winterStartsAtTick,
-            ClanWorldConstants.WINTER_PERIOD_TICKS * 2 - ClanWorldConstants.WINTER_DURATION_TICKS
+            ws.winterEndsAtTick,
+            ClanWorldConstants.WINTER_START_TICK
+                + ClanWorldConstants.WINTER_PERIOD_TICKS
+                + ClanWorldConstants.WINTER_DURATION_TICKS
         );
     }
 
@@ -2088,9 +2089,10 @@ contract ClanWorldTest is Test {
         assertEq(ws.currentSeasonNumber, 2, "season number should increment");
         assertEq(ws.seasonStartTick, ClanWorldConstants.SEASON_DURATION_TICKS);
         assertEq(ws.seasonEndTick, ClanWorldConstants.SEASON_DURATION_TICKS * 2);
-        // winter reset for new season
-        uint64 expectedWinterStart = ClanWorldConstants.SEASON_DURATION_TICKS
-            + ClanWorldConstants.WINTER_PERIOD_TICKS - ClanWorldConstants.WINTER_DURATION_TICKS;
+        uint64 elapsedSinceFirstWinter = ClanWorldConstants.SEASON_DURATION_TICKS - ClanWorldConstants.WINTER_START_TICK;
+        uint64 nextWinterIndex = elapsedSinceFirstWinter / ClanWorldConstants.WINTER_PERIOD_TICKS + 1;
+        uint64 expectedWinterStart =
+            ClanWorldConstants.WINTER_START_TICK + nextWinterIndex * ClanWorldConstants.WINTER_PERIOD_TICKS;
         assertEq(ws.winterStartsAtTick, expectedWinterStart);
     }
 
