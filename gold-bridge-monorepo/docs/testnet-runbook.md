@@ -124,14 +124,22 @@ sequenceDiagram
 ## Testnet proof from this repo
 
 - Solana GOLD mint: `6NLCfbAzMyykwjwifAZr8WRBTPsb8u5s1uAVvGBGGa4r`
-- Solana NTT manager: `EQpZrkhQzc68x2qXV9imPstACEGEJJuXTQ8S2fAXpZva`
-- Base GOLD token: `0x57A893ACE218ccCf6A0958b5354Aaad58777806F`
-- Base NTT manager: `0x3df4e9Cd48B7c8290F80546547854ac8C82Dc276`
+- Solana NTT manager: `DQAKHw5eimsucy37oTgwRWCEBrJhyfht6Z6YPx6ut4hH`
+- Solana Wormhole transceiver: `81fVCz1fVChbZkqgmzFkudVuaAMDkTrK2gTWwNLi2k7M`
+- Base GOLD proxy token: `0xF6F49EAf9EA71e69450191aFe22EFaed8E2f7995`
+- Base GOLD implementation: `0x6A5DD88cd7dF0D6FD9478c6E451E5Ef6309DaC4c`
+- Base GOLD timelock: `0x686f671F2276127d52d294bC0E981C89FDA25C34`
+- Base GOLD ProxyAdmin: `0x9381505b073bacc179c35c91a05390c5486ff594`
+- Base NTT manager: `0x2B602BbF837Bd845Cc8b40AE70Dc6AB5b191eF3c`
+- Base Wormhole transceiver: `0x9a683a5464aCf816dc5e87F8686828f063e54104`
 
 Proof txs:
 
-- Solana -> Base: `5Q5kZFvU1W9yKdpG8GDqdr8sBeK5v9mmenjXZ8K9c3xj3f656QrW35XC9LkgAaUpPrRGurSu46dVbNsixc6WV8aA`
-- Base -> Solana: `0xe2dd6ab8003134a3a0d8a5a4ba17b331600aa50b71ef0ae6e47dd98ddcf32c22`
+- Base GOLD proxy deploy helper tx: `0xd9c5d05c40f30761546399faa8c08ce216901e3e83b69251eadba84d35a15ac2`
+- Base timelock minter handoff execute tx: `0xdc56f13fed35eee612510fcab2e62236e2659b89e44a963e9a1cc7af91141fbd`
+- Solana -> Base: `4VZjBLoxG3yrqRiG9SYevzVfgRHhGDf4beXMntpvyr79ssD2Bgh8R7L8DpUmYhxxUsLiwHsFXEUieZTSfw1hsqx1`
+- Base -> Solana approve: `0xf51fd022743cfe0a7101ffcf16bcca87914999cddcfc0e8a01131ee3b8e7f7c2`
+- Base -> Solana transfer: `0xd62c3970e3852719bc7e0963324227a2f7bb4dc25dc932e3f88ff10dc3f7ede0`
 
 ## Gotchas
 
@@ -140,3 +148,6 @@ Proof txs:
 - The Solana package pinned Solana CLI `1.18.26` and Anchor `0.29.0`.
 - Base add-chain may need to continue without simulation on testnet even when `decimals()` works on-chain.
 - Base -> Solana needs `TEST_TRANSFER_DESTINATION_MSG_VALUE` for executor rent/gas.
+- Fresh Solana NTT program deployment needed more than 6 SOL after build; keep the payer above that before `pnpm ntt:add-solana`.
+- Even with zero delay, the timelock execute call may need to happen after the next block rather than in the same script invocation.
+- Base -> Solana VAA lookup can take most of the CLI wait window; the transfer can still complete after many retries.

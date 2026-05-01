@@ -39,6 +39,18 @@ if [[ -z "$DEPLOYER_HELPER_ADDRESS" ]]; then
   exit 1
 fi
 
+for _ in {1..20}; do
+  if [[ "$(cast code "$DEPLOYER_HELPER_ADDRESS" --rpc-url "$BASE_RPC_URL")" != "0x" ]]; then
+    break
+  fi
+  sleep 3
+done
+
+if [[ "$(cast code "$DEPLOYER_HELPER_ADDRESS" --rpc-url "$BASE_RPC_URL")" == "0x" ]]; then
+  echo "UpgradeableGoldDeployer has no code yet: $DEPLOYER_HELPER_ADDRESS" >&2
+  exit 1
+fi
+
 BASE_TOKEN_ADDRESS="$(cast call "$DEPLOYER_HELPER_ADDRESS" "proxy()(address)" --rpc-url "$BASE_RPC_URL")"
 BASE_TOKEN_IMPLEMENTATION_ADDRESS="$(cast call "$DEPLOYER_HELPER_ADDRESS" "implementation()(address)" --rpc-url "$BASE_RPC_URL")"
 BASE_TIMELOCK_ADDRESS="$(cast call "$DEPLOYER_HELPER_ADDRESS" "timelock()(address)" --rpc-url "$BASE_RPC_URL")"

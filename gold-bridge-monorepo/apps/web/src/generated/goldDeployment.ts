@@ -8,17 +8,17 @@ export const goldDeployment: GoldDeployment = {
   "solana": {
     "chain": "Solana",
     "token": "6NLCfbAzMyykwjwifAZr8WRBTPsb8u5s1uAVvGBGGa4r",
-    "manager": "EQpZrkhQzc68x2qXV9imPstACEGEJJuXTQ8S2fAXpZva",
-    "transceiver": "Gtim3284zCdputS7dVgugx426Mce323Q7VJwhd46xR2P",
+    "manager": "DQAKHw5eimsucy37oTgwRWCEBrJhyfht6Z6YPx6ut4hH",
+    "transceiver": "81fVCz1fVChbZkqgmzFkudVuaAMDkTrK2gTWwNLi2k7M",
     "decimals": 9,
     "rpcUrl": "https://api.devnet.solana.com",
     "explorerCluster": "devnet"
   },
   "base": {
     "chain": "BaseSepolia",
-    "token": "0x57A893ACE218ccCf6A0958b5354Aaad58777806F",
-    "manager": "0x3df4e9Cd48B7c8290F80546547854ac8C82Dc276",
-    "transceiver": "0x787aA04c0F27843DC9e612887FD7C60f102E3fE6",
+    "token": "0xF6F49EAf9EA71e69450191aFe22EFaed8E2f7995",
+    "manager": "0x2B602BbF837Bd845Cc8b40AE70Dc6AB5b191eF3c",
+    "transceiver": "0x9a683a5464aCf816dc5e87F8686828f063e54104",
     "decimals": 9,
     "rpcUrl": "https://sepolia.base.org",
     "explorerUrl": "https://sepolia.basescan.org"

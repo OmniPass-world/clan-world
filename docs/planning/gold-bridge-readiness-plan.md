@@ -2,7 +2,7 @@
 
 Living plan for getting Solana-canonical GOLD bridged to Base with Wormhole NTT, then replacing ClanWorld's current deployed/native GOLD ERC20 with the Base-side bridged GOLD token.
 
-Last updated: 2026-05-01 03:01 EDT
+Last updated: 2026-05-01 03:56 EDT
 
 ## Goal
 
@@ -13,7 +13,7 @@ Solana GOLD remains the canonical asset. Wormhole NTT locks GOLD on Solana, mint
 - Standalone bridge scaffold: about 70% ready.
 - Bridge token readiness: Base GOLD is now fixed at 9 decimals, upgradeable through a timelocked transparent proxy, and includes a V1 allowlist-scoped recovery hook that can be disabled forever or removed through V2.
 - ClanWorld integration: intentionally deferred. Do not modify existing ClanWorld contracts/scripts/tests until the bridge and token deployment flow are proven.
-- Current phase: deployment hardening and operator tooling. Testnet bridge proof is complete; the next layer is artifact export, repeatable preflight checks, liquidity recovery helpers, and a production deployment checklist.
+- Current phase: proxy-token testnet bridge proof complete. The upgradeable Base GOLD proxy, fresh NTT deployment, timelock minter handoff, preflight, and tiny two-way bridge proof all succeeded on Solana devnet and Base Sepolia.
 
 ## Phase 1 Execution Plan: Bridge Repo Correctness and Tooling
 
@@ -183,7 +183,7 @@ Progress:
 - [x] Execute tiny Base -> Solana transfer.
 - [x] Record tx hashes and final deployed addresses.
 
-Current generated test addresses:
+Historical direct-token test addresses:
 
 - Solana devnet deployer: `BJmjhXs5h6d8o15kK1YppkiJExu6FWBDJyJFUyfp9L2p`
 - Base Sepolia deployer: `0x96E3054A6Bd6b6d8710dE3029D3bA2EbCb930B5D`
@@ -193,6 +193,20 @@ Current generated test addresses:
 - Base Sepolia GOLD token: `0x57A893ACE218ccCf6A0958b5354Aaad58777806F`
 - Base Sepolia NTT manager: `0x3df4e9Cd48B7c8290F80546547854ac8C82Dc276`
 - Base Sepolia Wormhole transceiver: `0x787aA04c0F27843DC9e612887FD7C60f102E3fE6`
+
+Current proxy-token test addresses:
+
+- Solana devnet deployer: `BJmjhXs5h6d8o15kK1YppkiJExu6FWBDJyJFUyfp9L2p`
+- Base Sepolia deployer: `0x96E3054A6Bd6b6d8710dE3029D3bA2EbCb930B5D`
+- Solana devnet GOLD mint: `6NLCfbAzMyykwjwifAZr8WRBTPsb8u5s1uAVvGBGGa4r`
+- Solana NTT manager/program: `DQAKHw5eimsucy37oTgwRWCEBrJhyfht6Z6YPx6ut4hH`
+- Solana Wormhole transceiver: `81fVCz1fVChbZkqgmzFkudVuaAMDkTrK2gTWwNLi2k7M`
+- Base Sepolia GOLD proxy token: `0xF6F49EAf9EA71e69450191aFe22EFaed8E2f7995`
+- Base Sepolia GOLD implementation: `0x6A5DD88cd7dF0D6FD9478c6E451E5Ef6309DaC4c`
+- Base Sepolia GOLD timelock: `0x686f671F2276127d52d294bC0E981C89FDA25C34`
+- Base Sepolia GOLD ProxyAdmin: `0x9381505b073bacc179c35c91a05390c5486ff594`
+- Base Sepolia NTT manager: `0x2B602BbF837Bd845Cc8b40AE70Dc6AB5b191eF3c`
+- Base Sepolia Wormhole transceiver: `0x9a683a5464aCf816dc5e87F8686828f063e54104`
 
 Transfer proof:
 
@@ -205,6 +219,17 @@ Transfer proof:
 - Base -> Solana Wormholescan: `https://wormholescan.io/#/tx/0xe2dd6ab8003134a3a0d8a5a4ba17b331600aa50b71ef0ae6e47dd98ddcf32c22?network=Testnet`.
 - Post-proof balances: Solana deployer has `999999.5` devnet GOLD; Base deployer has `0.500000000` Base GOLD.
 
+Proxy-token transfer proof:
+
+- Solana -> Base amount: `1.000000000` GOLD.
+- Solana -> Base source tx: `4VZjBLoxG3yrqRiG9SYevzVfgRHhGDf4beXMntpvyr79ssD2Bgh8R7L8DpUmYhxxUsLiwHsFXEUieZTSfw1hsqx1`.
+- Solana -> Base Wormholescan: `https://wormholescan.io/#/tx/4VZjBLoxG3yrqRiG9SYevzVfgRHhGDf4beXMntpvyr79ssD2Bgh8R7L8DpUmYhxxUsLiwHsFXEUieZTSfw1hsqx1?network=Testnet`.
+- Base -> Solana amount: `0.500000000` GOLD.
+- Base -> Solana approve tx: `0xf51fd022743cfe0a7101ffcf16bcca87914999cddcfc0e8a01131ee3b8e7f7c2`.
+- Base -> Solana transfer tx: `0xd62c3970e3852719bc7e0963324227a2f7bb4dc25dc932e3f88ff10dc3f7ede0`.
+- Base -> Solana Wormholescan: `https://wormholescan.io/#/tx/0xd62c3970e3852719bc7e0963324227a2f7bb4dc25dc932e3f88ff10dc3f7ede0?network=Testnet`.
+- Post-proof balances: Solana deployer has `999999` devnet GOLD; Base deployer has `0.500000000` proxy Base GOLD.
+
 Findings:
 
 - `ntt new` refuses to run inside an existing git repository. `scripts/02-init-ntt-project.sh` now resolves `NTT_PROJECT_DIR` to an absolute path and scaffolds from the target parent directory, which supports local ignored NTT project directories outside the repo.
@@ -216,6 +241,10 @@ Findings:
 - `pnpm ntt:push` needed `ETH_PRIVATE_KEY` exported and the Solana `--payer` supplied.
 - The transfer helper now passes Solana payer, EVM private key, RPC overrides, and optional destination msg value. Base -> Solana needed `TEST_TRANSFER_DESTINATION_MSG_VALUE=10000000`.
 - Executor ETAs on Wormhole testnet can be very long and noisy. The CLI still found VAAs for both test transfers and balances confirmed both directions.
+- The proxy-token Solana NTT deployment initially failed with insufficient funds: it needed about `6.52 SOL` while the payer had about `3.51 SOL`. After funding the payer to `13.51 SOL`, rerunning `pnpm ntt:add-solana` continued successfully.
+- The proxy token deploy helper tx succeeded, but `scripts/03-deploy-base-token.sh` queried the helper before RPC code was visible. The script now waits for helper bytecode before reading proxy/implementation/timelock addresses.
+- The zero-delay timelock minter handoff scheduled successfully, but same-invocation execution hit `TimelockUnexpectedOperationState`. Executing the same operation after the next block succeeded.
+- Base -> Solana VAA lookup for the proxy-token proof took 558 retry attempts before Wormholescan returned the VAA. Final balances still confirmed the transfer.
 
 ## Component 1: Bridge Repo Correctness and Tooling
 
@@ -370,8 +399,8 @@ Checklist:
 - [x] Add token-level allowlist-scoped recovery for ClanWorld-held pool/treasury GOLD before meaningful liquidity is seeded.
 - [x] Add timelock schedule/execute helpers for owner-only Base token operations.
 - [x] Add proxy-info/preflight checks for proxy admin, implementation, token owner, and timelock ownership.
-- [ ] Redeploy Base Sepolia GOLD with the upgradeable proxy stack and rerun two-way NTT proof.
-- [ ] Record final deployment addresses and verification steps.
+- [x] Redeploy Base Sepolia GOLD with the upgradeable proxy stack and rerun two-way NTT proof.
+- [x] Record final deployment addresses and verification steps.
 - [ ] Produce go/no-go checklist before mainnet.
 
 Findings:
@@ -381,7 +410,7 @@ Findings:
 - Operator-held Base GOLD can now be recovered to Solana with `pnpm liquidity:recover-base`; the command defaults to dry run and requires `RECOVERY_EXECUTE=true` to submit.
 - `pnpm artifacts:export` writes `artifacts/deployment-summary.json`; the `artifacts` directory is ignored, so archive the JSON intentionally with deployment evidence.
 - `pnpm preflight` is the quick confidence command after deployment changes. It does not replace transfer proofs, but it catches the easy-to-miss decimals and minter mistakes.
-- Base GOLD is now intended to deploy as a transparent proxy. The old Base Sepolia proof token remains useful evidence, but the next testnet proof should redeploy with the proxy/timelock stack before mainnet.
+- Base GOLD now deploys as a transparent proxy. The old Base Sepolia direct-token proof remains useful historical evidence, while the current proof uses the proxy/timelock stack.
 - `pnpm base:set-minter` now schedules `setMinter` through the timelock when `BASE_TIMELOCK_ADDRESS` is set. Execute after the delay with `pnpm timelock:execute`; testnets with zero delay may use `TIMELOCK_EXECUTE_IMMEDIATELY=true`.
 
 Gotchas:
@@ -479,6 +508,24 @@ Gotchas:
 - 2026-05-01 EDT: Re-ran `bash -n` for the updated deploy, minter, preflight, proxy-info, and timelock scripts; passed.
 - 2026-05-01 EDT: Re-ran `PATH="/home/claude/.foundry/bin:$PATH" pnpm test:contracts`; passed, 12 tests.
 - 2026-05-01 EDT: Re-ran `pnpm review`; passed.
+- 2026-05-01 EDT: Deployed Base Sepolia upgradeable GOLD proxy `0xF6F49EAf9EA71e69450191aFe22EFaed8E2f7995`, implementation `0x6A5DD88cd7dF0D6FD9478c6E451E5Ef6309DaC4c`, timelock `0x686f671F2276127d52d294bC0E981C89FDA25C34`, and ProxyAdmin `0x9381505b073bacc179c35c91a05390c5486ff594`. Deploy helper tx: `0xd9c5d05c40f30761546399faa8c08ce216901e3e83b69251eadba84d35a15ac2`.
+- 2026-05-01 EDT: Ran `pnpm base:proxy-info`; confirmed token owner and ProxyAdmin owner are the timelock, minter initially deployer, decimals `9`, and timelock delay `0`.
+- 2026-05-01 EDT: Initialized fresh NTT project at `../../clan-world-gold-bridge-ntt-proxy-testnet`.
+- 2026-05-01 EDT: Ran `pnpm ntt:add-solana`; deployed Solana NTT manager/program `DQAKHw5eimsucy37oTgwRWCEBrJhyfht6Z6YPx6ut4hH` and transceiver `81fVCz1fVChbZkqgmzFkudVuaAMDkTrK2gTWwNLi2k7M`.
+- 2026-05-01 EDT: Ran `pnpm ntt:add-base`; deployed Base Sepolia NTT manager `0x2B602BbF837Bd845Cc8b40AE70Dc6AB5b191eF3c` and transceiver `0x9a683a5464aCf816dc5e87F8686828f063e54104` for proxy GOLD.
+- 2026-05-01 EDT: Set fresh proxy NTT local limits to `100.000000000` GOLD each direction and ran `pnpm ntt:push`; passed.
+- 2026-05-01 EDT: Scheduled Base GOLD minter handoff through timelock. Schedule tx: `0xd741ebf55f6f351588e8847b322f4e3c538a5295a0e6bc44e48813d003bb1bf6`. Execute tx: `0xdc56f13fed35eee612510fcab2e62236e2659b89e44a963e9a1cc7af91141fbd`.
+- 2026-05-01 EDT: Ran `pnpm preflight`; passed. Confirmed Solana mint decimals `9`, Base proxy token decimals `9`, Base token minter `0x2B602BbF837Bd845Cc8b40AE70Dc6AB5b191eF3c`, ProxyAdmin owner timelock, token owner timelock, and NTT config synced on chain.
+- 2026-05-01 EDT: Ran Solana -> Base proxy-token test transfer of `1` GOLD. Source tx: `4VZjBLoxG3yrqRiG9SYevzVfgRHhGDf4beXMntpvyr79ssD2Bgh8R7L8DpUmYhxxUsLiwHsFXEUieZTSfw1hsqx1`.
+- 2026-05-01 EDT: Ran Base -> Solana proxy-token test transfer of `0.5` GOLD. Approve tx: `0xf51fd022743cfe0a7101ffcf16bcca87914999cddcfc0e8a01131ee3b8e7f7c2`; transfer tx: `0xd62c3970e3852719bc7e0963324227a2f7bb4dc25dc932e3f88ff10dc3f7ede0`.
+- 2026-05-01 EDT: Confirmed proxy-token post-proof balances: Solana deployer `999999` devnet GOLD; Base deployer `0.500000000` proxy Base GOLD.
+- 2026-05-01 EDT: Ran `pnpm web:export-config`; generated frontend config with proxy-token NTT addresses.
+- 2026-05-01 EDT: Ran `pnpm artifacts:export -- --stdout` and `pnpm artifacts:export`; wrote ignored local artifact with proxy-token deployment summary.
+- 2026-05-01 EDT: Ran `PATH="/home/claude/.foundry/bin:$PATH" pnpm test:contracts`; passed, 12 tests.
+- 2026-05-01 EDT: Ran `pnpm --filter @gold-bridge/web typecheck`; passed.
+- 2026-05-01 EDT: Ran `pnpm review`; passed.
+- 2026-05-01 EDT: Ran `pnpm ntt:status`; reported `deployment.json is up to date with the on-chain configuration.`
+- 2026-05-01 EDT: Ran `pnpm base:proxy-info`; confirmed Base proxy minter is the Base NTT manager after timelock handoff.
 
 ## Open Questions
 
@@ -492,7 +539,5 @@ Gotchas:
 
 ## Next Actions
 
-1. Commit and push the upgradeable token implementation.
-2. Redeploy Base Sepolia GOLD with the proxy/timelock stack.
-3. Re-run NTT Base add-chain/minter handoff/preflight against the proxy token.
-4. Repeat tiny two-way bridge proof on the upgradeable Base GOLD token.
+1. Commit and push the proxy-token testnet proof updates.
+2. Plan ClanWorld external bridged-GOLD integration without modifying existing contracts until the other GOLD PR is ready to merge.
