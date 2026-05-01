@@ -40,10 +40,9 @@ test.describe('DEMO_MODE flag — mock clans (demo mode ON)', () => {
   );
 
   test('demo mode ON: mock clan names visible in scoreboard panel', async ({ page }) => {
-    // The app requires World App context OR VITE_DEMO_BYPASS_WORLD_GUARD=true to render
-    // past the "Open in World App to play" gate. The webServer config in
-    // playwright.config.ts sets VITE_DEMO_BYPASS_WORLD_GUARD=true at build time,
-    // so the gate is already bypassed in test builds — no querystring trick needed.
+    // The app requires the World App gate only when
+    // `VITE_REQUIRE_WORLD_APP_GUARD=true`. In this test environment,
+    // Playwright sets it to false so the page renders in browser directly.
     await page.goto('/');
 
     // Scoreboard pulse panel is rendered only in DEMO_MODE with scoreboardClans > 0.

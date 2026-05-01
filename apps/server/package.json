@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "echo 'run: pnpm convex dev'",
     "build": "tsc -b",
+    "codegen": "convex codegen --typecheck disable",
     "typecheck": "tsc --noEmit",
     "lint": "echo 'lint stub'",
     "clean": "rm -rf dist .turbo"

@@ -7,20 +7,23 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./adapters": "./src/adapters/index.ts"
+    "./adapters": "./src/adapters/index.ts",
+    "./generated/*": "./src/generated/*.ts"
   },
   "scripts": {
     "build": "tsc -b",
-    "test": "node scripts/check-chain-abi-parity.mjs",
+    "codegen": "pnpm -w gen:chainclient-abi",
     "typecheck": "tsc --noEmit",
-    "test": "pnpm -w test:chainclient-abi",
+    "test": "vitest run",
     "lint": "echo 'lint stub'",
     "clean": "rm -rf dist .turbo"
   },
   "devDependencies": {
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "^3.2.0"
   },
   "dependencies": {
+    "@clan-world/contracts": "workspace:*",
     "convex": "1.17.4",
     "viem": "^2.48.4"
   }

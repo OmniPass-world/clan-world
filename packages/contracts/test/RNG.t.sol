@@ -52,7 +52,10 @@ contract RNGTest is Test {
             if (RNG.rngBool(SEED, DOMAIN_A, nonce) != RNG.rngBool(SEED, DOMAIN_B, nonce)) {
                 boolDiffs++;
             }
-            if (RNG.rngWeightedPick(SEED, DOMAIN_A, nonce, weights) != RNG.rngWeightedPick(SEED, DOMAIN_B, nonce, weights)) {
+            if (
+                RNG.rngWeightedPick(SEED, DOMAIN_A, nonce, weights)
+                    != RNG.rngWeightedPick(SEED, DOMAIN_B, nonce, weights)
+            ) {
                 weightedDiffs++;
             }
             if (!_sameUint8Array(RNG.rngShuffle(SEED, DOMAIN_A, nonce, 8), RNG.rngShuffle(SEED, DOMAIN_B, nonce, 8))) {

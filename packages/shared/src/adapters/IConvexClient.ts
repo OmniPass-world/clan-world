@@ -38,6 +38,8 @@ class StubConvexClient implements IConvexClient {
   }
 }
 
+// TODO(handcoded-types-audit): move Convex function references behind a server-owned
+// export shim so shared can use generated API types without depending on apps/server.
 const getSnapshotRef = anyApi.getSnapshot!.getSnapshot as FunctionReference<'query'>;
 // getClanFullView doesn't exist in Phase 4 convex schema yet; use anyApi so it resolves at runtime
 const getClanFullViewRef = anyApi.clan!.getClanFullView as FunctionReference<'query'>;

@@ -11,6 +11,7 @@ import {
     ClanFullView,
     Clansman,
     ClanOrder,
+    WithdrawResourcesData,
     OrderResult,
     Mission
 } from "../src/IClanWorld.sol";
@@ -56,7 +57,8 @@ contract MissionTimingTest is Test {
             targetClanId: 0,
             marketToken: address(0),
             marketAmount: 0,
-            maxGoldIn: 0
+            maxGoldIn: 0,
+            withdrawResources: WithdrawResourcesData({wood: 0, iron: 0, wheat: 0, fish: 0})
         });
         vm.prank(elder);
         return world.submitClanOrders(clanId, orders);
@@ -113,9 +115,14 @@ contract MissionTimingTest is Test {
 
         Clansman memory settled = world.getClansman(csId);
         assertGt(settled.carryIron, 0, "iron granted at settlesAtTick");
-        assertEq(uint8(settled.state), uint8(ClansmanState.WAITING), "mission completed");
-        assertFalse(world.getActiveMission(csId).active, "mission inactive after settlement");
-        assertGt(settled.cooldownEndsAtTs, block.timestamp, "cooldown starts on settlement");
+        assertEq(uint8(settled.state), uint8(ClansmanState.ACTING), "continuous gather keeps acting");
+        Mission memory rescheduled = world.getActiveMission(csId);
+        assertTrue(rescheduled.active, "mission remains active after non-full gather");
+        assertEq(
+            rescheduled.settlesAtTick,
+            mission.settlesAtTick + world.getActionDuration(ActionType.MineIron),
+            "next gather tick scheduled"
+        );
     }
 
     function test_getActionDuration_eachActionType() public view {
@@ -126,7 +133,7 @@ contract MissionTimingTest is Test {
         assertEq(world.getActionDuration(ActionType.FishDeepSea), 4, "fish deep sea");
         assertEq(world.getActionDuration(ActionType.HarvestWheat), 4, "harvest wheat");
         assertEq(world.getActionDuration(ActionType.DepositResources), 1, "deposit");
-        assertEq(world.getActionDuration(ActionType.BuildWall), 1, "build wall");
+        assertEq(world.getActionDuration(ActionType.UpgradeWall), 1, "upgrade wall");
         assertEq(world.getActionDuration(ActionType.UpgradeBase), 1, "upgrade base");
         assertEq(world.getActionDuration(ActionType.UpgradeMonument), 1, "upgrade monument");
         assertEq(world.getActionDuration(ActionType.DefendBase), 0, "defend base");

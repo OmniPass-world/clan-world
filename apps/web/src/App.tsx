@@ -39,7 +39,7 @@ const IDKIT_CONFIG: IDKitRequestHookConfig = {
 // Env flags moved to ./config/env to break the WorldMap ↔ App circular
 // dependency (PR #133 review MUST FIX #3). Re-exported here for any external
 // callers; new internal callers should import directly from ./config/env.
-import { DEMO_MODE, DEMO_BYPASS_WORLD_GUARD } from './config/env';
+import { DEMO_MODE, REQUIRE_WORLD_APP_GUARD } from './config/env';
 export { DEMO_MODE };
 
 /**
@@ -69,10 +69,10 @@ export function App() {
 
 function MainApp() {
   // When the demo bypass env is set, start verified=true so the WorldMap canvas
-  // renders immediately without an IDKit verify round-trip (which can't complete
-  // outside World App). Production default (env unset) keeps the full gate.
-  const [verified, setVerified] = useState(DEMO_BYPASS_WORLD_GUARD);
-  const isInWorldApp = MiniKit.isInstalled() || DEMO_BYPASS_WORLD_GUARD;
+  // When the guard is required, start verified=false and prompt for verification;
+  // otherwise render directly in browser/dev.
+  const [verified, setVerified] = useState(!REQUIRE_WORLD_APP_GUARD);
+  const isInWorldApp = MiniKit.isInstalled() || !REQUIRE_WORLD_APP_GUARD;
 
   const { open: openIDKit, result, isSuccess } = useIDKitRequest(IDKIT_CONFIG);
 
@@ -145,7 +145,7 @@ function MainApp() {
           Don't have World App? <a href="https://world.org/download" target="_blank" rel="noopener noreferrer" style={{ color: '#9bbf6f', textDecoration: 'underline' }}>Get it here</a>.
         </p>
         <p style={{ fontSize: '0.7rem', opacity: 0.4, textAlign: 'center', marginTop: '24px', fontFamily: 'monospace' }}>
-          For local dev: set <code>VITE_DEMO_BYPASS_WORLD_GUARD=true</code> or run <code>pnpm dev</code> (already set).
+          Set <code>VITE_REQUIRE_WORLD_APP_GUARD=true</code> to enforce the World App gate.
         </p>
       </main>
     );

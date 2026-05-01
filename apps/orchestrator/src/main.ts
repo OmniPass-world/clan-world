@@ -1,5 +1,6 @@
 import { REGION_FOREST, type ClanOrder } from '@clan-world/shared';
 import { createChainClient, createConvexClient } from '@clan-world/shared/adapters';
+import { ActionType } from '@clan-world/shared/generated/enums';
 
 const CLAN_ID = process.env.CLAN_ID || '1';
 
@@ -15,7 +16,7 @@ async function main(): Promise<void> {
   const orders: ClanOrder[] = [
     {
       kind: 'mission',
-      payload: { clansmanId: 1, gotoRegion: REGION_FOREST, action: 1 }, // action=1 is ChopWood
+      payload: { clansmanId: 1, gotoRegion: REGION_FOREST, action: ActionType.ChopWood },
     },
   ];
 

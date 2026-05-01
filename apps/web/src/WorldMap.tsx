@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from 'convex/react';
-import { type FunctionReference, anyApi } from 'convex/server';
 import { Application, Assets, Container, Graphics, Sprite, Text } from 'pixi.js';
 import { Viewport } from 'pixi-viewport';
 import { useAgentLogs, type AgentLog } from './useAgentLogs';
 import { WorldNoticePanel } from './WorldNoticePanel';
+import { api } from '../../server/convex/_generated/api';
 import worldMapBg from './assets/world-map.png';
 import { DEMO_MODE } from './config/env';
 
@@ -180,9 +180,6 @@ function parseTravelDestination(msg: string): string | null {
 // Hex color → CSS string for the React scoreboard overlay
 const hex = (n: number) => '#' + n.toString(16).padStart(6, '0');
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const getSnapshotRef = anyApi.getSnapshot!.getSnapshot as FunctionReference<'query'>;
-
 interface SnapshotClan {
   id: string;
   name: string;
@@ -303,7 +300,7 @@ export function WorldMap() {
   const [, setSize] = useState({ w: 800, h: 600 });
 
   const logs = useAgentLogs();
-  const snapshot = useQuery(getSnapshotRef) as SnapshotData | undefined;
+  const snapshot = useQuery(api.getSnapshot.getSnapshot) as SnapshotData | undefined;
 
   // Derived live tick counter — the worldSnapshot.tick field is currently
   // unwritten by the orchestrator script (it only writes to agentLogs), so

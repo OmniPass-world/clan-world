@@ -50,6 +50,11 @@ function makeChain(overrides: Partial<IChainClient> = {}): IChainClient {
         whispers: [],
       };
     },
+    async getWallUpgradeCost() { return { wood: 0n, iron: 0n }; },
+    async getBaseUpgradeCost() { return { wood: 0n, iron: 0n, wheat: 0n }; },
+    async getMonumentUpgradeCost() { return { wood: 0n, iron: 0n, wheat: 0n, blueprint: 0n }; },
+    async getClanScore() { return { score: 0n, monumentReachedAtTick: 0n, monumentLevel: 0 }; },
+    async getRankings() { return { clanIdsRanked: [], scores: [] }; },
     ...overrides,
   };
 }

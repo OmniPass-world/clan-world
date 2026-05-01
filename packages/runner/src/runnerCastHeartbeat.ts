@@ -8,55 +8,11 @@ import {
   type WalletClient,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { baseSepolia } from '@clan-world/shared/adapters';
+import { baseSepolia, CLAN_WORLD_ABI } from '@clan-world/shared/adapters';
 import {
   HeartbeatRateLimitedError,
   type IHeartbeatCaller,
 } from '@clan-world/agents/seams';
-
-/**
- * Minimal ABI: only the `heartbeat()` write and the `nextHeartbeatAtTs` field
- * we read out of `getWorldState()`. We avoid pulling in the full IClanWorld
- * ABI here so the runner stays decoupled from contract-package versioning.
- */
-const HEARTBEAT_ABI = [
-  {
-    type: 'function',
-    name: 'heartbeat',
-    inputs: [],
-    outputs: [],
-    stateMutability: 'nonpayable',
-  },
-  {
-    type: 'function',
-    name: 'getWorldState',
-    inputs: [],
-    outputs: [
-      {
-        name: '',
-        type: 'tuple',
-        components: [
-          { name: 'currentTick', type: 'uint64' },
-          { name: 'seasonStartTick', type: 'uint64' },
-          { name: 'seasonEndTick', type: 'uint64' },
-          { name: 'seasonFinalized', type: 'bool' },
-          { name: 'currentSeasonNumber', type: 'uint64' },
-          { name: 'nextHeartbeatAtTick', type: 'uint64' },
-          { name: 'nextHeartbeatAtTs', type: 'uint64' },
-          { name: 'nextBanditSpawnEligibleTick', type: 'uint64' },
-          { name: 'currentBanditSpawnChanceBps', type: 'uint16' },
-          { name: 'currentTickSeed', type: 'bytes32' },
-          { name: 'activeBanditId', type: 'uint32' },
-          { name: 'winterActive', type: 'bool' },
-          { name: 'winterStartsAtTick', type: 'uint64' },
-          { name: 'winterEndsAtTick', type: 'uint64' },
-          { name: 'nextCommitSequence', type: 'uint64' },
-        ],
-      },
-    ],
-    stateMutability: 'view',
-  },
-] as const;
 
 export interface RunnerHeartbeatConfig {
   /** Hex-encoded 64-char private key, optionally 0x-prefixed. */
@@ -127,7 +83,7 @@ export class RunnerCastHeartbeat implements IHeartbeatCaller {
         account: this.account,
         chain: baseSepolia,
         address: this.contractAddress,
-        abi: HEARTBEAT_ABI,
+        abi: CLAN_WORLD_ABI,
         functionName: 'heartbeat',
         args: [],
       });
@@ -166,7 +122,7 @@ export class RunnerCastHeartbeat implements IHeartbeatCaller {
   private async readNextHeartbeatAt(): Promise<number> {
     const state = await this.publicClient.readContract({
       address: this.contractAddress,
-      abi: HEARTBEAT_ABI,
+      abi: CLAN_WORLD_ABI,
       functionName: 'getWorldState',
       args: [],
     });

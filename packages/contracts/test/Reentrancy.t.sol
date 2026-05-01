@@ -11,6 +11,7 @@ import {
     ActionType,
     StatusCode,
     ClanOrder,
+    WithdrawResourcesData,
     OrderResult,
     Mission,
     PoolSeedConfig
@@ -94,8 +95,14 @@ contract MockReentrantPool {
     }
 }
 
+contract ClanWorldReentrantHarness is ClanWorld {
+    function setCarryWood(uint32 csId, uint256 amount) external {
+        _clansmen[csId].carryWood = amount;
+    }
+}
+
 contract ReentrancyTest is Test {
-    ClanWorld world;
+    ClanWorldReentrantHarness world;
     address elder = address(0xA1);
 
     MinimalERC20 woodToken;
@@ -110,13 +117,15 @@ contract ReentrancyTest is Test {
     StubPool fishPool;
 
     function setUp() public {
-        world = new ClanWorld();
+        world = new ClanWorldReentrantHarness();
     }
 
     function test_marketPoolHeartbeatCallback_revertsWithReentrancyGuard() public {
         _setupReentrantMarket();
         uint32 clanId = _mintClan();
         uint32 csId = _firstCs(clanId);
+        // Give clansman carry wood so the scheduled sell has something to sell
+        world.setCarryWood(csId, 10e18);
 
         uint256 goldBefore = world.getClan(clanId).goldBalance;
 
@@ -125,7 +134,7 @@ contract ReentrancyTest is Test {
 
         Mission memory mission = world.getActiveMission(csId);
         uint64 currentTick = world.getWorldState().currentTick;
-        uint256 ticksNeeded = uint256(mission.actionStartTick - currentTick) + 1;
+        uint256 ticksNeeded = uint256(mission.settlesAtTick - currentTick) + 1;
         for (uint256 i = 0; i < ticksNeeded; i++) {
             _advanceTick();
         }
@@ -160,17 +169,37 @@ contract ReentrancyTest is Test {
         address[4] memory pools = [address(woodPool), address(wheatPool), address(fishPool), address(ironPool)];
         world.initTreasury(tokens, pools);
 
-        uint256 resSeed = 1000e18;
-        uint256 goldSeed = 1000e18;
+        uint256 woodSeed = world.INITIAL_WOOD_POOL_SEED();
+        uint256 wheatSeed = world.INITIAL_WHEAT_POOL_SEED();
+        uint256 fishSeed = world.INITIAL_FISH_POOL_SEED();
+        uint256 ironSeed = world.INITIAL_IRON_POOL_SEED();
+        uint256 goldForWood = world.INITIAL_GOLD_SEED_FOR_WOOD();
+        uint256 goldForWheat = world.INITIAL_GOLD_SEED_FOR_WHEAT();
+        uint256 goldForFish = world.INITIAL_GOLD_SEED_FOR_FISH();
+        uint256 goldForIron = world.INITIAL_GOLD_SEED_FOR_IRON();
+        uint256 totalGoldSeed = goldForWood + goldForWheat + goldForFish + goldForIron;
+
+        woodToken.seedTreasury(address(this), woodSeed);
+        wheatToken.seedTreasury(address(this), wheatSeed);
+        fishToken.seedTreasury(address(this), fishSeed);
+        ironToken.seedTreasury(address(this), ironSeed);
+        goldToken.seedTreasury(address(this), totalGoldSeed);
+
+        woodToken.approve(address(world), woodSeed);
+        wheatToken.approve(address(world), wheatSeed);
+        fishToken.approve(address(world), fishSeed);
+        ironToken.approve(address(world), ironSeed);
+        goldToken.approve(address(world), totalGoldSeed);
+
         PoolSeedConfig memory cfg = PoolSeedConfig({
-            woodSeed: resSeed,
-            wheatSeed: resSeed,
-            fishSeed: resSeed,
-            ironSeed: resSeed,
-            goldSeedForWood: goldSeed,
-            goldSeedForWheat: goldSeed,
-            goldSeedForFish: goldSeed,
-            goldSeedForIron: goldSeed
+            woodSeed: woodSeed,
+            wheatSeed: wheatSeed,
+            fishSeed: fishSeed,
+            ironSeed: ironSeed,
+            goldSeedForWood: goldForWood,
+            goldSeedForWheat: goldForWheat,
+            goldSeedForFish: goldForFish,
+            goldSeedForIron: goldForIron
         });
         world.seedPools(cfg);
     }
@@ -201,7 +230,8 @@ contract ReentrancyTest is Test {
             targetClanId: 0,
             marketToken: token,
             marketAmount: amount,
-            maxGoldIn: 0
+            maxGoldIn: 0,
+            withdrawResources: WithdrawResourcesData({wood: 0, iron: 0, wheat: 0, fish: 0})
         });
         vm.prank(elder);
         return world.submitClanOrders(clanId, orders);

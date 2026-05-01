@@ -643,9 +643,9 @@ After a bandit troop is defeated or escapes:
 - no new bandits may spawn during cooldown
 
 After cooldown ends:
-- spawn chance starts at `5%` per tick
-- if no bandits spawn on a tick, spawn chance increases by `+1%`
-- spawn chance is capped at `20%`
+- spawn chance starts at `10%` per eligible region tick
+- if no bandits spawn on a tick, spawn chance increases by `+10%`
+- spawn chance is capped at `80%`
 - once bandits spawn, spawn chance resets and the cycle restarts after that troop is resolved
 
 ## 6.4 Spawn selection

@@ -245,6 +245,119 @@
               "name": "maxGoldIn",
               "type": "uint256",
               "internalType": "uint256"
+            },
+            {
+              "name": "withdrawResources",
+              "type": "tuple",
+              "internalType": "struct WithdrawResourcesData",
+              "components": [
+                {
+                  "name": "wood",
+                  "type": "uint256",
+                  "internalType": "uint256"
+                },
+                {
+                  "name": "iron",
+                  "type": "uint256",
+                  "internalType": "uint256"
+                },
+                {
+                  "name": "wheat",
+                  "type": "uint256",
+                  "internalType": "uint256"
+                },
+                {
+                  "name": "fish",
+                  "type": "uint256",
+                  "internalType": "uint256"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "getBandit",
+      "inputs": [
+        {
+          "name": "banditId",
+          "type": "uint32",
+          "internalType": "uint32"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "tuple",
+          "internalType": "struct BanditTroop",
+          "components": [
+            {
+              "name": "id",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "region",
+              "type": "uint8",
+              "internalType": "uint8"
+            },
+            {
+              "name": "state",
+              "type": "uint8",
+              "internalType": "enum BanditState"
+            },
+            {
+              "name": "targetClanId",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "tickEnteredState",
+              "type": "uint64",
+              "internalType": "uint64"
+            },
+            {
+              "name": "strength",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "tier",
+              "type": "uint8",
+              "internalType": "uint8"
+            },
+            {
+              "name": "attackAttemptsMade",
+              "type": "uint8",
+              "internalType": "uint8"
+            },
+            {
+              "name": "carryWood",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "carryIron",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "carryWheat",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "carryFish",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "carryGold",
+              "type": "uint256",
+              "internalType": "uint256"
             }
           ]
         }
@@ -287,9 +400,14 @@
           "internalType": "struct BanditTroop",
           "components": [
             {
-              "name": "banditId",
+              "name": "id",
               "type": "uint32",
               "internalType": "uint32"
+            },
+            {
+              "name": "region",
+              "type": "uint8",
+              "internalType": "uint8"
             },
             {
               "name": "state",
@@ -297,24 +415,19 @@
               "internalType": "enum BanditState"
             },
             {
-              "name": "currentRegion",
-              "type": "uint8",
-              "internalType": "uint8"
+              "name": "targetClanId",
+              "type": "uint32",
+              "internalType": "uint32"
             },
             {
-              "name": "attackAttemptsMade",
-              "type": "uint8",
-              "internalType": "uint8"
-            },
-            {
-              "name": "stateEnteredTick",
+              "name": "tickEnteredState",
               "type": "uint64",
               "internalType": "uint64"
             },
             {
-              "name": "nextActionTick",
-              "type": "uint64",
-              "internalType": "uint64"
+              "name": "strength",
+              "type": "uint32",
+              "internalType": "uint32"
             },
             {
               "name": "tier",
@@ -322,9 +435,9 @@
               "internalType": "uint8"
             },
             {
-              "name": "attackPower",
-              "type": "uint16",
-              "internalType": "uint16"
+              "name": "attackAttemptsMade",
+              "type": "uint8",
+              "internalType": "uint8"
             },
             {
               "name": "carryWood",
@@ -345,11 +458,64 @@
               "name": "carryFish",
               "type": "uint256",
               "internalType": "uint256"
+            },
+            {
+              "name": "carryGold",
+              "type": "uint256",
+              "internalType": "uint256"
             }
           ]
         }
       ],
       "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "getBanditsInRegion",
+      "inputs": [
+        {
+          "name": "region",
+          "type": "uint8",
+          "internalType": "uint8"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint32[]",
+          "internalType": "uint32[]"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "getBaseUpgradeCost",
+      "inputs": [
+        {
+          "name": "currentLevel",
+          "type": "uint8",
+          "internalType": "uint8"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wood",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "iron",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "wheat",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "pure"
     },
     {
       "type": "function",
@@ -426,6 +592,11 @@
               "name": "coldDamage",
               "type": "uint16",
               "internalType": "uint16"
+            },
+            {
+              "name": "ownerNonce",
+              "type": "uint64",
+              "internalType": "uint64"
             },
             {
               "name": "goldBalance",
@@ -547,6 +718,11 @@
                       "name": "coldDamage",
                       "type": "uint16",
                       "internalType": "uint16"
+                    },
+                    {
+                      "name": "ownerNonce",
+                      "type": "uint64",
+                      "internalType": "uint64"
                     },
                     {
                       "name": "goldBalance",
@@ -758,6 +934,33 @@
                           "name": "maxGoldIn",
                           "type": "uint256",
                           "internalType": "uint256"
+                        },
+                        {
+                          "name": "withdrawResources",
+                          "type": "tuple",
+                          "internalType": "struct WithdrawResourcesData",
+                          "components": [
+                            {
+                              "name": "wood",
+                              "type": "uint256",
+                              "internalType": "uint256"
+                            },
+                            {
+                              "name": "iron",
+                              "type": "uint256",
+                              "internalType": "uint256"
+                            },
+                            {
+                              "name": "wheat",
+                              "type": "uint256",
+                              "internalType": "uint256"
+                            },
+                            {
+                              "name": "fish",
+                              "type": "uint256",
+                              "internalType": "uint256"
+                            }
+                          ]
                         }
                       ]
                     },
@@ -867,6 +1070,33 @@
                       "name": "maxGoldIn",
                       "type": "uint256",
                       "internalType": "uint256"
+                    },
+                    {
+                      "name": "withdrawResources",
+                      "type": "tuple",
+                      "internalType": "struct WithdrawResourcesData",
+                      "components": [
+                        {
+                          "name": "wood",
+                          "type": "uint256",
+                          "internalType": "uint256"
+                        },
+                        {
+                          "name": "iron",
+                          "type": "uint256",
+                          "internalType": "uint256"
+                        },
+                        {
+                          "name": "wheat",
+                          "type": "uint256",
+                          "internalType": "uint256"
+                        },
+                        {
+                          "name": "fish",
+                          "type": "uint256",
+                          "internalType": "uint256"
+                        }
+                      ]
                     }
                   ]
                 }
@@ -937,6 +1167,35 @@
               "internalType": "uint32"
             }
           ]
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "getClanScore",
+      "inputs": [
+        {
+          "name": "clanId",
+          "type": "uint32",
+          "internalType": "uint32"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "score",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "monumentReachedAtTick",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "monumentLevel",
+          "type": "uint8",
+          "internalType": "uint8"
         }
       ],
       "stateMutability": "view"
@@ -1111,6 +1370,11 @@
                   "name": "coldDamage",
                   "type": "uint16",
                   "internalType": "uint16"
+                },
+                {
+                  "name": "ownerNonce",
+                  "type": "uint64",
+                  "internalType": "uint64"
                 },
                 {
                   "name": "goldBalance",
@@ -1331,6 +1595,33 @@
                   "name": "maxGoldIn",
                   "type": "uint256",
                   "internalType": "uint256"
+                },
+                {
+                  "name": "withdrawResources",
+                  "type": "tuple",
+                  "internalType": "struct WithdrawResourcesData",
+                  "components": [
+                    {
+                      "name": "wood",
+                      "type": "uint256",
+                      "internalType": "uint256"
+                    },
+                    {
+                      "name": "iron",
+                      "type": "uint256",
+                      "internalType": "uint256"
+                    },
+                    {
+                      "name": "wheat",
+                      "type": "uint256",
+                      "internalType": "uint256"
+                    },
+                    {
+                      "name": "fish",
+                      "type": "uint256",
+                      "internalType": "uint256"
+                    }
+                  ]
                 }
               ]
             },
@@ -1617,6 +1908,101 @@
     },
     {
       "type": "function",
+      "name": "getMonumentUpgradeCost",
+      "inputs": [
+        {
+          "name": "currentLevel",
+          "type": "uint8",
+          "internalType": "uint8"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wood",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "iron",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "wheat",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "blueprint",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "pure"
+    },
+    {
+      "type": "function",
+      "name": "getPool",
+      "inputs": [
+        {
+          "name": "resourceType",
+          "type": "uint8",
+          "internalType": "uint8"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "getPrice",
+      "inputs": [
+        {
+          "name": "resourceType",
+          "type": "uint8",
+          "internalType": "uint8"
+        },
+        {
+          "name": "amountIn",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "amountOut",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "getRankings",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "clanIdsRanked",
+          "type": "uint32[]",
+          "internalType": "uint32[]"
+        },
+        {
+          "name": "scores",
+          "type": "uint256[]",
+          "internalType": "uint256[]"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "getRegionPopulation",
       "inputs": [
         {
@@ -1657,6 +2043,25 @@
               "internalType": "uint64"
             }
           ]
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "getResourceToken",
+      "inputs": [
+        {
+          "name": "resourceType",
+          "type": "uint8",
+          "internalType": "uint8"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
         }
       ],
       "stateMutability": "view"
@@ -1830,6 +2235,30 @@
         }
       ],
       "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "getWallUpgradeCost",
+      "inputs": [
+        {
+          "name": "currentLevel",
+          "type": "uint8",
+          "internalType": "uint8"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "wood",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "iron",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "pure"
     },
     {
       "type": "function",
@@ -2308,7 +2737,7 @@
       "name": "settleClansman",
       "inputs": [
         {
-          "name": "csId",
+          "name": "clansmanId",
           "type": "uint32",
           "internalType": "uint32"
         }
@@ -2364,6 +2793,33 @@
               "name": "maxGoldIn",
               "type": "uint256",
               "internalType": "uint256"
+            },
+            {
+              "name": "withdrawResources",
+              "type": "tuple",
+              "internalType": "struct WithdrawResourcesData",
+              "components": [
+                {
+                  "name": "wood",
+                  "type": "uint256",
+                  "internalType": "uint256"
+                },
+                {
+                  "name": "iron",
+                  "type": "uint256",
+                  "internalType": "uint256"
+                },
+                {
+                  "name": "wheat",
+                  "type": "uint256",
+                  "internalType": "uint256"
+                },
+                {
+                  "name": "fish",
+                  "type": "uint256",
+                  "internalType": "uint256"
+                }
+              ]
             }
           ]
         }
@@ -2393,6 +2849,11 @@
               "name": "missionNonce",
               "type": "uint64",
               "internalType": "uint64"
+            },
+            {
+              "name": "marketMode",
+              "type": "uint8",
+              "internalType": "enum MarketExecutionMode"
             }
           ]
         }
@@ -2465,6 +2926,24 @@
           "name": "fish",
           "type": "uint256",
           "internalType": "uint256"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "transferClanOwnership",
+      "inputs": [
+        {
+          "name": "clanId",
+          "type": "uint32",
+          "internalType": "uint32"
+        },
+        {
+          "name": "newOwner",
+          "type": "address",
+          "internalType": "address"
         }
       ],
       "outputs": [],
@@ -2739,6 +3218,31 @@
     },
     {
       "type": "event",
+      "name": "BanditTargetDied",
+      "inputs": [
+        {
+          "name": "banditId",
+          "type": "uint32",
+          "indexed": true,
+          "internalType": "uint32"
+        },
+        {
+          "name": "deadClanId",
+          "type": "uint32",
+          "indexed": true,
+          "internalType": "uint32"
+        },
+        {
+          "name": "tick",
+          "type": "uint64",
+          "indexed": false,
+          "internalType": "uint64"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
       "name": "BaseLevelChanged",
       "inputs": [
         {
@@ -2789,6 +3293,37 @@
           "type": "uint256",
           "indexed": false,
           "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "BlueprintEarned",
+      "inputs": [
+        {
+          "name": "clanId",
+          "type": "uint32",
+          "indexed": true,
+          "internalType": "uint32"
+        },
+        {
+          "name": "banditId",
+          "type": "uint32",
+          "indexed": true,
+          "internalType": "uint32"
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "tick",
+          "type": "uint64",
+          "indexed": false,
+          "internalType": "uint64"
         }
       ],
       "anonymous": false
@@ -2888,6 +3423,37 @@
           "name": "tick",
           "type": "uint64",
           "indexed": true,
+          "internalType": "uint64"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "ClanOwnershipTransferred",
+      "inputs": [
+        {
+          "name": "clanId",
+          "type": "uint32",
+          "indexed": true,
+          "internalType": "uint32"
+        },
+        {
+          "name": "oldOwner",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "newOwner",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "newOwnerNonce",
+          "type": "uint64",
+          "indexed": false,
           "internalType": "uint64"
         }
       ],
@@ -3001,6 +3567,31 @@
     },
     {
       "type": "event",
+      "name": "ClansmanKilledByBandit",
+      "inputs": [
+        {
+          "name": "clanId",
+          "type": "uint32",
+          "indexed": true,
+          "internalType": "uint32"
+        },
+        {
+          "name": "clansmanId",
+          "type": "uint32",
+          "indexed": true,
+          "internalType": "uint32"
+        },
+        {
+          "name": "banditId",
+          "type": "uint32",
+          "indexed": true,
+          "internalType": "uint32"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
       "name": "GoldTransferred",
       "inputs": [
         {
@@ -3043,20 +3634,20 @@
         {
           "name": "clansmanId",
           "type": "uint32",
-          "indexed": true,
+          "indexed": false,
           "internalType": "uint32"
         },
         {
-          "name": "tokenIn",
-          "type": "address",
+          "name": "action",
+          "type": "uint8",
           "indexed": false,
-          "internalType": "address"
+          "internalType": "enum ActionType"
         },
         {
-          "name": "tokenOut",
-          "type": "address",
+          "name": "resourceIn",
+          "type": "uint8",
           "indexed": false,
-          "internalType": "address"
+          "internalType": "uint8"
         },
         {
           "name": "amountIn",
@@ -3065,16 +3656,101 @@
           "internalType": "uint256"
         },
         {
+          "name": "resourceOut",
+          "type": "uint8",
+          "indexed": false,
+          "internalType": "uint8"
+        },
+        {
           "name": "amountOut",
           "type": "uint256",
           "indexed": false,
           "internalType": "uint256"
         },
         {
-          "name": "atTick",
+          "name": "tick",
           "type": "uint64",
           "indexed": false,
           "internalType": "uint64"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "LootDistributed",
+      "inputs": [
+        {
+          "name": "banditId",
+          "type": "uint32",
+          "indexed": true,
+          "internalType": "uint32"
+        },
+        {
+          "name": "clanIdsRewarded",
+          "type": "uint32[]",
+          "indexed": false,
+          "internalType": "uint32[]"
+        },
+        {
+          "name": "perClanWood",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "perClanWheat",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "perClanFish",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "perClanIron",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "perClanGold",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "burnedWood",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "burnedWheat",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "burnedFish",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "burnedIron",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "burnedGold",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
         }
       ],
       "anonymous": false
@@ -3141,7 +3817,7 @@
         {
           "name": "clansmanId",
           "type": "uint32",
-          "indexed": true,
+          "indexed": false,
           "internalType": "uint32"
         },
         {
@@ -3151,10 +3827,22 @@
           "internalType": "enum ActionType"
         },
         {
+          "name": "mode",
+          "type": "uint8",
+          "indexed": false,
+          "internalType": "enum MarketExecutionMode"
+        },
+        {
           "name": "reason",
           "type": "uint8",
           "indexed": false,
           "internalType": "enum StatusCode"
+        },
+        {
+          "name": "tick",
+          "type": "uint64",
+          "indexed": false,
+          "internalType": "uint64"
         }
       ],
       "anonymous": false
@@ -3340,6 +4028,56 @@
     },
     {
       "type": "event",
+      "name": "ResourceBurned",
+      "inputs": [
+        {
+          "name": "resourceType",
+          "type": "uint8",
+          "indexed": true,
+          "internalType": "uint8"
+        },
+        {
+          "name": "from",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "ResourceMinted",
+      "inputs": [
+        {
+          "name": "resourceType",
+          "type": "uint8",
+          "indexed": true,
+          "internalType": "uint8"
+        },
+        {
+          "name": "to",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
       "name": "ResourcesDeposited",
       "inputs": [
         {
@@ -3450,6 +4188,55 @@
     },
     {
       "type": "event",
+      "name": "ResourcesWithdrawn",
+      "inputs": [
+        {
+          "name": "clanId",
+          "type": "uint32",
+          "indexed": true,
+          "internalType": "uint32"
+        },
+        {
+          "name": "clansmanId",
+          "type": "uint32",
+          "indexed": true,
+          "internalType": "uint32"
+        },
+        {
+          "name": "woodDelta",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "ironDelta",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "wheatDelta",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "fishDelta",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "atTick",
+          "type": "uint64",
+          "indexed": false,
+          "internalType": "uint64"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
       "name": "ScheduledMarketActionCommitted",
       "inputs": [
         {
@@ -3508,18 +4295,6 @@
       "name": "ScheduledMarketActionExecuted",
       "inputs": [
         {
-          "name": "executeAtTick",
-          "type": "uint64",
-          "indexed": true,
-          "internalType": "uint64"
-        },
-        {
-          "name": "commitSequence",
-          "type": "uint64",
-          "indexed": true,
-          "internalType": "uint64"
-        },
-        {
           "name": "clanId",
           "type": "uint32",
           "indexed": true,
@@ -3532,16 +4307,16 @@
           "internalType": "uint32"
         },
         {
-          "name": "tokenIn",
-          "type": "address",
+          "name": "action",
+          "type": "uint8",
           "indexed": false,
-          "internalType": "address"
+          "internalType": "enum ActionType"
         },
         {
-          "name": "tokenOut",
-          "type": "address",
+          "name": "resourceIn",
+          "type": "uint8",
           "indexed": false,
-          "internalType": "address"
+          "internalType": "uint8"
         },
         {
           "name": "amountIn",
@@ -3550,10 +4325,22 @@
           "internalType": "uint256"
         },
         {
+          "name": "resourceOut",
+          "type": "uint8",
+          "indexed": false,
+          "internalType": "uint8"
+        },
+        {
           "name": "amountOut",
           "type": "uint256",
           "indexed": false,
           "internalType": "uint256"
+        },
+        {
+          "name": "settledAtTick",
+          "type": "uint64",
+          "indexed": false,
+          "internalType": "uint64"
         }
       ],
       "anonymous": false
@@ -3635,6 +4422,31 @@
           "type": "uint64",
           "indexed": false,
           "internalType": "uint64"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "WallDamagedByBandit",
+      "inputs": [
+        {
+          "name": "clanId",
+          "type": "uint32",
+          "indexed": true,
+          "internalType": "uint32"
+        },
+        {
+          "name": "newLevel",
+          "type": "uint8",
+          "indexed": false,
+          "internalType": "uint8"
+        },
+        {
+          "name": "banditId",
+          "type": "uint32",
+          "indexed": true,
+          "internalType": "uint32"
         }
       ],
       "anonymous": false

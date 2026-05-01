@@ -18,53 +18,85 @@ function findFunction(name) {
 }
 
 function namedComponents(tuple) {
-  if (!Array.isArray(tuple.components)) throw new Error(`ABI tuple ${tuple.name} has no components`);
-  return tuple.components.map(component => ({ name: component.name, type: component.type }));
+  if (!Array.isArray(tuple.components)) throw new Error(`ABI tuple ${tuple.name ?? '<anonymous>'} has no components`);
+  return tuple.components.map(component => ({
+    name: component.name,
+    type: component.type,
+    internalType: component.internalType,
+    ...(Array.isArray(component.components) ? { components: namedComponents(component) } : {}),
+  }));
 }
 
-function extractArrayBody(source, openBracketIndex) {
-  let depth = 0;
-  for (let i = openBracketIndex; i < source.length; i++) {
-    const char = source[i];
-    if (char === '[') depth++;
-    if (char === ']') {
-      depth--;
-      if (depth === 0) return source.slice(openBracketIndex + 1, i);
-    }
+function assertSameShape(label, canonicalTuple, generatedTuple) {
+  const canonical = namedComponents(canonicalTuple);
+  const generated = namedComponents(generatedTuple);
+  if (JSON.stringify(generated) !== JSON.stringify(canonical)) {
+    throw new Error(
+      `${label} tuple diverges from canonical ABI\n`
+      + `canonical=${JSON.stringify(canonical)}\n`
+      + `generated=${JSON.stringify(generated)}`,
+    );
   }
-  throw new Error('unterminated components array in IChainClient.ts');
 }
 
-function extractHardcodedMissionShapes() {
-  const viewStart = chainClientSource.indexOf("name: 'getClanFullView'");
-  const nextFunction = chainClientSource.indexOf("name: 'submitClanOrders'", viewStart);
-  if (viewStart === -1 || nextFunction === -1) {
-    throw new Error('could not isolate getClanFullView ABI fragment in IChainClient.ts');
+function extractGeneratedAbi() {
+  const match = chainClientSource.match(
+    /\/\/ BEGIN GENERATED CLAN_WORLD_ABI[\s\S]*?export const CLAN_WORLD_ABI = ([\s\S]*?) as const;\n\/\/ END GENERATED CLAN_WORLD_ABI/,
+  );
+  if (!match) {
+    throw new Error('could not isolate generated CLAN_WORLD_ABI block in IChainClient.ts');
   }
 
-  const viewSource = chainClientSource.slice(viewStart, nextFunction);
-  const shapes = [];
-  let searchFrom = 0;
-  while (true) {
-    const missionIndex = viewSource.indexOf("name: 'activeMission'", searchFrom);
-    if (missionIndex === -1) break;
+  return JSON.parse(match[1]);
+}
 
-    const componentsIndex = viewSource.indexOf('components: [', missionIndex);
-    if (componentsIndex === -1) throw new Error('activeMission tuple missing components array');
-    const openBracketIndex = viewSource.indexOf('[', componentsIndex);
-    const body = extractArrayBody(viewSource, openBracketIndex);
-    shapes.push([...body.matchAll(/\{\s*name: '([^']+)',\s*type: '([^']+)'\s*\}/g)].map(match => ({
-      name: match[1],
-      type: match[2],
-    })));
-    searchFrom = componentsIndex + body.length;
+function collectNamedTupleShapes(node, name, shapes = []) {
+  if (Array.isArray(node)) {
+    for (const item of node) collectNamedTupleShapes(item, name, shapes);
+    return shapes;
+  }
+
+  if (!node || typeof node !== 'object') {
+    return shapes;
+  }
+
+  if (node.name === name && node.type === 'tuple') {
+    shapes.push(namedComponents(node));
+  }
+
+  for (const value of Object.values(node)) {
+    collectNamedTupleShapes(value, name, shapes);
   }
 
   return shapes;
 }
 
 const canonicalMission = namedComponents(findFunction('getActiveMission').outputs[0]);
-const hardcodedMissions = extractHardcodedMissionShapes();
+const generatedAbi = extractGeneratedAbi();
+const checks = [
+  { label: 'WorldState', functionName: 'getWorldState', outputIndex: 0 },
+  { label: 'WorldSnapshot', functionName: 'getWorldSnapshot', outputIndex: 0 },
+  { label: 'Clan', functionName: 'getClan', outputIndex: 0 },
+  { label: 'Clansman', functionName: 'getClansman', outputIndex: 0 },
+  { label: 'BanditTroop', functionName: 'getBanditTroop', outputIndex: 0 },
+  { label: 'OrderResult', functionName: 'submitClanOrders', outputIndex: 0 },
+  { label: 'ClanFullView', functionName: 'getClanFullView', outputIndex: 0 },
+];
+
+for (const { label, functionName, outputIndex } of checks) {
+  const canonicalFunction = findFunction(functionName);
+  const generatedFunction = generatedAbi.find(item => item.type === 'function' && item.name === functionName);
+  if (!generatedFunction) {
+    throw new Error(`generated CLAN_WORLD_ABI missing ${functionName}`);
+  }
+  assertSameShape(label, canonicalFunction.outputs[outputIndex], generatedFunction.outputs[outputIndex]);
+}
+
+const generatedClanFullView = generatedAbi.find(item => item.type === 'function' && item.name === 'getClanFullView');
+if (!generatedClanFullView) {
+  throw new Error('generated CLAN_WORLD_ABI missing getClanFullView');
+}
+const hardcodedMissions = collectNamedTupleShapes(generatedClanFullView, 'activeMission');
 
 if (hardcodedMissions.length !== 2) {
   throw new Error(`expected 2 getClanFullView activeMission tuples, found ${hardcodedMissions.length}`);
@@ -80,4 +112,4 @@ for (const [index, hardcodedMission] of hardcodedMissions.entries()) {
   }
 }
 
-console.log('getClanFullView Mission ABI parity OK');
+console.log('ClanWorld major struct ABI parity OK');

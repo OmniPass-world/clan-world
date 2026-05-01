@@ -331,15 +331,14 @@ Tick advancement uses `vm.warp(block.timestamp + ClanWorldConstants.HEARTBEAT_IN
 
 ## 3.E6 — Wall / base / monument upgrades
 
-### test_buildWall_incrementsTierAndResetsHp
+### test_upgradeWall_incrementsLevel
 
-**Setup:** Clan starts at `wallTier = 0`, `wallHpCurrent = 0`. Clan has required stone in vault.
+**Setup:** Clan starts at `wallLevel = 0`. Clan has required wood/iron in vault.
 
-**Action:** Submit `BuildWall` mission. Advance until complete.
+**Action:** Submit `UpgradeWall` mission. Advance until complete.
 
 **Assert:**
-- `Clan.wallTier == 1`.
-- `Clan.wallHpCurrent == Clan.wallHpMax` (reset to max).
+- `Clan.wallLevel == 1`.
 
 ---
 
@@ -377,7 +376,7 @@ Tick advancement uses `vm.warp(block.timestamp + ClanWorldConstants.HEARTBEAT_IN
 
 ### test_upgrade_rejectsInsufficientResources
 
-**Setup:** Clan vault has 0 stone. Attempt `BuildWall`.
+**Setup:** Clan vault has insufficient resources. Attempt `UpgradeWall`.
 
 **Assert:** Revert (or order result error). State unchanged.
 

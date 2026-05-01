@@ -39,7 +39,10 @@ if [ "$missing" -eq 1 ]; then
   exit 1
 fi
 
-echo "Starting heartbeat loop (interval: 65s; avoids on-chain 60s heartbeat guard)"
+HEARTBEAT_INTERVAL=$(grep "^export const HEARTBEAT_INTERVAL_SECONDS" packages/shared/src/generated/constants.ts | grep -oE '[0-9]+')
+HEARTBEAT_SLEEP_SECONDS=$((HEARTBEAT_INTERVAL + 5))
+
+echo "Starting heartbeat loop (interval: ${HEARTBEAT_SLEEP_SECONDS}s; avoids on-chain ${HEARTBEAT_INTERVAL}s heartbeat guard)"
 echo "  engine: $CLAN_WORLD_CONTRACT_ADDRESS"
 echo "  rpc:    $RPC_URL_PRIMARY"
 echo "  convex: $CONVEX_DEPLOY_URL"
@@ -66,6 +69,6 @@ while true; do
     -d "{\"chain\":\"base-sepolia\",\"engineAddress\":\"$CLAN_WORLD_CONTRACT_ADDRESS\",\"firedAtTs\":$(date +%s),\"source\":\"foundry-loop\"}" \
     || echo "webhook POST failed (continuing)" >&2
 
-  # 65s sleep avoids rate-limit collisions with on-chain 60s guard
-  sleep 65
+  # Add a small cushion to avoid rate-limit collisions with the on-chain heartbeat guard.
+  sleep "$HEARTBEAT_SLEEP_SECONDS"
 done

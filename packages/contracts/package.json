@@ -2,9 +2,14 @@
   "name": "@clan-world/contracts",
   "private": true,
   "version": "0.0.0",
+  "exports": {
+    "./abi/IClanWorld.json": "./abi/IClanWorld.json"
+  },
   "scripts": {
     "build": "if command -v forge >/dev/null 2>&1; then forge build; else echo 'forge not installed; skipping (install via foundryup)'; fi",
-    "test": "if command -v forge >/dev/null 2>&1; then forge test;  else echo 'forge not installed; skipping'; fi",
+    "codegen": "forge_bin=$(command -v forge || command -v \"$HOME/.foundry/bin/forge\" || true); if [ -n \"$forge_bin\" ]; then \"$forge_bin\" build src/IClanWorld.sol && node ../../scripts/gen-contract-abi.mjs; else echo 'forge not installed; cannot generate ABI'; exit 1; fi",
+    "check:abi": "bash -c 'forge_bin=$(command -v forge || command -v \"$HOME/.foundry/bin/forge\" || true); if [ -n \"$forge_bin\" ]; then command -v jq >/dev/null 2>&1 || { echo \"jq not installed; cannot check ABI\"; exit 1; }; \"$forge_bin\" build src/IClanWorld.sol && diff <(jq \".abi\" out/IClanWorld.sol/IClanWorld.json) <(jq \".abi\" abi/IClanWorld.json); else echo \"forge not installed; skipping ABI drift check\"; fi'",
+    "test": "forge_bin=$(command -v forge || command -v \"$HOME/.foundry/bin/forge\" || true); if [ -n \"$forge_bin\" ]; then pnpm run check:abi && \"$forge_bin\" test;  else echo 'forge not installed; skipping'; fi",
     "typecheck": "echo 'no TS in contracts package'",
     "lint": "echo 'lint stub'",
     "clean": "rm -rf out cache .turbo"

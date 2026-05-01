@@ -32,7 +32,7 @@ Enumerates every demo/fake/stub component in the codebase. Each entry notes: wha
 | `apps/web/src/WorldMap.tsx` — `DEMO_BANDIT` (line 198) | Hardcoded bandit state: region, `attacksAtTick`, attack power. Drives bandit sprite, danger pulse, countdown UI. | Phase 4 — replace with `getActiveBanditView()` result |
 | `apps/web/src/WorldMap.tsx` — `MOCK_WALL_LEVELS` (line 208) | Hardcoded wall levels per clan (indexed by `MOCK_CLANS` position). | Phase 4 — replace with `getClanFullView().clan.wallLevel` |
 | `apps/web/src/WorldMap.tsx` — canned travel loop (lines ~1176–1200) | Spawns continuous random travel dots between `MOCK_CLANS` home regions so the map always has motion. Not driven by real mission state. | Phase 4 — gate behind `VITE_CLANWORLD_DEMO_MODE`; real dots come from `getClanFullView().clansmen[].activeMission` |
-| `apps/web/src/App.tsx` — `VITE_DEMO_BYPASS_WORLD_GUARD` (line 41) | Build-time env flag. When `true`, skips the "Open in World App to play" MiniKit guard and starts in `verified=true` state. Allows local dev and submission demo to bypass World ID verification. | Phase 4 — remove flag and bypass; require real MiniKit install check |
+| `apps/web/src/App.tsx` — `VITE_REQUIRE_WORLD_APP_GUARD` (line 41) | Build-time env flag. When `true`, enforces the "Open in World App to play" MiniKit gate; when false, starts in `verified=true` and bypasses the gate for dev/demo browser runs. | Phase 4 — remove flag and bypass; require real MiniKit install check |
 
 ---
 
@@ -70,4 +70,4 @@ Enumerates every demo/fake/stub component in the codebase. Each entry notes: wha
 - Entries marked "Phase 4" correspond to the WorldMap canvas chain-wiring phase.
 - Entries marked "Phase 1" correspond to the Convex + chain client wiring phase.
 - `ClanWorldStub.sol` is intentionally kept indefinitely as a test double; "Phase 4" only means the stub is no longer the live deployment target.
-- The `VITE_DEMO_BYPASS_WORLD_GUARD` flag must be absent (or `false`) in any Submission 2 production build.
+- The `VITE_REQUIRE_WORLD_APP_GUARD` flag must be set to `true` to keep the World App gate in any Submission 2 production build.

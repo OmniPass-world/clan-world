@@ -29,11 +29,11 @@
 export const DEMO_MODE = import.meta.env.VITE_CLANWORLD_DEMO_MODE !== 'false';
 
 /**
- * DEMO_BYPASS_WORLD_GUARD — bypass the "Open in World App" gate.
+ * REQUIRE_WORLD_APP_GUARD — require the user to be in World App context.
  *
- * When true, App.tsx skips the MiniKit.isInstalled() check and renders the
- * canvas directly. Set to 'true' permanently by `pnpm dev` script (see
- * `apps/web/package.json`); production builds default to false.
+ * true  (VITE_REQUIRE_WORLD_APP_GUARD='true'): render the Open-in-World-App
+ * gate unless the app is already installed in MiniKit.
+ * false/unset: bypass the gate and render directly in browser/dev.
  */
-export const DEMO_BYPASS_WORLD_GUARD =
-  import.meta.env.VITE_DEMO_BYPASS_WORLD_GUARD === 'true';
+export const REQUIRE_WORLD_APP_GUARD =
+  import.meta.env.VITE_REQUIRE_WORLD_APP_GUARD === 'true';

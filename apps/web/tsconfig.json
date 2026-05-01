@@ -4,7 +4,9 @@
     "jsx": "react-jsx",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "noEmit": true,
-    "types": ["vite/client"]
+    "declaration": false,
+    "declarationMap": false,
+    "types": ["vite/client", "node"]
   },
   "include": ["src/**/*"]
 }

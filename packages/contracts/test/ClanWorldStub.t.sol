@@ -3,7 +3,7 @@ pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {ClanWorldStub} from "../src/ClanWorldStub.sol";
-import {ClanWorldConstants, WorldState} from "../src/IClanWorld.sol";
+import {BanditState, BanditTroop, ClanWorldConstants, WorldState} from "../src/IClanWorld.sol";
 import {MinimalERC20} from "../src/MinimalERC20.sol";
 import {StubPool} from "../src/StubPool.sol";
 
@@ -48,6 +48,13 @@ contract ClanWorldStubTest is Test {
         assertEq(ws.currentTick, 2);
         assertEq(ws.nextHeartbeatAtTick, 3);
         assertEq(ws.nextHeartbeatAtTs, block.timestamp + ClanWorldConstants.HEARTBEAT_INTERVAL_SECONDS);
+    }
+
+    function test_getBanditMissingIdReturnsNoneState() public view {
+        BanditTroop memory bandit = stub.getBandit(999);
+
+        assertEq(bandit.id, 0, "missing id");
+        assertEq(uint8(bandit.state), uint8(BanditState.None), "missing state");
     }
 
     function test_initial_timer_fields_match_ClanWorld() public {

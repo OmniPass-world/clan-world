@@ -6,6 +6,21 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
     },
+    "codegen": {
+      "dependsOn": ["^codegen"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!abi/IClanWorld.json",
+        "!convex/_generated/**"
+      ],
+      "outputs": [
+        "abi/IClanWorld.json",
+        "src/adapters/IChainClient.ts",
+        "src/generated/constants.ts",
+        "src/generated/enums.ts",
+        "convex/_generated/**"
+      ]
+    },
     "dev": {
       "cache": false,
       "persistent": true

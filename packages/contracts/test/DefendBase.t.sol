@@ -12,6 +12,7 @@ import {
     Clansman,
     Mission,
     ClanOrder,
+    WithdrawResourcesData,
     OrderResult
 } from "../src/IClanWorld.sol";
 
@@ -41,7 +42,8 @@ contract DefendBaseTest is Test {
             targetClanId: targetClanId,
             marketToken: address(0),
             marketAmount: 0,
-            maxGoldIn: 0
+            maxGoldIn: 0,
+            withdrawResources: WithdrawResourcesData({wood: 0, iron: 0, wheat: 0, fish: 0})
         });
         return orders;
     }
@@ -55,7 +57,8 @@ contract DefendBaseTest is Test {
             targetClanId: 0,
             marketToken: address(0),
             marketAmount: 0,
-            maxGoldIn: 0
+            maxGoldIn: 0,
+            withdrawResources: WithdrawResourcesData({wood: 0, iron: 0, wheat: 0, fish: 0})
         });
         return orders;
     }

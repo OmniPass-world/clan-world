@@ -1,4 +1,5 @@
 import { query } from "./_generated/server";
+import { HEARTBEAT_INTERVAL_SECONDS } from "@clan-world/shared/generated/constants";
 
 export const getSnapshot = query({
   handler: async (ctx) => {
@@ -6,7 +7,7 @@ export const getSnapshot = query({
     if (!snap) {
       return {
         tick: 0,
-        tickEpoch: { startedAt: 0, durationMs: 20_000 },
+        tickEpoch: { startedAt: 0, durationMs: Number(HEARTBEAT_INTERVAL_SECONDS) * 1000 },
         regions: [],
         clans: [],
       };
