@@ -2,7 +2,7 @@
 
 Living plan for getting Solana-canonical GOLD bridged to Base with Wormhole NTT, then replacing ClanWorld's current deployed/native GOLD ERC20 with the Base-side bridged GOLD token.
 
-Last updated: 2026-05-01 02:35 EDT
+Last updated: 2026-05-01 03:01 EDT
 
 ## Goal
 
@@ -11,7 +11,7 @@ Solana GOLD remains the canonical asset. Wormhole NTT locks GOLD on Solana, mint
 ## Current Readiness Snapshot
 
 - Standalone bridge scaffold: about 70% ready.
-- Bridge token readiness: Base GOLD is now fixed at 9 decimals with the NTT mint/burn/minter surface and ordinary ERC-20 allowance pulls for later ClanWorld compatibility.
+- Bridge token readiness: Base GOLD is now fixed at 9 decimals, upgradeable through a timelocked transparent proxy, and includes a V1 allowlist-scoped recovery hook that can be disabled forever or removed through V2.
 - ClanWorld integration: intentionally deferred. Do not modify existing ClanWorld contracts/scripts/tests until the bridge and token deployment flow are proven.
 - Current phase: deployment hardening and operator tooling. Testnet bridge proof is complete; the next layer is artifact export, repeatable preflight checks, liquidity recovery helpers, and a production deployment checklist.
 
@@ -123,6 +123,10 @@ Scope:
 Exit criteria:
 
 - [x] Base `GoldBridgeToken` exposes `decimals() == 9`.
+- [x] Base `GoldBridgeToken` deploys as an initializer-based upgradeable implementation behind a transparent proxy.
+- [x] Base token owner and ProxyAdmin owner can be controlled by a timelock.
+- [x] V1 recovery is allowlist-scoped and can be permanently disabled.
+- [x] V2 removes the recovery ABI while preserving balances, allowances, owner, minter, and total supply.
 - [x] Deploy script no longer accepts a separate Base decimals env var.
 - [x] Frontend generated config derives Base decimals from the Solana token decimals/default 9 instead of a duplicate Base decimals setting.
 - [x] Contract tests cover NTT mint/burn behavior.
@@ -132,7 +136,9 @@ Exit criteria:
 Findings:
 
 - Wormhole's EVM NTT docs require burn-and-mint tokens to implement `burn(uint256)` and `mint(address,uint256)`, with minter authority handed to the NTT manager after deployment.
-- The token does not need ClanWorld-specific code. A plain 9-decimal ERC-20 surface is the right bridge-layer boundary.
+- The token does not need ClanWorld-specific game logic. A 9-decimal ERC-20/NTT surface remains the bridge-layer boundary.
+- Upgradeability is useful for late bridge-token bugs, but the trust model must be explicit. The current design uses OpenZeppelin transparent proxy separation: token behavior in the implementation, upgrade power in ProxyAdmin, and operational delay in TimelockController.
+- The recovery function is intentionally named `recoverFromAllowedSource`, not owner transfer, and NatSpec states that user wallets should not be allowlisted.
 - If ClanWorld wants internal e18 accounting later, conversion should happen in the ClanWorld integration layer, not inside the bridge token.
 
 ## Phase 4 Execution Plan: Testnet Bridge Deployment Proof
@@ -361,7 +367,10 @@ Checklist:
 - [x] Add a deployment artifact export command that writes public addresses, tx hashes, chain names, and modes without secrets.
 - [x] Add preflight checks for Solana mint decimals, Base token decimals, Base token minter handoff, and NTT status.
 - [x] Add a production deployment checklist covering fresh wallets, backups, funding, tiny proof transfers, artifact archival, and recovery proof.
-- [ ] Design contract-level recovery for ClanWorld-held pool/treasury GOLD before meaningful liquidity is seeded.
+- [x] Add token-level allowlist-scoped recovery for ClanWorld-held pool/treasury GOLD before meaningful liquidity is seeded.
+- [x] Add timelock schedule/execute helpers for owner-only Base token operations.
+- [x] Add proxy-info/preflight checks for proxy admin, implementation, token owner, and timelock ownership.
+- [ ] Redeploy Base Sepolia GOLD with the upgradeable proxy stack and rerun two-way NTT proof.
 - [ ] Record final deployment addresses and verification steps.
 - [ ] Produce go/no-go checklist before mainnet.
 
@@ -372,13 +381,15 @@ Findings:
 - Operator-held Base GOLD can now be recovered to Solana with `pnpm liquidity:recover-base`; the command defaults to dry run and requires `RECOVERY_EXECUTE=true` to submit.
 - `pnpm artifacts:export` writes `artifacts/deployment-summary.json`; the `artifacts` directory is ignored, so archive the JSON intentionally with deployment evidence.
 - `pnpm preflight` is the quick confidence command after deployment changes. It does not replace transfer proofs, but it catches the easy-to-miss decimals and minter mistakes.
+- Base GOLD is now intended to deploy as a transparent proxy. The old Base Sepolia proof token remains useful evidence, but the next testnet proof should redeploy with the proxy/timelock stack before mainnet.
+- `pnpm base:set-minter` now schedules `setMinter` through the timelock when `BASE_TIMELOCK_ADDRESS` is set. Execute after the delay with `pnpm timelock:execute`; testnets with zero delay may use `TIMELOCK_EXECUTE_IMMEDIATELY=true`.
 
 Gotchas:
 
 - "Replace the GOLD ERC20" and "make bridged GOLD the live player economy" are different milestones.
-- Liquidity recovery needs to be designed before meaningful pool funding. If we seed bridged GOLD into ClanWorld/pools and later decide to redeploy, we need a scripted, tested way to recover every withdrawable/recoverable GOLD unit rather than relying on manual contract poking.
+- Liquidity recovery needs to be tested before meaningful pool funding. If we seed bridged GOLD into ClanWorld/pools and later decide to redeploy, only allowlisted source addresses can be recovered by the token-level hook.
 - Mainnet readiness needs operational controls: multisig ownership, conservative rate limits, pausing plan, monitoring, tx hash logs, and recovery runbook.
-- The current recovery helper only controls the configured EVM deployer wallet. It cannot pull GOLD out of a ClanWorld contract unless that contract exposes a withdrawal/recovery path during final integration.
+- The wallet recovery helper only controls the configured EVM deployer wallet. Token-level `recoverFromAllowedSource` can recover from allowlisted contracts, but it is intentionally timelocked and should be disabled forever or removed in V2 after the migration window.
 
 ## Verification Log
 
@@ -452,6 +463,22 @@ Gotchas:
 - 2026-05-01 EDT: Ran `pnpm artifacts:export`; wrote ignored local artifact `artifacts/deployment-summary.json`.
 - 2026-05-01 EDT: Ran `PATH="/home/claude/.foundry/bin:$PATH" pnpm test:contracts`; passed, 6 tests.
 - 2026-05-01 EDT: Ran `pnpm --filter @gold-bridge/web typecheck`; passed.
+- 2026-05-01 EDT: Added OpenZeppelin Contracts and Contracts Upgradeable dependencies for Base GOLD proxy/timelock support.
+- 2026-05-01 EDT: Reworked `GoldBridgeToken` into an initializer-based 9-decimal ERC20 with NTT mint/burn/minter behavior, timelocked allowlist-scoped recovery, and `disableRecoveryForever`.
+- 2026-05-01 EDT: Added `GoldBridgeTokenV2` upgrade target that preserves V1 storage while removing the recovery ABI.
+- 2026-05-01 EDT: Added `UpgradeableGoldDeployer` helper to deploy implementation, TimelockController, and TransparentUpgradeableProxy in one transaction.
+- 2026-05-01 EDT: Added Base proxy info and generic timelock schedule/execute scripts.
+- 2026-05-01 EDT: Updated Base deploy, minter handoff, preflight, artifact export, and docs for proxy/timelock deployment.
+- 2026-05-01 EDT: Ran `PATH="/home/claude/.foundry/bin:$PATH" pnpm test:contracts`; passed, 12 tests.
+- 2026-05-01 EDT: Ran `pnpm --filter @gold-bridge/web typecheck`; passed.
+- 2026-05-01 EDT: Ran `pnpm review`; passed.
+- 2026-05-01 EDT: Ran `bash -n scripts/03-deploy-base-token.sh scripts/08-set-base-minter.sh scripts/15-preflight.sh scripts/17-print-base-proxy-info.sh scripts/18-timelock-schedule.sh scripts/19-timelock-execute.sh`; passed.
+- 2026-05-01 EDT: Ran `node --check scripts/14-export-deployment-artifacts.mjs`; passed.
+- 2026-05-01 EDT: Ran `PATH="/home/claude/.foundry/bin:$PATH" pnpm build`; passed with existing large Wormhole chunk warnings and Foundry lint notes.
+- 2026-05-01 EDT: Ran `BASE_TOKEN_EXPECTED_PROXY=false pnpm preflight` against the old direct Base Sepolia proof token; passed. Future deployments default to `BASE_TOKEN_EXPECTED_PROXY=true`.
+- 2026-05-01 EDT: Re-ran `bash -n` for the updated deploy, minter, preflight, proxy-info, and timelock scripts; passed.
+- 2026-05-01 EDT: Re-ran `PATH="/home/claude/.foundry/bin:$PATH" pnpm test:contracts`; passed, 12 tests.
+- 2026-05-01 EDT: Re-ran `pnpm review`; passed.
 
 ## Open Questions
 
@@ -460,12 +487,12 @@ Gotchas:
 - Confirm production Solana GOLD uses 9 decimals before mainnet deployment; bridge token is currently fixed at 9 decimals.
 - Is bridged GOLD only the treasury/pool backing asset for now, or should clan balances become externally depositable/withdrawable?
 - Do we redeploy ClanWorld for the bridged GOLD switch, or design a migration path for an existing deployment?
-- Who controls Base token owner, NTT manager owners, and pauser roles during testnet and production?
-- What exact ClanWorld contract-level recovery path should exist before we seed meaningful bridged GOLD liquidity?
+- Who controls the production timelock proposer multisig, NTT manager owners, and pauser roles?
+- What production timelock delay do we want: 24 hours, 48 hours, or longer?
 
 ## Next Actions
 
-1. Verify the new operator scripts against the live testnet deployment.
-2. Export and review `artifacts/deployment-summary.json`.
-3. Commit and push the hardening pass.
-4. Then plan the ClanWorld-facing recovery/integration boundary without modifying existing game contracts yet.
+1. Commit and push the upgradeable token implementation.
+2. Redeploy Base Sepolia GOLD with the proxy/timelock stack.
+3. Re-run NTT Base add-chain/minter handoff/preflight against the proxy token.
+4. Repeat tiny two-way bridge proof on the upgradeable Base GOLD token.

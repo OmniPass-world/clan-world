@@ -1,98 +1,81 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.34;
 
+import {
+    ERC20Upgradeable
+} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import {
+    OwnableUpgradeable
+} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+
 import {INttToken} from "./interfaces/INttToken.sol";
 
 /// @title GoldBridgeToken
-/// @notice ERC-20 representation token for GOLD on Base, designed for Wormhole NTT burning mode.
-/// @dev Dependency-free on purpose. Compile with Solidity 0.8.34.
-contract GoldBridgeToken is INttToken {
-    string public name;
-    string public symbol;
-    uint256 public totalSupply;
-    address public owner;
-    address public minter;
+/// @notice Upgradeable 9-decimal Base representation of Solana-canonical GOLD.
+/// @dev This token is designed for Wormhole NTT burning mode. The NTT manager is expected to
+/// become `minter` after deployment, allowing it to mint inbound GOLD and burn outbound GOLD.
+///
+/// Upgrade and recovery trust model:
+/// - The proxy admin and token owner should both be a public timelock controlled by governance.
+/// - `recoverFromAllowedSource` is an emergency migration hook, not a general admin transfer.
+/// - Recovery can only move tokens out of addresses explicitly allowlisted by timelocked governance.
+/// - The intended allowlist is ClanWorld or treasury/pool contracts that may temporarily custody GOLD.
+/// - User wallets should not be allowlisted.
+/// - Governance can permanently disable recovery with `disableRecoveryForever`.
+contract GoldBridgeToken is Initializable, ERC20Upgradeable, OwnableUpgradeable, INttToken {
     uint8 public constant GOLD_DECIMALS = 9;
 
-    mapping(address account => uint256 balance) private balances;
-    mapping(address account => mapping(address spender => uint256 allowanceAmount)) private
-        allowances;
+    address public minter;
+    bool public recoveryDisabled;
+    mapping(address source => bool allowed) public recoveryAllowed;
 
-    error CallerNotOwner(address caller);
-    error InvalidOwnerZeroAddress();
-    error InvalidSenderZeroAddress();
-    error InvalidRecipientZeroAddress();
-    error AllowanceExceeded(uint256 allowanceAmount, uint256 amount);
+    error InvalidRecoverySourceZeroAddress();
+    error InvalidRecoveryRecipientZeroAddress();
+    error RecoveryDisabled();
+    error RecoverySourceNotAllowed(address source);
 
-    event Transfer(address indexed from, address indexed to, uint256 amount);
-    event Approval(address indexed owner, address indexed spender, uint256 amount);
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+    event RecoveryAllowedSet(address indexed source, bool allowed);
+    event RecoveryDisabledForever();
+    event RecoveredFromAllowedSource(
+        address indexed source, address indexed recipient, uint256 amount
+    );
 
-    modifier onlyOwner() {
-        if (msg.sender != owner) revert CallerNotOwner(msg.sender);
-        _;
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
     }
 
-    modifier onlyMinter() {
-        if (msg.sender != minter) revert CallerNotMinter(msg.sender);
-        _;
-    }
-
-    constructor(
+    /// @notice Initializes the proxy-backed token once.
+    /// @param name_ ERC20 name.
+    /// @param symbol_ ERC20 symbol.
+    /// @param initialMinter_ Temporary minter, usually the deployer until NTT manager handoff.
+    /// @param owner_ Timelock or governance address that controls minter and recovery settings.
+    function initialize(
         string memory name_,
         string memory symbol_,
         address initialMinter_,
         address owner_
-    ) {
+    )
+        external
+        initializer
+    {
         if (initialMinter_ == address(0)) revert InvalidMinterZeroAddress();
-        if (owner_ == address(0)) revert InvalidOwnerZeroAddress();
 
-        name = name_;
-        symbol = symbol_;
+        __ERC20_init(name_, symbol_);
+        __Ownable_init(owner_);
+
         minter = initialMinter_;
-        owner = owner_;
-
         emit NewMinter(address(0), initialMinter_);
-        emit OwnershipTransferred(address(0), owner_);
     }
 
-    function decimals() external pure returns (uint8) {
+    /// @notice Returns 9 decimals to match Solana GOLD accounting.
+    function decimals() public pure override returns (uint8) {
         return GOLD_DECIMALS;
     }
 
-    function balanceOf(address account) external view returns (uint256) {
-        return balances[account];
-    }
-
-    function allowance(address account, address spender) external view returns (uint256) {
-        return allowances[account][spender];
-    }
-
-    function transfer(address to, uint256 amount) external returns (bool) {
-        _transfer(msg.sender, to, amount);
-        return true;
-    }
-
-    function approve(address spender, uint256 amount) external returns (bool) {
-        if (spender == address(0)) revert InvalidRecipientZeroAddress();
-        allowances[msg.sender][spender] = amount;
-        emit Approval(msg.sender, spender, amount);
-        return true;
-    }
-
-    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
-        uint256 currentAllowance = allowances[from][msg.sender];
-        if (currentAllowance != type(uint256).max) {
-            if (currentAllowance < amount) revert AllowanceExceeded(currentAllowance, amount);
-            unchecked {
-                allowances[from][msg.sender] = currentAllowance - amount;
-            }
-            emit Approval(from, msg.sender, allowances[from][msg.sender]);
-        }
-        _transfer(from, to, amount);
-        return true;
-    }
-
+    /// @notice Updates the NTT minter address.
+    /// @dev Should be called through the owner timelock after the Base NTT manager is deployed.
     function setMinter(address newMinter) external onlyOwner {
         if (newMinter == address(0)) revert InvalidMinterZeroAddress();
         address previousMinter = minter;
@@ -100,48 +83,59 @@ contract GoldBridgeToken is INttToken {
         emit NewMinter(previousMinter, newMinter);
     }
 
-    function transferOwnership(address newOwner) external onlyOwner {
-        if (newOwner == address(0)) revert InvalidOwnerZeroAddress();
-        address previousOwner = owner;
-        owner = newOwner;
-        emit OwnershipTransferred(previousOwner, newOwner);
+    /// @notice Allows or removes one source address for emergency recovery.
+    /// @dev This should be controlled by timelocked governance. Adding EOAs is possible but should
+    /// be avoided in production unless there is a clearly documented migration reason.
+    function setRecoveryAllowed(address source, bool allowed) external onlyOwner {
+        if (recoveryDisabled) revert RecoveryDisabled();
+        if (source == address(0)) revert InvalidRecoverySourceZeroAddress();
+        recoveryAllowed[source] = allowed;
+        emit RecoveryAllowedSet(source, allowed);
     }
 
+    /// @notice Permanently disables all future recovery and allowlist changes.
+    /// @dev This is irreversible. Upgrades controlled by the proxy admin timelock remain possible
+    /// unless that separate upgrade authority is later revoked.
+    function disableRecoveryForever() external onlyOwner {
+        if (recoveryDisabled) revert RecoveryDisabled();
+        recoveryDisabled = true;
+        emit RecoveryDisabledForever();
+    }
+
+    /// @notice Moves GOLD from an explicitly allowlisted source to a recipient during migration.
+    /// @dev This is a timelocked safety valve for contract-held liquidity only. It is intentionally
+    /// narrower than a generic owner transfer: the `source` must have been allowlisted in advance,
+    /// every allowlist change is on-chain, and governance can disable the function forever.
+    function recoverFromAllowedSource(
+        address source,
+        address recipient,
+        uint256 amount
+    )
+        external
+        onlyOwner
+    {
+        if (recoveryDisabled) revert RecoveryDisabled();
+        if (!recoveryAllowed[source]) revert RecoverySourceNotAllowed(source);
+        if (recipient == address(0)) revert InvalidRecoveryRecipientZeroAddress();
+
+        _transfer(source, recipient, amount);
+        emit RecoveredFromAllowedSource(source, recipient, amount);
+    }
+
+    /// @notice Mints GOLD. Intended caller is the Base Wormhole NTT manager.
     function mint(address account, uint256 amount) external onlyMinter {
-        if (account == address(0)) revert InvalidRecipientZeroAddress();
-        totalSupply += amount;
-        unchecked {
-            balances[account] += amount;
-        }
-        emit Transfer(address(0), account, amount);
+        _mint(account, amount);
     }
 
+    /// @notice Burns the caller's GOLD. Used by Wormhole NTT for outbound Base to Solana transfers.
     function burn(uint256 amount) external {
         _burn(msg.sender, amount);
     }
 
-    function _transfer(address from, address to, uint256 amount) internal {
-        if (from == address(0)) revert InvalidSenderZeroAddress();
-        if (to == address(0)) revert InvalidRecipientZeroAddress();
-
-        uint256 balance = balances[from];
-        if (balance < amount) revert InsufficientBalance(balance, amount);
-        unchecked {
-            balances[from] = balance - amount;
-            balances[to] += amount;
-        }
-        emit Transfer(from, to, amount);
+    modifier onlyMinter() {
+        if (msg.sender != minter) revert CallerNotMinter(msg.sender);
+        _;
     }
 
-    function _burn(address account, uint256 amount) internal {
-        if (account == address(0)) revert InvalidSenderZeroAddress();
-
-        uint256 balance = balances[account];
-        if (balance < amount) revert InsufficientBalance(balance, amount);
-        unchecked {
-            balances[account] = balance - amount;
-            totalSupply -= amount;
-        }
-        emit Transfer(account, address(0), amount);
-    }
+    uint256[47] private __gap;
 }

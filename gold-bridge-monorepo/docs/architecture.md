@@ -12,7 +12,9 @@ The Solana NTT manager is deployed in locking mode. That means users deposit GOL
 
 Base is the spoke chain.
 
-The Base GOLD ERC-20 representation is deployed by this repo. It is fixed at 9 decimals, matching the expected Solana GOLD precision. The Base NTT manager is deployed in burning mode. It mints Base GOLD when Solana GOLD is locked, and burns Base GOLD when users bridge back to Solana.
+The Base GOLD ERC-20 representation is deployed by this repo behind an OpenZeppelin transparent upgradeable proxy. It is fixed at 9 decimals, matching the expected Solana GOLD precision. The Base NTT manager is deployed in burning mode. It mints Base GOLD when Solana GOLD is locked, and burns Base GOLD when users bridge back to Solana.
+
+The proxy admin and token owner should both be controlled by a public timelock. V1 includes an allowlist-scoped recovery hook for contract-held migration liquidity. The hook is intentionally narrow, timelocked, and permanently disableable; V2 removes the recovery ABI while preserving token state.
 
 ClanWorld integration is intentionally outside the bridge layer for now. The bridge token exposes ordinary ERC-20 allowance and transfer functions so the game can later seed liquidity or implement deposit flows, but any e18 game-accounting conversion should happen in ClanWorld integration code rather than in the token.
 
@@ -38,11 +40,13 @@ A lock-and-lock model needs liquidity pre-funded on every destination chain. Tha
 
 ## Admin roles
 
-Production should use multisig-controlled ownership and pauser roles.
+Production should use multisig-controlled timelocks and pauser roles.
 
 Minimum recommended controls:
 
-- Token owner on Base.
+- Base token owner timelock.
+- Base token ProxyAdmin owner timelock.
+- Timelock proposer multisig.
 - NTT manager owner on Solana.
 - NTT manager owner on Base.
 - Pauser role.

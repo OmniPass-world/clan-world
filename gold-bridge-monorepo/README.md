@@ -83,9 +83,9 @@ This checks for Node, pnpm, forge, cast, Solana CLI, SPL Token CLI, and the NTT 
 
 Run `pnpm deploy:base-token`.
 
-This deploys `GoldBridgeToken` on Base using Solidity 0.8.34. The token is fixed at 9 decimals to mirror Solana GOLD. The temporary minter should usually be your deployer or owner address. After the NTT manager exists, you will replace the minter with the Base NTT manager.
+This deploys an upgradeable `GoldBridgeToken` on Base using Solidity 0.8.34, OpenZeppelin's transparent proxy, and a timelock-owned ProxyAdmin. The token is fixed at 9 decimals to mirror Solana GOLD. The temporary minter should usually be your deployer. After the NTT manager exists, you will replace the minter with the Base NTT manager through the timelock.
 
-Copy the deployed token address into `BASE_TOKEN_ADDRESS` in `.env`.
+Copy the printed proxy token, implementation, timelock, and proxy admin addresses into `.env`. The proxy token address is `BASE_TOKEN_ADDRESS`.
 
 ### 5. Create or initialize the NTT project
 
@@ -127,7 +127,7 @@ Run `pnpm ntt:addresses` to print manager and transceiver addresses.
 
 Then run `pnpm base:set-minter`.
 
-This calls `setMinter` on the Base ERC-20 token so the NTT manager can mint inbound Base GOLD and burn outbound Base GOLD.
+This schedules `setMinter` through the Base token timelock so the NTT manager can mint inbound Base GOLD and burn outbound Base GOLD. On testnet, set `TIMELOCK_EXECUTE_IMMEDIATELY=true` only when the timelock delay is zero.
 
 ### 11. Export the web config
 
@@ -175,7 +175,13 @@ ClanWorld can still keep any internal e18 accounting it needs later, but that co
 
 ### Minter handoff
 
-The Base token starts with a temporary minter because the NTT manager address does not exist before NTT deployment. After NTT is deployed on Base, call `setMinter` to move minter authority to the Base NTT manager.
+The Base token starts with a temporary minter because the NTT manager address does not exist before NTT deployment. After NTT is deployed on Base, call `setMinter` through the timelock to move minter authority to the Base NTT manager.
+
+### Upgrade and recovery model
+
+Base GOLD uses a transparent upgradeable proxy. The proxy admin and token owner should both be controlled by a timelock. V1 includes `recoverFromAllowedSource`, a timelocked recovery hook that can move tokens only from allowlisted sources such as ClanWorld pool or treasury contracts. User wallets should not be allowlisted.
+
+Recovery can be permanently disabled with `disableRecoveryForever`. A later V2 implementation removes the recovery ABI while preserving token balances, allowances, owner, minter, and total supply.
 
 ### Admin custody
 
@@ -186,7 +192,7 @@ Keep ownership and pauser roles controlled by a multisig for production. A singl
 - `pnpm doctor`: check local tools.
 - `pnpm review`: run static repo checks.
 - `pnpm test:contracts`: run the Foundry contract tests.
-- `pnpm deploy:base-token`: deploy the Base ERC-20 token.
+- `pnpm deploy:base-token`: deploy the upgradeable Base ERC-20 token, timelock, and proxy admin stack.
 - `pnpm ntt:init`: initialize the NTT project.
 - `pnpm ntt:overrides`: write NTT custom RPC overrides.
 - `pnpm ntt:add-solana`: add Solana in locking mode.
@@ -199,6 +205,9 @@ Keep ownership and pauser roles controlled by a multisig for production. A singl
 - `pnpm artifacts:export`: write a public deployment summary without secrets.
 - `pnpm preflight`: check token decimals, Base minter handoff, and NTT status.
 - `pnpm liquidity:recover-base`: dry-run or execute a Base to Solana GOLD recovery transfer.
+- `pnpm base:proxy-info`: print proxy, implementation, ProxyAdmin, owner, minter, and timelock details.
+- `pnpm timelock:schedule`: schedule a generic timelock operation from `TIMELOCK_TARGET_ADDRESS` and `TIMELOCK_CALLDATA`.
+- `pnpm timelock:execute`: execute a ready generic timelock operation.
 - `pnpm web`: run the SPA locally.
 - `pnpm metrics`: fetch basic supply metrics from Solana and Base RPCs.
 

@@ -7,5 +7,9 @@
     "clean": "forge clean",
     "deploy:base-token": "bash ../../scripts/03-deploy-base-token.sh",
     "test": "forge test"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.6.1",
+    "@openzeppelin/contracts-upgradeable": "^5.6.1"
   }
 }

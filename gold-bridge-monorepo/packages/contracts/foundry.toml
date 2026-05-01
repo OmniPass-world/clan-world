@@ -2,6 +2,9 @@
 src = "src"
 out = "out"
 libs = []
+remappings = [
+  "@openzeppelin/=node_modules/@openzeppelin/"
+]
 solc_version = "0.8.34"
 optimizer = true
 optimizer_runs = 200

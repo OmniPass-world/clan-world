@@ -42,7 +42,7 @@ flowchart LR
 pnpm doctor
 ```
 
-3. Deploy Base GOLD and copy the printed address to `BASE_TOKEN_ADDRESS`:
+3. Deploy upgradeable Base GOLD and copy the printed proxy, implementation, timelock, and ProxyAdmin addresses into `.env`:
 
 ```bash
 pnpm deploy:base-token
@@ -57,14 +57,18 @@ pnpm ntt:add-solana
 pnpm ntt:add-base
 ```
 
-5. Edit `deployment.json` rate limits, then push config and hand off minting:
+5. Edit `deployment.json` rate limits, then push config and schedule minting handoff:
 
 ```bash
 pnpm ntt:push
 pnpm ntt:addresses
 pnpm base:set-minter
+pnpm timelock:execute
+pnpm preflight
 pnpm web:export-config
 ```
+
+On testnet only, `TIMELOCK_EXECUTE_IMMEDIATELY=true pnpm base:set-minter` is acceptable when the timelock delay is zero.
 
 6. Prove both directions:
 
