@@ -155,6 +155,31 @@ contract BaseUpgradesTest is Test {
         assertEq(world.getClan(clanId).vaultWheat, 100e18 - wheatCost - 8e18, "wheat upkeep and upgrade cost deducted");
     }
 
+    function test_upgradeBase_simulatedUpkeepRespectsReservedWheat() public {
+        uint32 clanId = _mintClan(elder);
+        uint32 csId = _firstCs(clanId);
+        (,, uint256 wheatCost) = world.getBaseUpgradeCost(1);
+        world.setVault(clanId, 100e18, 0, wheatCost + 3e18, 100e18);
+
+        OrderResult[] memory result = _submitOrder(elder, clanId, csId, ActionType.UpgradeBase);
+        assertEq(uint8(result[0].status), uint8(StatusCode.OK), "queue status");
+
+        world.setCurrentTick(1);
+        uint256 simLoot = world.quoteLootValueSettled(clanId);
+        (uint256 simScore,,) = world.getClanScore(clanId);
+
+        uint256 expectedFish = 100e18 - uint256(4) * ClanWorldConstants.FISH_UPKEEP_PER_CLANSMAN;
+        uint256 expectedLoot = 100e18 + wheatCost + expectedFish * 2;
+        assertEq(simLoot, expectedLoot, "sim keeps reserved wheat out of upkeep");
+
+        (uint256 realScore, uint256 realLoot, uint8 baseLevel) = world.settleClanAndGetStoredScore(clanId);
+
+        assertEq(realLoot, simLoot, "sim and real loot match");
+        assertEq(realScore, simScore, "sim and real score match");
+        assertEq(baseLevel, 1, "upgrade has not reached settle tick yet");
+        assertEq(world.getClan(clanId).vaultWheat, wheatCost, "real upkeep preserves reserved wheat");
+    }
+
     function test_upgradeBase_rejectsInsufficientVaultAtQueueTime() public {
         uint32 clanId = _mintClan(elder);
         uint32 csId = _firstCs(clanId);
