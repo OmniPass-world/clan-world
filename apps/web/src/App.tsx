@@ -4,6 +4,7 @@ import { useIDKitRequest } from '@worldcoin/idkit';
 import type { IDKitRequestHookConfig } from '@worldcoin/idkit';
 import { WorldMap } from './WorldMap';
 import { Cockpit } from './pages/Cockpit';
+import { OwnerEditor } from './pages/OwnerEditor';
 import { WorldMapBoundary } from './components/cockpit/shared/WorldMapBoundary';
 
 // Convex HTTP actions are served at <deployment>.convex.site (not .convex.cloud)
@@ -55,6 +56,13 @@ function isCockpitRoute(): boolean {
   );
 }
 
+function isOwnerRoute(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    window.location.pathname.startsWith('/owner')
+  );
+}
+
 export function App() {
   // /cockpit route — standalone judge view, bypasses World App / verify gate.
   // Pure read-only frontend for now (Phase B will wire live data).
@@ -63,6 +71,9 @@ export function App() {
   // plain browser).
   if (isCockpitRoute()) {
     return <Cockpit />;
+  }
+  if (isOwnerRoute()) {
+    return <OwnerEditor />;
   }
   return <MainApp />;
 }

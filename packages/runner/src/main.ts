@@ -101,7 +101,11 @@ async function main(): Promise<void> {
     // Memory adapter selection: ZeroGMemoryStore if OG_STORAGE_ENABLED is set,
     // FileMemoryStore otherwise. Pass elderIndex explicitly so we don't depend
     // on ELDER_INDEX env (the runner serves all 4 Elders, not just one).
-    const memory = await createMemoryStore({ elderIndex: elder, stateDir: config.stateDir });
+    const memory = await createMemoryStore({
+      elderIndex: elder,
+      clanId,
+      stateDir: config.stateDir,
+    });
     // Peer transport selection: AxlPeerInbox if AXL_API_KEY + AXL_NETWORK_ID set,
     // FilePeerInbox otherwise. Pass elder + myClanId explicitly so the factory
     // does not depend on per-process ELDER_N env (multi-elder runner).

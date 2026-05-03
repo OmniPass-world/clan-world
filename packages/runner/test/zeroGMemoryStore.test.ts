@@ -358,7 +358,7 @@ describe('createMemoryStore — startup error handling', () => {
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('OG_STORAGE_ENABLED not set'));
   });
 
-  it('OG_STREAM_ID defaults to ethers.id("clanworld-elder-memory") when unset', async () => {
+  it('OG_STREAM_ID defaults to a clan-scoped stream when unset', async () => {
     const sd = stateDir();
     // Just verifying no error thrown and ZeroGMemoryStore returned.
     const store = await createMemoryStore({

@@ -1,5 +1,6 @@
 import { tokens } from '../../../styles/cockpit-tokens';
 import type { ElderDef } from '../../../styles/cockpit-tokens';
+import { useMemo } from 'react';
 
 interface Props {
   elder: ElderDef;
@@ -25,7 +26,30 @@ const STUB_BULLETINS = [
   { age: '5t', body: '"Crimson moves — watch the river."'  },
 ];
 
+interface DemoInftState {
+  tokenId: string;
+  owner: string;
+  dataHash: string;
+  notes?: string;
+  data?: Array<{ label: string; dataHash: string; uri: string }>;
+}
+
 export function ZeroGTab({ elder, testIdPrefix }: Props) {
+  const demoState = useMemo<DemoInftState | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const raw = window.localStorage.getItem(`clanworld:inft-demo:${elder.clanId}`);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as DemoInftState;
+    } catch {
+      return null;
+    }
+  }, [elder.clanId]);
+  const kvRows = demoState?.data?.map((entry) => ({
+    key: entry.label,
+    value: entry.uri,
+  })) ?? STUB_KV;
+
   return (
     <div
       data-testid={`${testIdPrefix}-content-0g`}
@@ -54,9 +78,10 @@ export function ZeroGTab({ elder, testIdPrefix }: Props) {
             fontSize: '10px',
           }}
         >
-          <Field k="token_id"     v={`0x${(0xe1de7000 + elder.clanId).toString(16)}`} />
+          <Field k="token_id"     v={demoState?.tokenId ?? `0x${(0xe1de7000 + elder.clanId).toString(16)}`} />
+          <Field k="owner"        v={demoState?.owner ?? 'demo-owner'} />
           <Field k="archetype"    v={elder.archetype} />
-          <Field k="state_root"   v="0xa1b2…f7e9" />
+          <Field k="state_root"   v={demoState?.dataHash ?? '0xa1b2…f7e9'} />
           <Field k="encrypted"    v="◉ tee-attested" />
           <Field k="version"      v="v0.4.6" />
         </div>
@@ -76,7 +101,7 @@ export function ZeroGTab({ elder, testIdPrefix }: Props) {
               gap: '2px',
             }}
           >
-            {STUB_KV.map((kv) => (
+            {kvRows.map((kv) => (
               <div
                 key={kv.key}
                 style={{
@@ -92,6 +117,15 @@ export function ZeroGTab({ elder, testIdPrefix }: Props) {
             ))}
           </div>
         </div>
+
+        {demoState?.notes && (
+          <div>
+            <SectionHeader>owner notes</SectionHeader>
+            <p style={{ margin: `${tokens.space.sm} 0 0`, fontSize: '11px', lineHeight: 1.4 }}>
+              {demoState.notes}
+            </p>
+          </div>
+        )}
 
         <div>
           <SectionHeader>memory CRUD</SectionHeader>

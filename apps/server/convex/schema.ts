@@ -162,6 +162,47 @@ export default defineSchema({
     message: v.string(),
     timestamp: v.number(),
   }),
+  inftTokens: defineTable({
+    tokenId: v.number(),
+    clanId: v.number(),
+    owner: v.string(),
+    dataHash: v.string(),
+    encryptedKeyHash: v.optional(v.string()),
+    metadataUri: v.optional(v.string()),
+    updatedAt: v.number(),
+    txHash: v.optional(v.string()),
+  }).index("by_tokenId", ["tokenId"]),
+  inftTransfers: defineTable({
+    tokenId: v.number(),
+    clanId: v.number(),
+    from: v.string(),
+    to: v.string(),
+    dataHash: v.string(),
+    encryptedKeyHash: v.string(),
+    txHash: v.string(),
+    transferredAt: v.number(),
+  })
+    .index("by_tokenId", ["tokenId"])
+    .index("by_clanId", ["clanId"]),
+  memoryEntries: defineTable({
+    clanId: v.number(),
+    key: v.string(),
+    value: v.string(),
+    dataHash: v.optional(v.string()),
+    source: v.union(v.literal("local"), v.literal("0g"), v.literal("demo")),
+    updatedAt: v.number(),
+    txHash: v.optional(v.string()),
+  })
+    .index("by_clan_key", ["clanId", "key"])
+    .index("by_clan", ["clanId"]),
+  bulletins: defineTable({
+    clanId: v.number(),
+    slot: v.number(),
+    body: v.string(),
+    updatedAt: v.number(),
+    dataHash: v.optional(v.string()),
+    txHash: v.optional(v.string()),
+  }).index("by_clan_slot", ["clanId", "slot"]),
   verifiedNullifiers: defineTable({
     nullifier: v.string(),
   }).index("by_nullifier", ["nullifier"]),

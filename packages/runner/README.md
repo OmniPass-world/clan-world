@@ -120,7 +120,8 @@ Required env vars:
 | Variable | Description |
 |---|---|
 | `OG_STORAGE_ENABLED` | Feature flag — set to any non-empty value to enable the 0G backend (real auth comes from `ELDER_MNEMONIC`) |
-| `OG_STREAM_ID` | KV stream ID scoped to this clan (UUID or hex address) |
+| `OG_STREAM_ID` | Optional shared KV stream ID override |
+| `OG_STREAM_ID_CLAN_<id>` | Optional per-clan KV stream ID override |
 | `EVM_RPC` | 0G EVM RPC endpoint (default: `https://evmrpc.0g.ai`) |
 | `INDEXER_RPC` | 0G Indexer RPC endpoint (default: `https://indexer-storage-turbo.0g.ai`) |
 | `FLOW_CONTRACT` | 0G Flow contract address |

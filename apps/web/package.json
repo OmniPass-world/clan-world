@@ -20,7 +20,8 @@
     "pixi-viewport": "^6.0.3",
     "pixi.js": "^8.18.1",
     "react": "18.3.1",
-    "react-dom": "18.3.1"
+    "react-dom": "18.3.1",
+    "viem": "^2.48.4"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
