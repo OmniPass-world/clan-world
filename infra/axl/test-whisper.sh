@@ -74,8 +74,9 @@ RECV_BODY=""
 FROM_PEER_ID=""
 
 for i in $(seq 1 6); do
-  # Capture headers + body
-  RECV_OUT=$(curl -sf -D /tmp/axl-recv-headers.txt "$AXL_2_URL/recv" 2>/dev/null || true)
+  # Capture headers + body; clear stale headers file first
+  rm -f /tmp/axl-recv-headers.txt
+  RECV_OUT=$(curl -sf --max-time 5 -D /tmp/axl-recv-headers.txt "$AXL_2_URL/recv" 2>/dev/null || true)
   RECV_STATUS_LINE=$(head -1 /tmp/axl-recv-headers.txt 2>/dev/null | tr -d '\r')
   RECV_HTTP=$(echo "$RECV_STATUS_LINE" | awk '{print $2}')
 

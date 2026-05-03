@@ -2,7 +2,8 @@
 # Build AXL node from source (https://github.com/gensyn-ai/axl)
 FROM golang:1.25-alpine AS builder
 RUN apk add --no-cache git
-RUN git clone https://github.com/gensyn-ai/axl /axl
+RUN git clone https://github.com/gensyn-ai/axl /axl && \
+    cd /axl && git checkout 9cba555ff0b8e14ebf1244ae02b274fbc4ec044e
 WORKDIR /axl
 RUN go build -o node ./cmd/node/
 

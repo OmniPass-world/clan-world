@@ -12,7 +12,7 @@ wait_for_node() {
   local url="$1" label="$2"
   echo "Waiting for $label at $url..."
   local i=0
-  while ! curl -sf "$url/topology" > /dev/null 2>&1; do
+  while ! curl -sf --max-time 5 "$url/topology" > /dev/null 2>&1; do
     i=$((i + 1))
     if [ $i -ge 30 ]; then
       echo "ERROR: $label did not become ready after 60s" >&2
@@ -27,8 +27,8 @@ wait_for_node "$AXL_1_URL" "axl-1"
 wait_for_node "$AXL_2_URL" "axl-2"
 
 echo "Fetching peer IDs from /topology..."
-CLAN1_PEER_ID=$(curl -sf "$AXL_1_URL/topology" | jq -r '.our_public_key')
-CLAN2_PEER_ID=$(curl -sf "$AXL_2_URL/topology" | jq -r '.our_public_key')
+CLAN1_PEER_ID=$(curl -sf --max-time 5 "$AXL_1_URL/topology" | jq -r '.our_public_key')
+CLAN2_PEER_ID=$(curl -sf --max-time 5 "$AXL_2_URL/topology" | jq -r '.our_public_key')
 
 if [ -z "$CLAN1_PEER_ID" ] || [ "$CLAN1_PEER_ID" = "null" ]; then
   echo "ERROR: could not read clan-1 peer ID from $AXL_1_URL/topology" >&2
