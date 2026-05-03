@@ -864,6 +864,15 @@ contract DiamondSkeletonTest is Test {
         IClanWorld(address(diamond)).finalizeSeason();
     }
 
+    function testDiamondFinalizeSeasonBeforeInitReverts() public {
+        FinalizeSeasonFacet finalizeSeasonFacet = new FinalizeSeasonFacet();
+
+        IDiamondCut(address(diamond)).diamondCut(_seasonCut(address(finalizeSeasonFacet)), address(0), "");
+
+        vm.expectRevert(bytes("ClanWorld: not initialized"));
+        IClanWorld(address(diamond)).finalizeSeason();
+    }
+
     function testDiamondSubmitWaitOrderMatchesCore() public {
         ClanWorld core = new ClanWorld();
         ClanLifecycleFacet lifecycleFacet = new ClanLifecycleFacet();

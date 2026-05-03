@@ -19,6 +19,7 @@ contract ClanWorldDiamondInit {
         s.world.nextHeartbeatAtTs = uint64(block.timestamp);
         s.world.seasonStartTick = 0;
         s.world.seasonEndTick = ClanWorldConstants.SEASON_DURATION_TICKS;
+        s.world.seasonFinalized = false;
         s.world.currentSeasonNumber = 1;
         s.world.nextHeartbeatAtTick = 1;
         s.treasury.treasuryOwner = msg.sender;

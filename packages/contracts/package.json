@@ -1,7 +1,7 @@
 {
   "name": "@clan-world/contracts",
   "private": true,
-  "version": "0.0.0",
+  "version": "2.0.2",
   "exports": {
     "./abi/IClanWorld.json": "./abi/IClanWorld.json",
     "./abi/IClanWorldLens.json": "./abi/IClanWorldLens.json"

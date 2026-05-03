@@ -12,6 +12,7 @@ contract FinalizeSeasonFacet is IClanWorldEvents {
     function finalizeSeason() external {
         LibStorage.AppStorage storage s = LibStorage.appStorage();
         LibStorage.enterNonReentrant(s);
+        require(s.initialized, "ClanWorld: not initialized");
         require(s.world.currentTick >= s.world.seasonEndTick, "ClanWorld: season not ended");
         require(!s.world.seasonFinalized, "ClanWorld: season finalized");
 

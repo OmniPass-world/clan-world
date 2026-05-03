@@ -1,7 +1,7 @@
 {
   "name": "@clan-world/agents",
   "private": true,
-  "version": "0.0.0",
+  "version": "2.0.2",
   "type": "module",
   "exports": {
     "./seams": "./src/seams/index.ts"

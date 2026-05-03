@@ -63,11 +63,21 @@ const REGIONS: RegionDef[] = [
 //   Ember Hand ↔ Brennan (aggressive defender)
 //   Dawn Watch ↔ Sora    (long-game monument-builder)
 //   Storm Riders ↔ Mira  (transactional trader)
+// Base sprite themes (one of 8 hand-painted clan keep sets shipped under /bases/):
+//   cobalt-keep      — blue/grey castle w/ banners (knight)
+//   bone-standard    — red barbarian camp w/ horns (warlord)
+//   gilded-hold      — gold merchant stronghold
+//   tide-wardens     — blue dock-on-water (fishers)
+//   pale-cathedral   — cream stone cathedral (religious order)
+//   amethyst-spire   — purple gothic w/ crystals (mystic)
+//   black-forge      — dark stone forge w/ orange flames (smith)
+//   verdant-grove    — green tree/treehouse castle (druid)
+// The 4 active clans are mapped to themes whose colour palette matches their sigil.
 const MOCK_CLANS: ClanDef[] = [
-  { id: 'clan-iron',  name: 'Iron Guard',   homeRegion: 'forest',     color: 0x4488cc, sigil: '/sigils/iron-guard-sigil.png',  portrait: '/portraits/aldric-portrait.png',  archetype: 'Cautious',   basePng: '/bases/iron-guard.png',   clansmanPng: '/clansmen/clan-iron.png'  },
-  { id: 'clan-ember', name: 'Ember Hand',   homeRegion: 'mountains',  color: 0xcc4422, sigil: '/sigils/ember-hand-sigil.png',  portrait: '/portraits/brennan-portrait.png', archetype: 'Aggressive', basePng: '/bases/ember-hand.png',   clansmanPng: '/clansmen/clan-ember.png' },
-  { id: 'clan-dawn',  name: 'Dawn Watch',   homeRegion: 'west-farms', color: 0xccaa22, sigil: '/sigils/dawn-watch-sigil.png',  portrait: '/portraits/sora-portrait.png',    archetype: 'Builder',    basePng: '/bases/dawn-watch.png',   clansmanPng: '/clansmen/clan-dawn.png'  },
-  { id: 'clan-storm', name: 'Storm Riders', homeRegion: 'east-farms', color: 0x44aacc, sigil: '/sigils/storm-riders-sigil.png', portrait: '/portraits/mira-portrait.png',   archetype: 'Trader',     basePng: '/bases/storm-riders.png', clansmanPng: '/clansmen/clan-storm.png' },
+  { id: 'clan-iron',  name: 'Iron Guard',   homeRegion: 'forest',     color: 0x4488cc, sigil: '/sigils/iron-guard-sigil.png',  portrait: '/portraits/aldric-portrait.png',  archetype: 'Cautious',   basePng: '/bases/cobalt-keep.png',   clansmanPng: '/clansmen/clan-iron.png'  },
+  { id: 'clan-ember', name: 'Ember Hand',   homeRegion: 'mountains',  color: 0xcc4422, sigil: '/sigils/ember-hand-sigil.png',  portrait: '/portraits/brennan-portrait.png', archetype: 'Aggressive', basePng: '/bases/bone-standard.png', clansmanPng: '/clansmen/clan-ember.png' },
+  { id: 'clan-dawn',  name: 'Dawn Watch',   homeRegion: 'west-farms', color: 0xccaa22, sigil: '/sigils/dawn-watch-sigil.png',  portrait: '/portraits/sora-portrait.png',    archetype: 'Builder',    basePng: '/bases/gilded-hold.png',   clansmanPng: '/clansmen/clan-dawn.png'  },
+  { id: 'clan-storm', name: 'Storm Riders', homeRegion: 'east-farms', color: 0x44aacc, sigil: '/sigils/storm-riders-sigil.png', portrait: '/portraits/mira-portrait.png',   archetype: 'Trader',     basePng: '/bases/tide-wardens.png',  clansmanPng: '/clansmen/clan-storm.png' },
 ];
 
 // Worker sprite textures, loaded once at init. Keyed by clan id.
@@ -1437,7 +1447,7 @@ export function WorldMap() {
         if (!base) return;
         const cx = projX(base.nx);
         const cy = projY(base.ny);
-        const baseSize = Math.max(96, 144 * cappedSizeScale);
+        const baseSize = Math.max(67, 101 * cappedSizeScale);
         // Hide everything visually
         gfx.clear();
         if (sprite) sprite.alpha = 0;
@@ -1454,7 +1464,7 @@ export function WorldMap() {
         const cx = projX(base.nx);
         const cy = projY(base.ny);
         // Base size: ~128px at 1x scale, scales with viewport (2x bump for phone readability)
-        const baseSize = Math.max(96, 144 * cappedSizeScale);
+        const baseSize = Math.max(67, 101 * cappedSizeScale);
         entry.baseY = cy + baseSize * 0.15;
         entry.phaseOffset = ((Math.round(cx) * 73) ^ (Math.round(entry.baseY) * 31)) % 4000;
         container.x = cx;
@@ -1483,7 +1493,7 @@ export function WorldMap() {
       drawn.levelBadges.forEach(({ bg, label, clan }) => {
         const base = regionMap.get(clan.homeRegion);
         if (!base) return;
-        const baseSize = Math.max(96, 144 * cappedSizeScale);
+        const baseSize = Math.max(67, 101 * cappedSizeScale);
         const lvl = levelByClan.get(clan.id) ?? 0;
         label.text = `Lv ${lvl}`;
         label.style.fontSize = Math.max(11, Math.round(13 * cappedSizeScale));
@@ -1667,7 +1677,7 @@ export function WorldMap() {
     if (!targetBase) return;
 
     const targetBaseNode = targetBase.container;
-    const baseSize = Math.max(96, 144 * layoutRef.current.scale);
+    const baseSize = Math.max(67, 101 * layoutRef.current.scale);
     const center = {
       x: targetBaseNode.x,
       y: targetBaseNode.y - baseSize * 0.55,
