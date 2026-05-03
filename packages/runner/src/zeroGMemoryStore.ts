@@ -249,6 +249,8 @@ export class ZeroGMemoryStore implements IElderMemoryStore {
     if (!tx?.txHash || !tx?.rootHash)
       throw new Error('[ZeroGMemoryStore] 0G write returned no txHash/rootHash');
 
+    console.log(`[ZeroGMemoryStore] save ok key=${key} txHash=${tx.txHash} rootHash=${tx.rootHash}`);
+
     // Update cache ONLY after successful write.
     this.#cache.set(key, value);
     // Persist to disk so recall() survives restart.
