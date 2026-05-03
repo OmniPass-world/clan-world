@@ -3,6 +3,13 @@ pragma solidity ^0.8.34;
 
 import {IAgentTransferVerifier} from "./Mock7857Verifier.sol";
 
+/// @notice Minimal ERC-721 receiver interface used by safeTransferFrom.
+interface IERC721Receiver {
+    function onERC721Received(address operator, address from, uint256 tokenId, bytes calldata data)
+        external
+        returns (bytes4);
+}
+
 /// @notice ERC-7857-style demo iNFT for ClanWorld Elders.
 /// @dev Token IDs intentionally match ClanWorld clan IDs for the hackathon demo.
 ///      Base ClanWorld ownership is not validated here.
@@ -39,7 +46,12 @@ contract ClanAgentNFT {
     event Approval(address indexed owner, address indexed approved, uint256 indexed tokenId);
     event ApprovalForAll(address indexed owner, address indexed operator, bool approved);
     event VerifierUpdated(address indexed verifier);
+    /// @notice Emitted on data replacement. `dataHash` covers the FULL item set;
+    ///         `uri` is `data[0].uri` by convention (the "primary" item, e.g. persona).
+    ///         Indexers needing per-item URIs should follow IntelligentDataItem events below.
     event IntelligentDataUpdated(uint256 indexed tokenId, bytes32 dataHash, string uri);
+    /// @notice One emit per data item, in order. Lets indexers reconstruct the full URI list.
+    event IntelligentDataItem(uint256 indexed tokenId, uint256 indexed slot, string label, bytes32 dataHash, string uri);
     event UsageAuthorized(uint256 indexed tokenId, address indexed user);
     event UsageRevoked(uint256 indexed tokenId, address indexed user);
     event AccessDelegated(uint256 indexed tokenId, address indexed delegate);
@@ -58,6 +70,7 @@ contract ClanAgentNFT {
     error InvalidAddress();
     error InvalidProof();
     error InvalidData();
+    error UnsafeRecipient();
 
     constructor(string memory name_, string memory symbol_, address verifier_) {
         if (verifier_ == address(0)) revert InvalidAddress();
@@ -162,6 +175,24 @@ contract ClanAgentNFT {
         _transfer(from, to, tokenId);
     }
 
+    function safeTransferFrom(address from, address to, uint256 tokenId) external {
+        safeTransferFrom(from, to, tokenId, "");
+    }
+
+    function safeTransferFrom(address from, address to, uint256 tokenId, bytes memory data) public {
+        transferFrom(from, to, tokenId);
+        _checkOnERC721Received(from, to, tokenId, data);
+    }
+
+    function _checkOnERC721Received(address from, address to, uint256 tokenId, bytes memory data) private {
+        if (to.code.length == 0) return; // EOA — no callback required.
+        try IERC721Receiver(to).onERC721Received(msg.sender, from, tokenId, data) returns (bytes4 retval) {
+            if (retval != IERC721Receiver.onERC721Received.selector) revert UnsafeRecipient();
+        } catch {
+            revert UnsafeRecipient();
+        }
+    }
+
     function iTransfer(address to, uint256 tokenId, IntelligentData[] calldata newData, TransferProof calldata transferProof)
         external
     {
@@ -171,6 +202,12 @@ contract ClanAgentNFT {
 
         address from = ownerOf(tokenId);
         bytes32 newHash = _hashData(newData);
+        // Optional caller-supplied integrity check: if non-zero, must match the locally
+        // computed hash. Prevents UI/contract drift where the operator thinks they're
+        // committing one payload and the contract stores another.
+        if (transferProof.newDataHash != bytes32(0) && transferProof.newDataHash != newHash) {
+            revert InvalidProof();
+        }
         if (
             !verifier.verifyTransfer(
                 tokenId,
@@ -218,6 +255,7 @@ contract ClanAgentNFT {
         for (uint256 i = 0; i < data.length; i++) {
             if (data[i].dataHash == bytes32(0)) revert InvalidData();
             _intelligentData[tokenId].push(data[i]);
+            emit IntelligentDataItem(tokenId, i, data[i].label, data[i].dataHash, data[i].uri);
         }
         bytes32 newHash = _hashData(data);
         currentDataHash[tokenId] = newHash;

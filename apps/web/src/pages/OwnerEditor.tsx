@@ -128,6 +128,13 @@ export function OwnerEditor() {
       persistDemoState(tokenOwner, intelligentData.map((entry) => ({ label: entry.label, dataHash: entry.dataHash, uri: entry.uri })));
       appendLog(`Loaded token ${tokenId}`);
     } catch (err) {
+      // Clear stale state on failure so the UI never shows last-token's owner/data
+      // mapped to a different tokenId. Demo: judges typing an unminted ID see
+      // demo-owner + canonical demo data, not stale stand-ins from a prior load.
+      const fallback = demoData(tokenId || 7n, notes);
+      setOwner('demo-owner');
+      setData(fallback);
+      persistDemoState('demo-owner', fallback);
       appendLog(`Load failed: ${(err as Error).message}`);
     } finally {
       setBusy(false);
@@ -144,9 +151,10 @@ export function OwnerEditor() {
 
   const updateMetadata = useCallback(async () => {
     const nextData = demoData(tokenId, notes);
-    setData(nextData);
-    persistDemoState(owner, nextData);
     if (!OG_INFT_ADDRESS) {
+      // Pure demo mode — no chain, persist locally so the cockpit reflects.
+      setData(nextData);
+      persistDemoState(owner, nextData);
       appendLog(`Prepared metadata hash ${hashIntelligentData(nextData).slice(0, 12)}...`);
       return;
     }
@@ -161,13 +169,16 @@ export function OwnerEditor() {
         args: [tokenId, nextData, proofHex(`metadata:${tokenId}:${notes}`)],
       });
       appendLog(`Metadata tx ${tx}`);
+      // Only update local state AFTER the chain confirms via re-fetch. Otherwise
+      // a rejected wallet prompt or reverted tx would leave the cockpit showing
+      // post-update state with no on-chain change. Demo must not lie.
       await loadToken();
     } catch (err) {
       appendLog(`Metadata failed: ${(err as Error).message}`);
     } finally {
       setBusy(false);
     }
-  }, [loadToken, notes, tokenId, walletClient]);
+  }, [loadToken, notes, owner, tokenId, walletClient]);
 
   const transferToken = useCallback(async () => {
     if (!/^0x[0-9a-fA-F]{40}$/.test(newOwner)) {

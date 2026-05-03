@@ -1,6 +1,23 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
+/**
+ * Mirror mutations require INDEXER_SECRET to match the Convex env var of the
+ * same name — set this on the Convex dashboard. Indexers/scripts pass it in
+ * the `secret` arg. If INDEXER_SECRET is unset on the deployment, mutations
+ * reject all writes (fail-closed). Demo Convex dashboards must set this before
+ * the indexer ships.
+ */
+function requireIndexerSecret(supplied: string): void {
+  const expected = process.env.INDEXER_SECRET;
+  if (!expected) {
+    throw new Error("INDEXER_SECRET is not configured on this Convex deployment");
+  }
+  if (supplied !== expected) {
+    throw new Error("invalid indexer secret");
+  }
+}
+
 export const getInftDemoState = query({
   args: { clanId: v.number() },
   handler: async (ctx, { clanId }) => {
@@ -31,6 +48,7 @@ export const getInftDemoState = query({
 
 export const mirrorToken = mutation({
   args: {
+    secret: v.string(),
     tokenId: v.number(),
     clanId: v.number(),
     owner: v.string(),
@@ -40,21 +58,24 @@ export const mirrorToken = mutation({
     txHash: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    requireIndexerSecret(args.secret);
+    const { secret: _omit, ...row } = args;
     const existing = await ctx.db
       .query("inftTokens")
-      .withIndex("by_tokenId", (q) => q.eq("tokenId", args.tokenId))
+      .withIndex("by_tokenId", (q) => q.eq("tokenId", row.tokenId))
       .first();
-    const row = { ...args, updatedAt: Date.now() };
+    const stamped = { ...row, updatedAt: Date.now() };
     if (existing) {
-      await ctx.db.patch(existing._id, row);
+      await ctx.db.patch(existing._id, stamped);
       return existing._id;
     }
-    return await ctx.db.insert("inftTokens", row);
+    return await ctx.db.insert("inftTokens", stamped);
   },
 });
 
 export const mirrorTransfer = mutation({
   args: {
+    secret: v.string(),
     tokenId: v.number(),
     clanId: v.number(),
     from: v.string(),
@@ -64,8 +85,10 @@ export const mirrorTransfer = mutation({
     txHash: v.string(),
   },
   handler: async (ctx, args) => {
+    requireIndexerSecret(args.secret);
+    const { secret: _omit, ...row } = args;
     return await ctx.db.insert("inftTransfers", {
-      ...args,
+      ...row,
       transferredAt: Date.now(),
     });
   },
@@ -73,6 +96,7 @@ export const mirrorTransfer = mutation({
 
 export const mirrorMemoryEntry = mutation({
   args: {
+    secret: v.string(),
     clanId: v.number(),
     key: v.string(),
     value: v.string(),
@@ -81,21 +105,24 @@ export const mirrorMemoryEntry = mutation({
     txHash: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    requireIndexerSecret(args.secret);
+    const { secret: _omit, ...row } = args;
     const existing = await ctx.db
       .query("memoryEntries")
-      .withIndex("by_clan_key", (q) => q.eq("clanId", args.clanId).eq("key", args.key))
+      .withIndex("by_clan_key", (q) => q.eq("clanId", row.clanId).eq("key", row.key))
       .first();
-    const row = { ...args, updatedAt: Date.now() };
+    const stamped = { ...row, updatedAt: Date.now() };
     if (existing) {
-      await ctx.db.patch(existing._id, row);
+      await ctx.db.patch(existing._id, stamped);
       return existing._id;
     }
-    return await ctx.db.insert("memoryEntries", row);
+    return await ctx.db.insert("memoryEntries", stamped);
   },
 });
 
 export const mirrorBulletin = mutation({
   args: {
+    secret: v.string(),
     clanId: v.number(),
     slot: v.number(),
     body: v.string(),
@@ -103,15 +130,17 @@ export const mirrorBulletin = mutation({
     txHash: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    requireIndexerSecret(args.secret);
+    const { secret: _omit, ...row } = args;
     const existing = await ctx.db
       .query("bulletins")
-      .withIndex("by_clan_slot", (q) => q.eq("clanId", args.clanId).eq("slot", args.slot))
+      .withIndex("by_clan_slot", (q) => q.eq("clanId", row.clanId).eq("slot", row.slot))
       .first();
-    const row = { ...args, updatedAt: Date.now() };
+    const stamped = { ...row, updatedAt: Date.now() };
     if (existing) {
-      await ctx.db.patch(existing._id, row);
+      await ctx.db.patch(existing._id, stamped);
       return existing._id;
     }
-    return await ctx.db.insert("bulletins", row);
+    return await ctx.db.insert("bulletins", stamped);
   },
 });
