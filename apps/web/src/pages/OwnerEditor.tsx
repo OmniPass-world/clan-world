@@ -168,10 +168,12 @@ export function OwnerEditor() {
         functionName: 'updateMetadata',
         args: [tokenId, nextData, proofHex(`metadata:${tokenId}:${notes}`)],
       });
-      appendLog(`Metadata tx ${tx}`);
-      // Only update local state AFTER the chain confirms via re-fetch. Otherwise
-      // a rejected wallet prompt or reverted tx would leave the cockpit showing
-      // post-update state with no on-chain change. Demo must not lie.
+      appendLog(`Metadata tx ${tx} — waiting for confirmation...`);
+      // writeContract returns on tx submission, NOT mining. Wait for receipt
+      // so loadToken() reads post-update chain state (otherwise re-read is
+      // stale and the cockpit looks like Update Metadata did nothing).
+      await publicClient.waitForTransactionReceipt({ hash: tx });
+      appendLog(`Metadata confirmed`);
       await loadToken();
     } catch (err) {
       appendLog(`Metadata failed: ${(err as Error).message}`);
@@ -213,7 +215,10 @@ export function OwnerEditor() {
           },
         ],
       });
-      appendLog(`Transfer tx ${tx}`);
+      appendLog(`Transfer tx ${tx} — waiting for confirmation...`);
+      // Same as updateMetadata: writeContract returns pre-mining; wait for receipt.
+      await publicClient.waitForTransactionReceipt({ hash: tx });
+      appendLog(`Transfer confirmed`);
       await loadToken();
     } catch (err) {
       appendLog(`Transfer failed: ${(err as Error).message}`);
