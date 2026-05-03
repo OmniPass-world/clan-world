@@ -1,0 +1,48 @@
+# Gensyn AXL sidecar — two nodes for local elder-to-elder smoke testing.
+# axl-1 serves clan-1; axl-2 serves clan-2.
+# Both nodes peer with each other over the compose network (port 9001 TLS).
+# HTTP API is exposed on the host: axl-1 → 9002, axl-2 → 9003.
+services:
+  axl-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "9002:9002"
+    environment:
+      - AXL_PEER_ADDR=axl-2:9001
+    volumes:
+      - axl-1-keystore:/keystore
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9002/topology"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - axl-net
+
+  axl-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "9003:9002"
+    environment:
+      - AXL_PEER_ADDR=axl-1:9001
+    volumes:
+      - axl-2-keystore:/keystore
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9002/topology"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - axl-net
+
+networks:
+  axl-net:
+    driver: bridge
+
+volumes:
+  axl-1-keystore:
+  axl-2-keystore:
