@@ -1447,7 +1447,7 @@ export function WorldMap() {
         if (!base) return;
         const cx = projX(base.nx);
         const cy = projY(base.ny);
-        const baseSize = Math.max(96, 144 * cappedSizeScale);
+        const baseSize = Math.max(67, 101 * cappedSizeScale);
         // Hide everything visually
         gfx.clear();
         if (sprite) sprite.alpha = 0;
@@ -1464,7 +1464,7 @@ export function WorldMap() {
         const cx = projX(base.nx);
         const cy = projY(base.ny);
         // Base size: ~128px at 1x scale, scales with viewport (2x bump for phone readability)
-        const baseSize = Math.max(96, 144 * cappedSizeScale);
+        const baseSize = Math.max(67, 101 * cappedSizeScale);
         entry.baseY = cy + baseSize * 0.15;
         entry.phaseOffset = ((Math.round(cx) * 73) ^ (Math.round(entry.baseY) * 31)) % 4000;
         container.x = cx;
@@ -1493,7 +1493,7 @@ export function WorldMap() {
       drawn.levelBadges.forEach(({ bg, label, clan }) => {
         const base = regionMap.get(clan.homeRegion);
         if (!base) return;
-        const baseSize = Math.max(96, 144 * cappedSizeScale);
+        const baseSize = Math.max(67, 101 * cappedSizeScale);
         const lvl = levelByClan.get(clan.id) ?? 0;
         label.text = `Lv ${lvl}`;
         label.style.fontSize = Math.max(11, Math.round(13 * cappedSizeScale));
@@ -1677,7 +1677,7 @@ export function WorldMap() {
     if (!targetBase) return;
 
     const targetBaseNode = targetBase.container;
-    const baseSize = Math.max(96, 144 * layoutRef.current.scale);
+    const baseSize = Math.max(67, 101 * layoutRef.current.scale);
     const center = {
       x: targetBaseNode.x,
       y: targetBaseNode.y - baseSize * 0.55,
