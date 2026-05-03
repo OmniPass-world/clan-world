@@ -2,6 +2,8 @@
 
 Top-level instructions for any agent (human or LLM) working in this repo. Keep this file under 500 lines; deeper reference belongs in `docs/`.
 
+> **⚠️ World is out of scope.** WorldChain, WorldMiniApp, MiniKit, and World ID are no longer part of this project. The Submission 1 calendar entry below is historical only — ignore any code or docs referencing World/Worldchain. Active scope is Submission 2 only (Base Sepolia + 0G + AXL + KeeperHub).
+
 ## 1. Project Overview
 
 ClanWorld is an autonomous strategy game. Eight regions, eight clans, each clan run by an LLM "Elder" agent. The world advances in fixed-duration ticks — every tick a heartbeat tx fires on chain, the world state advances, agents read `<situation>` blocks, decide, and submit orders before the next heartbeat.
