@@ -70,7 +70,7 @@ function makeFactory(store: BatcherStore, fail?: Error): BatcherFactory {
   return async () => makeMockBatcher(store, fail);
 }
 
-// Valid 12-word mnemonic for tests requiring OG_STORAGE_API_KEY.
+// Valid 12-word mnemonic for tests requiring OG_STORAGE_ENABLED.
 const VALID_MNEMONIC = 'one two three four five six seven eight nine ten eleven twelve';
 
 // ---------------------------------------------------------------------------
@@ -116,11 +116,11 @@ describe('FileMemoryStore', () => {
 });
 
 // ---------------------------------------------------------------------------
-// createMemoryStore — fallback when OG_STORAGE_API_KEY is not set
+// createMemoryStore — fallback when OG_STORAGE_ENABLED is not set
 // ---------------------------------------------------------------------------
 
-describe('createMemoryStore — fallback path (no API key)', () => {
-  it('returns a FileMemoryStore when OG_STORAGE_API_KEY is absent', async () => {
+describe('createMemoryStore — fallback path (flag unset)', () => {
+  it('returns a FileMemoryStore when OG_STORAGE_ENABLED is absent', async () => {
     const sd = stateDir();
     const store = await createMemoryStore({ env: { ELDER_INDEX: '2' }, elderIndex: 2, stateDir: sd });
     expect(store).toBeInstanceOf(FileMemoryStore);
@@ -265,7 +265,7 @@ describe('ZeroGMemoryStore — mocked batcher', () => {
     const store2 = new ZeroGMemoryStore(STREAM_ID, makeFactory(remoteStore), {}, cp2);
     // Construction re-uses initialCache param — test via createMemoryStore path:
     const store3 = await createMemoryStore({
-      env: { OG_STORAGE_API_KEY: 'set', ELDER_INDEX: '1', ELDER_MNEMONIC: VALID_MNEMONIC },
+      env: { OG_STORAGE_ENABLED: 'set', ELDER_INDEX: '1', ELDER_MNEMONIC: VALID_MNEMONIC },
       elderIndex: 1,
       stateDir: sd2,
       batcherFactory: makeFactory(remoteStore),
@@ -331,7 +331,7 @@ describe('createMemoryStore — startup error handling', () => {
 
     await expect(
       createMemoryStore({
-        env: { OG_STORAGE_API_KEY: 'set', ELDER_INDEX: '1', ELDER_MNEMONIC: VALID_MNEMONIC },
+        env: { OG_STORAGE_ENABLED: 'set', ELDER_INDEX: '1', ELDER_MNEMONIC: VALID_MNEMONIC },
         elderIndex: 1,
         stateDir: sd,
         batcherFactory: async () => makeMockBatcher(new Map()),
@@ -339,10 +339,10 @@ describe('createMemoryStore — startup error handling', () => {
     ).rejects.toThrow('failed to parse disk cache');
   });
 
-  it('returns ZeroGMemoryStore when OG_STORAGE_API_KEY is set', async () => {
+  it('returns ZeroGMemoryStore when OG_STORAGE_ENABLED is set', async () => {
     const sd = stateDir();
     const store = await createMemoryStore({
-      env: { OG_STORAGE_API_KEY: 'test-key', ELDER_INDEX: '1', ELDER_MNEMONIC: VALID_MNEMONIC },
+      env: { OG_STORAGE_ENABLED: 'test-key', ELDER_INDEX: '1', ELDER_MNEMONIC: VALID_MNEMONIC },
       elderIndex: 1,
       stateDir: sd,
       batcherFactory: makeFactory(new Map()),
@@ -350,19 +350,19 @@ describe('createMemoryStore — startup error handling', () => {
     expect(store).toBeInstanceOf(ZeroGMemoryStore);
   });
 
-  it('falls back to FileMemoryStore when OG_STORAGE_API_KEY is absent', async () => {
+  it('falls back to FileMemoryStore when OG_STORAGE_ENABLED is absent', async () => {
     const sd = stateDir();
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const store = await createMemoryStore({ env: {}, elderIndex: 1, stateDir: sd });
     expect(store).toBeInstanceOf(FileMemoryStore);
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('OG_STORAGE_API_KEY not set'));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('OG_STORAGE_ENABLED not set'));
   });
 
   it('OG_STREAM_ID defaults to ethers.id("clanworld-elder-memory") when unset', async () => {
     const sd = stateDir();
     // Just verifying no error thrown and ZeroGMemoryStore returned.
     const store = await createMemoryStore({
-      env: { OG_STORAGE_API_KEY: 'set', ELDER_INDEX: '1', ELDER_MNEMONIC: VALID_MNEMONIC },
+      env: { OG_STORAGE_ENABLED: 'set', ELDER_INDEX: '1', ELDER_MNEMONIC: VALID_MNEMONIC },
       elderIndex: 1,
       stateDir: sd,
       batcherFactory: makeFactory(new Map()),
@@ -380,7 +380,7 @@ describe('createMemoryStore — 0G path full contract', () => {
     const sd = stateDir();
     const backend = new Map<string, string>();
     const store = await createMemoryStore({
-      env: { OG_STORAGE_API_KEY: 'test-key', OG_STREAM_ID: 'stream-abc', ELDER_INDEX: '1', ELDER_MNEMONIC: VALID_MNEMONIC },
+      env: { OG_STORAGE_ENABLED: 'test-key', OG_STREAM_ID: 'stream-abc', ELDER_INDEX: '1', ELDER_MNEMONIC: VALID_MNEMONIC },
       elderIndex: 1,
       stateDir: sd,
       batcherFactory: makeFactory(backend),
@@ -421,7 +421,7 @@ describe('HIGH 1 — elderIndex key passes through to wallet path', () => {
     const sd = stateDir();
     const backend = new Map<string, string>();
     const store = await createMemoryStore({
-      env: { OG_STORAGE_API_KEY: 'set', ELDER_INDEX: '2', ELDER_MNEMONIC: VALID_MNEMONIC },
+      env: { OG_STORAGE_ENABLED: 'set', ELDER_INDEX: '2', ELDER_MNEMONIC: VALID_MNEMONIC },
       elderIndex: 2,
       stateDir: sd,
       batcherFactory: makeFactory(backend),
@@ -500,12 +500,12 @@ describe('MED 3 — fail-fast validation at createMemoryStore() time', () => {
     expect((err as ZeroGValidationError).code).toBe('ELDER_INDEX');
   });
 
-  it('mnemonic with 11 words throws (0G mode only — OG_STORAGE_API_KEY set)', async () => {
-    // Validation only runs when OG_STORAGE_API_KEY is present — local mode ignores mnemonic.
+  it('mnemonic with 11 words throws (0G mode only — OG_STORAGE_ENABLED set)', async () => {
+    // Validation only runs when OG_STORAGE_ENABLED is present — local mode ignores mnemonic.
     const badMnemonic = 'one two three four five six seven eight nine ten eleven';
     await expect(
       createMemoryStore({
-        env: { ELDER_INDEX: '1', ELDER_MNEMONIC: badMnemonic, OG_STORAGE_API_KEY: 'test-key' },
+        env: { ELDER_INDEX: '1', ELDER_MNEMONIC: badMnemonic, OG_STORAGE_ENABLED: 'test-key' },
         elderIndex: 1,
         stateDir: stateDir(),
       }),
@@ -515,7 +515,7 @@ describe('MED 3 — fail-fast validation at createMemoryStore() time', () => {
   it('mnemonic with 12 words is accepted (no throw)', async () => {
     const mnemonic12 = 'one two three four five six seven eight nine ten eleven twelve';
     const sd = stateDir();
-    // No OG_STORAGE_API_KEY → falls back to FileMemoryStore; just check no validation throw.
+    // No OG_STORAGE_ENABLED → falls back to FileMemoryStore; just check no validation throw.
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const store = await createMemoryStore({
       env: { ELDER_INDEX: '1', ELDER_MNEMONIC: mnemonic12 },
@@ -571,15 +571,15 @@ describe('MED 4 — exec() returning [null, null] throws', () => {
 });
 
 // ---------------------------------------------------------------------------
-// MED 5 — ELDER_MNEMONIC required at createMemoryStore() when API key set
+// MED 5 — ELDER_MNEMONIC required at createMemoryStore() when 0G flag set
 // ---------------------------------------------------------------------------
 
 describe('MED 5 — ELDER_MNEMONIC required at createMemoryStore() time', () => {
   it('MED 5 — missing ELDER_MNEMONIC throws ZeroGValidationError at createMemoryStore() (not at save())', async () => {
     const sd = stateDir();
-    // OG_STORAGE_API_KEY is set but ELDER_MNEMONIC is absent.
+    // OG_STORAGE_ENABLED is set but ELDER_MNEMONIC is absent.
     const err = await createMemoryStore({
-      env: { OG_STORAGE_API_KEY: 'set', ELDER_INDEX: '1' },
+      env: { OG_STORAGE_ENABLED: 'set', ELDER_INDEX: '1' },
       elderIndex: 1,
       stateDir: sd,
       batcherFactory: makeFactory(new Map()),
@@ -592,7 +592,7 @@ describe('MED 5 — ELDER_MNEMONIC required at createMemoryStore() time', () => 
   it('MED 5 — empty ELDER_MNEMONIC throws ZeroGValidationError', async () => {
     const sd = stateDir();
     const err = await createMemoryStore({
-      env: { OG_STORAGE_API_KEY: 'set', ELDER_INDEX: '1', ELDER_MNEMONIC: '   ' },
+      env: { OG_STORAGE_ENABLED: 'set', ELDER_INDEX: '1', ELDER_MNEMONIC: '   ' },
       elderIndex: 1,
       stateDir: sd,
     }).catch(e => e as unknown);
@@ -604,7 +604,7 @@ describe('MED 5 — ELDER_MNEMONIC required at createMemoryStore() time', () => 
     const sd = stateDir();
     const badMnemonic = 'one two three four five six seven eight nine ten eleven';
     const err = await createMemoryStore({
-      env: { OG_STORAGE_API_KEY: 'set', ELDER_INDEX: '1', ELDER_MNEMONIC: badMnemonic },
+      env: { OG_STORAGE_ENABLED: 'set', ELDER_INDEX: '1', ELDER_MNEMONIC: badMnemonic },
       elderIndex: 1,
       stateDir: sd,
     }).catch(e => e as unknown);
@@ -773,7 +773,7 @@ describe('r6 HIGH — buildRealBatcherFactory uses opts.elderIndex, not process.
     // process.env.ELDER_INDEX is NOT set; opts.elderIndex=2 is the only source.
     const store = await createMemoryStore({
       env: {
-        OG_STORAGE_API_KEY: 'key',
+        OG_STORAGE_ENABLED: 'key',
         OG_STREAM_ID: 'stream-id',
         ELDER_MNEMONIC: 'one two three four five six seven eight nine ten eleven twelve',
         // No ELDER_INDEX in env — opts.elderIndex must be the sole source.
@@ -816,10 +816,10 @@ describe('r6 MED — main.ts parseInt removed: raw "1.5" string must throw', () 
 });
 
 describe('r6 MED — local-mode: no ELDER_MNEMONIC → createMemoryStore succeeds (FileMemoryStore)', () => {
-  it('OG_STORAGE_API_KEY unset + no ELDER_MNEMONIC → returns FileMemoryStore (no throw)', async () => {
+  it('OG_STORAGE_ENABLED unset + no ELDER_MNEMONIC → returns FileMemoryStore (no throw)', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const store = await createMemoryStore({
-      env: { ELDER_INDEX: '1' }, // no OG_STORAGE_API_KEY, no ELDER_MNEMONIC
+      env: { ELDER_INDEX: '1' }, // no OG_STORAGE_ENABLED, no ELDER_MNEMONIC
       elderIndex: 1,
       stateDir: stateDir(),
     });

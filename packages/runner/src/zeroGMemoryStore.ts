@@ -282,7 +282,7 @@ export interface ZeroGMemoryStoreOptions {
 /**
  * Create a memory store.
  *
- * - If OG_STORAGE_API_KEY is set → ZeroGMemoryStore backed by 0G mainnet.
+ * - If OG_STORAGE_ENABLED is set → ZeroGMemoryStore backed by 0G mainnet.
  * - Otherwise → FileMemoryStore (local JSON fallback).
  *
  * 0G path reads startup cache from disk (same JSON file as FileMemoryStore)
@@ -315,14 +315,14 @@ export async function createMemoryStore(
     }
   }
 
-  const apiKey = env['OG_STORAGE_API_KEY'];
+  const enabled = env['OG_STORAGE_ENABLED'];
 
-  // ELDER_MNEMONIC validation gated on OG_STORAGE_API_KEY — local/file mode skips entirely.
-  if (apiKey) {
+  // ELDER_MNEMONIC validation gated on OG_STORAGE_ENABLED — local/file mode skips entirely.
+  if (enabled) {
     const mnemonic = env['ELDER_MNEMONIC'] ?? '';
     if (!mnemonic.trim()) {
       throw new ZeroGValidationError(
-        'ELDER_MNEMONIC is required when OG_STORAGE_API_KEY is set',
+        'ELDER_MNEMONIC is required when OG_STORAGE_ENABLED is set',
         'ELDER_MNEMONIC',
       );
     }
@@ -335,9 +335,9 @@ export async function createMemoryStore(
     }
   }
 
-  if (!apiKey) {
+  if (!enabled) {
     console.warn(
-      '[ZeroGMemoryStore] OG_STORAGE_API_KEY not set — falling back to local JSON file store.',
+      '[ZeroGMemoryStore] OG_STORAGE_ENABLED not set — falling back to local JSON file store.',
     );
     const n = opts.elderIndex ?? parseInt(env['ELDER_INDEX'] ?? '1', 10);
     return new FileMemoryStore(n, opts.stateDir ?? defaultStateDir());

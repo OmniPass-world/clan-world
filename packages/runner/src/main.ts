@@ -78,7 +78,7 @@ async function main(): Promise<void> {
   console.log(`[runner] starting ClanWorld runner daemon at ${new Date().toISOString()}`);
 
   const config = loadConfig();
-  const memoryBackend = process.env['OG_STORAGE_API_KEY'] ? '0G-KV' : 'local-file';
+  const memoryBackend = process.env['OG_STORAGE_ENABLED'] ? '0G-KV' : 'local-file';
   const peerBackend =
     process.env['AXL_API_KEY'] && process.env['AXL_NETWORK_ID'] ? 'axl' : 'file';
   console.log('[runner] config:', {
@@ -98,7 +98,7 @@ async function main(): Promise<void> {
   const perElder = {} as Record<ElderId, PerElderDeps>;
   for (const elder of ELDER_IDS) {
     const clanId = config.elderToClanId[elder];
-    // Memory adapter selection: ZeroGMemoryStore if OG_STORAGE_API_KEY is set,
+    // Memory adapter selection: ZeroGMemoryStore if OG_STORAGE_ENABLED is set,
     // FileMemoryStore otherwise. Pass elderIndex explicitly so we don't depend
     // on ELDER_INDEX env (the runner serves all 4 Elders, not just one).
     const memory = await createMemoryStore({ elderIndex: elder, stateDir: config.stateDir });

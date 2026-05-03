@@ -181,3 +181,4 @@ docs/planning/V1/
 .git-local/
 .git.worktree-link
 .claude/.active-chat
+.claude/worktrees/

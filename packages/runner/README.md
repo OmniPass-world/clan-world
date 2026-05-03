@@ -103,7 +103,7 @@ The runner uses `IElderMemoryStore` for durable Elder memory across `/clear` con
 
 ### Local file (default)
 
-When `OG_STORAGE_API_KEY` is **not** set the runner uses `FileMemoryStore` — a local JSON file at:
+When `OG_STORAGE_ENABLED` is **not** set the runner uses `FileMemoryStore` — a local JSON file at:
 
 ```
 ~/.world/clanworld-runner/state/elder-{N}-memory.json
@@ -113,13 +113,13 @@ No extra config required.
 
 ### 0G iNFT storage (Phase 7)
 
-When `OG_STORAGE_API_KEY` is set the runner uses `ZeroGMemoryStore`, backed by the [0G KV network](https://docs.0g.ai).
+When `OG_STORAGE_ENABLED` is set the runner uses `ZeroGMemoryStore`, backed by the [0G KV network](https://docs.0g.ai).
 
 Required env vars:
 
 | Variable | Description |
 |---|---|
-| `OG_STORAGE_API_KEY` | 0G API key — enables 0G backend |
+| `OG_STORAGE_ENABLED` | Feature flag — set to any non-empty value to enable the 0G backend (real auth comes from `ELDER_MNEMONIC`) |
 | `OG_STREAM_ID` | KV stream ID scoped to this clan (UUID or hex address) |
 | `EVM_RPC` | 0G EVM RPC endpoint (default: `https://evmrpc.0g.ai`) |
 | `INDEXER_RPC` | 0G Indexer RPC endpoint (default: `https://indexer-storage-turbo.0g.ai`) |
@@ -177,7 +177,7 @@ without throwing. Existing file-based flows are unaffected.
 pnpm test
 ```
 
-Tests cover both fallback (file-based) and mocked-adapter paths. No AXL node, 0G API key, or live credentials are required to run the test suite.
+Tests cover both fallback (file-based) and mocked-adapter paths. No AXL node, 0G credentials, or live mnemonic are required to run the test suite.
 
 ## Known TODOs
 
